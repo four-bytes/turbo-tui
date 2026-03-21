@@ -66,8 +66,8 @@ pub fn message_box(bounds: Rect, title: &str, message: &str) -> Dialog {
     // Add message text (centered, row 2 of interior)
     let interior = dialog.interior_rect();
     let text_bounds = Rect::new(
-        interior.x,
-        interior.y + 1, // Row 2 (row 1 is border, row 0 would be first interior row)
+        0,
+        1, // Row 2 (row 1 is border, row 0 would be first interior row)
         interior.width,
         1,
     );
@@ -75,8 +75,8 @@ pub fn message_box(bounds: Rect, title: &str, message: &str) -> Dialog {
 
     // Add OK button at bottom center
     let button_width = 10u16;
-    let button_x = interior.x + interior.width.saturating_sub(button_width) / 2;
-    let button_y = interior.y + interior.height.saturating_sub(2);
+    let button_x = interior.width.saturating_sub(button_width) / 2;
+    let button_y = interior.height.saturating_sub(2);
     let button_bounds = Rect::new(button_x, button_y, button_width, 1);
     dialog.add(Box::new(Button::new(button_bounds, "OK", CM_OK, true)));
 
@@ -110,15 +110,15 @@ pub fn confirm_box(bounds: Rect, title: &str, message: &str) -> Dialog {
 
     // Add message text
     let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(interior.x, interior.y + 1, interior.width, 1);
+    let text_bounds = Rect::new(0, 1, interior.width, 1);
     dialog.add(Box::new(StaticText::centered(text_bounds, message)));
 
     // Add Yes/No buttons side by side at bottom
     let button_width = 10u16;
     let spacing = 2u16;
     let total_button_width = button_width * 2 + spacing;
-    let start_x = interior.x + interior.width.saturating_sub(total_button_width) / 2;
-    let button_y = interior.y + interior.height.saturating_sub(2);
+    let start_x = interior.width.saturating_sub(total_button_width) / 2;
+    let button_y = interior.height.saturating_sub(2);
 
     // Yes button (default)
     let yes_bounds = Rect::new(start_x, button_y, button_width, 1);
@@ -158,15 +158,15 @@ pub fn confirm_cancel_box(bounds: Rect, title: &str, message: &str) -> Dialog {
 
     // Add message text
     let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(interior.x, interior.y + 1, interior.width, 1);
+    let text_bounds = Rect::new(0, 1, interior.width, 1);
     dialog.add(Box::new(StaticText::centered(text_bounds, message)));
 
     // Add Yes/No/Cancel buttons at bottom
     let button_width = 10u16;
     let spacing = 2u16;
     let total_button_width = button_width * 3 + spacing * 2;
-    let start_x = interior.x + interior.width.saturating_sub(total_button_width) / 2;
-    let button_y = interior.y + interior.height.saturating_sub(2);
+    let start_x = interior.width.saturating_sub(total_button_width) / 2;
+    let button_y = interior.height.saturating_sub(2);
 
     // Yes button (default)
     let yes_bounds = Rect::new(start_x, button_y, button_width, 1);
@@ -218,13 +218,13 @@ pub fn error_box(bounds: Rect, message: &str) -> Dialog {
 
     // Add error message
     let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(interior.x, interior.y + 1, interior.width, 1);
+    let text_bounds = Rect::new(0, 1, interior.width, 1);
     dialog.add(Box::new(StaticText::centered(text_bounds, message)));
 
     // Add OK button at bottom center
     let button_width = 10u16;
-    let button_x = interior.x + interior.width.saturating_sub(button_width) / 2;
-    let button_y = interior.y + interior.height.saturating_sub(2);
+    let button_x = interior.width.saturating_sub(button_width) / 2;
+    let button_y = interior.height.saturating_sub(2);
     let button_bounds = Rect::new(button_x, button_y, button_width, 1);
     dialog.add(Box::new(Button::new(button_bounds, "OK", CM_OK, true)));
 

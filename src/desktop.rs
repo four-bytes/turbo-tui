@@ -78,7 +78,13 @@ impl Desktop {
     ///
     /// Returns `true` if a window was removed.
     pub fn close_window(&mut self, id: ViewId) -> bool {
-        self.group.remove_by_id(id).is_some()
+        let removed = self.group.remove_by_id(id).is_some();
+        if removed && self.group.child_count() > 0 {
+            // Focus the new front-most window (last in Z-order)
+            let last_idx = self.group.child_count() - 1;
+            self.group.set_focus_to(last_idx);
+        }
+        removed
     }
 
     /// Bring a window to front and set it as active.
@@ -237,7 +243,7 @@ impl View for Desktop {
             return;
         }
 
-        // Special: click on a non-front window → bring to front first
+        // Special: click on a window → bring to front if needed, always set focus
         if let EventKind::Mouse(mouse) = &event.kind {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if let Some(hit_idx) = self.group.child_at_point(mouse.column, mouse.row) {
@@ -245,12 +251,10 @@ impl View for Desktop {
                     if hit_idx != last_idx {
                         // Bring clicked window to front
                         self.group.bring_to_front(hit_idx);
-                        // After bring_to_front, the window is at the last index
-                        let new_last_idx = self.group.child_count().saturating_sub(1);
-                        self.group.set_focus_to(new_last_idx);
-                        // Continue to let the window handle the click
-                        // (don't clear the event)
                     }
+                    // ALWAYS set focus to the front-most window after click
+                    let new_last_idx = self.group.child_count().saturating_sub(1);
+                    self.group.set_focus_to(new_last_idx);
                 }
             }
         }

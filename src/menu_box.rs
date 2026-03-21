@@ -181,30 +181,60 @@ impl View for MenuBox {
         self.base.set_bounds(bounds);
     }
 
+    #[allow(clippy::similar_names)]
     fn draw(&self, buf: &mut Buffer, area: Rect) {
         if area.width < 4 || area.height < 3 {
             return;
         }
 
-        let (box_style, border_style, selected_style, disabled_style, sep_style, hotkey_style, hotkey_selected_style) =
-            theme::with_current(|t| {
-                (
-                    t.menu_box_normal,
-                    t.menu_box_normal,
-                    t.menu_box_selected,
-                    t.menu_box_disabled,
-                    t.menu_box_separator,
-                    t.menu_box_hotkey,
-                    t.menu_box_hotkey_selected,
-                )
-            });
+        let (
+            box_style,
+            border_style,
+            selected_style,
+            disabled_style,
+            sep_style,
+            hotkey_style,
+            hotkey_selected_style,
+        ) = theme::with_current(|t| {
+            (
+                t.menu_box_normal,
+                t.menu_box_normal,
+                t.menu_box_selected,
+                t.menu_box_disabled,
+                t.menu_box_separator,
+                t.menu_box_hotkey,
+                t.menu_box_hotkey_selected,
+            )
+        });
+
+        let (m_tl, m_tr, m_bl, m_br, m_h, m_v, m_sl, m_sr) = theme::with_current(|t| {
+            (
+                t.menu_border_tl,
+                t.menu_border_tr,
+                t.menu_border_bl,
+                t.menu_border_br,
+                t.menu_border_h,
+                t.menu_border_v,
+                t.menu_sep_l,
+                t.menu_sep_r,
+            )
+        });
+
+        let s_tl = m_tl.to_string();
+        let s_tr = m_tr.to_string();
+        let s_bl = m_bl.to_string();
+        let s_br = m_br.to_string();
+        let s_h = m_h.to_string();
+        let s_v = m_v.to_string();
+        let s_sl = m_sl.to_string();
+        let s_sr = m_sr.to_string();
 
         // Top border
-        buf.set_string(area.x, area.y, "┌", border_style);
+        buf.set_string(area.x, area.y, &s_tl, border_style);
         for x in 1..area.width - 1 {
-            buf.set_string(area.x + x, area.y, "─", border_style);
+            buf.set_string(area.x + x, area.y, &s_h, border_style);
         }
-        buf.set_string(area.x + area.width - 1, area.y, "┐", border_style);
+        buf.set_string(area.x + area.width - 1, area.y, &s_tr, border_style);
 
         // Items
         for (item_idx, item) in self.items.iter().enumerate() {
@@ -216,11 +246,11 @@ impl View for MenuBox {
             let is_selected = self.selected == Some(item_idx);
 
             if item.is_separator() {
-                buf.set_string(area.x, row, "├", sep_style);
+                buf.set_string(area.x, row, &s_sl, sep_style);
                 for x in 1..area.width - 1 {
-                    buf.set_string(area.x + x, row, "─", sep_style);
+                    buf.set_string(area.x + x, row, &s_h, sep_style);
                 }
-                buf.set_string(area.x + area.width - 1, row, "┤", sep_style);
+                buf.set_string(area.x + area.width - 1, row, &s_sr, sep_style);
             } else {
                 let (row_style, hk_style) = if is_selected {
                     (selected_style, hotkey_selected_style)
@@ -230,11 +260,11 @@ impl View for MenuBox {
                     (box_style, hotkey_style)
                 };
 
-                buf.set_string(area.x, row, "│", border_style);
+                buf.set_string(area.x, row, &s_v, border_style);
                 for x in 1..area.width - 1 {
                     buf.set_string(area.x + x, row, " ", row_style);
                 }
-                buf.set_string(area.x + area.width - 1, row, "│", border_style);
+                buf.set_string(area.x + area.width - 1, row, &s_v, border_style);
 
                 let mut cur_x = area.x + 1;
                 let mut in_marker = false;
@@ -255,11 +285,11 @@ impl View for MenuBox {
 
         // Bottom border
         let bottom_y = area.y + area.height - 1;
-        buf.set_string(area.x, bottom_y, "└", border_style);
+        buf.set_string(area.x, bottom_y, &s_bl, border_style);
         for x in 1..area.width - 1 {
-            buf.set_string(area.x + x, bottom_y, "─", border_style);
+            buf.set_string(area.x + x, bottom_y, &s_h, border_style);
         }
-        buf.set_string(area.x + area.width - 1, bottom_y, "┘", border_style);
+        buf.set_string(area.x + area.width - 1, bottom_y, &s_br, border_style);
     }
 
     fn handle_event(&mut self, event: &mut Event) {

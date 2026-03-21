@@ -95,18 +95,26 @@ impl StaticText {
             return;
         }
 
+        let bounds = self.base.bounds();
+
+        // Skip drawing if completely outside clip area
+        if bounds.y >= area.y + area.height || bounds.y + bounds.height <= area.y {
+            return;
+        }
+        if bounds.x >= area.x + area.width || bounds.x + bounds.width <= area.x {
+            return;
+        }
+
         let x = if self.centered {
-            // Center the text
             #[allow(clippy::cast_possible_truncation)]
             let text_len = self.text.len() as u16;
-            area.x + area.width.saturating_sub(text_len) / 2
+            bounds.x + bounds.width.saturating_sub(text_len) / 2
         } else {
-            // Left-aligned
-            area.x
+            bounds.x
         };
 
         let style = theme::with_current(|t| t.static_text);
-        buf.set_string(x, area.y, &self.text, style);
+        buf.set_string(x, bounds.y, &self.text, style);
     }
 }
 

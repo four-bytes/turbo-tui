@@ -108,19 +108,27 @@ impl Button {
 
     /// Draw the button content to the buffer.
     fn draw_button(&self, buf: &mut Buffer, area: Rect) {
+        let bounds = self.base.bounds();
+
+        // Skip drawing if completely outside clip area
+        if bounds.y >= area.y + area.height || bounds.y + bounds.height <= area.y {
+            return;
+        }
+        if bounds.x >= area.x + area.width || bounds.x + bounds.width <= area.x {
+            return;
+        }
+
         let display = self.display_label();
         let focused = self.base.state() & SF_FOCUSED != 0;
 
-        // Calculate button text with brackets
         let button_text = format!("[ {display} ]");
         #[allow(clippy::cast_possible_truncation)]
         let text_len = button_text.len() as u16;
 
-        // Center within bounds
-        let x = area.x + area.width.saturating_sub(text_len) / 2;
-        let y = area.y;
+        // Center within own bounds
+        let x = bounds.x + bounds.width.saturating_sub(text_len) / 2;
+        let y = bounds.y;
 
-        // Choose style based on state (from theme)
         let style = theme::with_current(|t| {
             if focused {
                 t.button_focused

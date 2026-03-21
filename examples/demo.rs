@@ -7,29 +7,28 @@
 //!   Alt+X      — quit (Borland convention)
 //!   F5         — cycle active window
 //!   Mouse      — click windows to focus, drag title bars
+//!   F2         — cycle theme (Dark → Modern → Borland Classic)
 
 use std::io;
 use std::time::Duration;
 
 use crossterm::{
-    event::{self, Event as CEvent, KeyCode, MouseEventKind},
+    event::{self, Event as CEvent, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::Rect,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, layout::Rect, Terminal};
 
 use turbo_tui::command::{
-    CM_CANCEL, CM_COPY, CM_CUT, CM_NEW, CM_OK, CM_OPEN, CM_PASTE, CM_QUIT, CM_REDO, CM_SAVE,
-    CM_UNDO,
+    CM_CANCEL, CM_CLOSE, CM_COPY, CM_CUT, CM_NEW, CM_OK, CM_OPEN, CM_PASTE, CM_QUIT, CM_REDO,
+    CM_SAVE, CM_UNDO,
 };
 use turbo_tui::prelude::*;
+use turbo_tui::theme::{self, Theme};
 
 // Custom command IDs that don't conflict with the library's built-ins
 const CM_ABOUT: u16 = 200;
+const CM_THEME_TOGGLE: u16 = 201;
 
 // ============================================================================
 // Entry point
@@ -100,9 +99,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 ],
             ),
             Menu::new(
-                "~H~elp",
-                vec![MenuItem::new("~A~bout", CM_ABOUT)],
+                "~V~iew",
+                vec![MenuItem::new("~T~oggle Theme  F2", CM_THEME_TOGGLE)],
             ),
+            Menu::new("~H~elp", vec![MenuItem::new("~A~bout", CM_ABOUT)]),
         ],
     );
 
@@ -112,6 +112,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         status_rect,
         vec![
             StatusItem::new("~F1~ Help", 0, KB_F1),
+            StatusItem::new("~F2~ Theme", CM_THEME_TOGGLE, KB_F2),
             StatusItem::new("~F5~ Next win", 0, KB_F5),
             StatusItem::new("~F10~ Menu", 0, KB_F10),
             StatusItem::new("~Alt+X~ Quit", 0, 0),
@@ -127,25 +128,31 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Interior starts at (5, 3) for a window at (4, 2)
     let int1 = win1.interior_rect();
     win1.add(Box::new(StaticText::new(
-        Rect::new(int1.x, int1.y, int1.width, 1),
+        Rect::new(0, 0, int1.width, 1),
         "Welcome to turbo-tui!",
     )));
     win1.add(Box::new(StaticText::new(
-        Rect::new(int1.x, int1.y + 1, int1.width, 1),
+        Rect::new(0, 1, int1.width, 1),
         "Drag this window by its title bar.",
     )));
     win1.add(Box::new(StaticText::new(
-        Rect::new(int1.x, int1.y + 2, int1.width, 1),
+        Rect::new(0, 2, int1.width, 1),
         "Resize from the bottom-right corner.",
     )));
     win1.add(Box::new(StaticText::new(
-        Rect::new(int1.x, int1.y + 4, int1.width, 1),
+        Rect::new(0, 4, int1.width, 1),
         "Press F5 to cycle windows.",
     )));
     win1.add(Box::new(StaticText::new(
-        Rect::new(int1.x, int1.y + 5, int1.width, 1),
+        Rect::new(0, 5, int1.width, 1),
         "Press F10 to open the menu bar.",
     )));
+
+    // Vertical scrollbar on right border (frame child, not interior child)
+    // Coordinates relative to window: x = width-1 (right border), y = 1 (below title), height = height-2
+    let mut scrollbar = ScrollBar::vertical(Rect::new(43, 2, 1, 9));
+    scrollbar.set_params(25, 0, 100, 10, 1);
+    win1.add_frame_child(Box::new(scrollbar));
 
     // ── Window 2: Controls ─────────────────────────────────────────────────
     // Overlapping: col 20, row 7; size 36×10
@@ -154,27 +161,27 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
     let int2 = win2.interior_rect();
     win2.add(Box::new(StaticText::new(
-        Rect::new(int2.x, int2.y, int2.width, 1),
+        Rect::new(0, 0, int2.width, 1),
         "Click the buttons below:",
     )));
 
-    // OK button — 10 wide, row int2.y+2
+    // OK button — 10 wide, row 2
     win2.add(Box::new(Button::new(
-        Rect::new(int2.x, int2.y + 2, 10, 1),
+        Rect::new(0, 2, 10, 1),
         "~O~K",
         CM_OK,
         true,
     )));
     // Cancel button — 12 wide, same row
     win2.add(Box::new(Button::new(
-        Rect::new(int2.x + 12, int2.y + 2, 12, 1),
+        Rect::new(12, 2, 12, 1),
         "~C~ancel",
         CM_CANCEL,
         false,
     )));
 
     win2.add(Box::new(StaticText::new(
-        Rect::new(int2.x, int2.y + 4, int2.width, 1),
+        Rect::new(0, 4, int2.width, 1),
         "Last command: (none)",
     )));
 
@@ -184,6 +191,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // ── Event loop ─────────────────────────────────────────────────────────
     let mut running = true;
     let mut last_cmd: &'static str = "(none)";
+    let mut theme_index: usize = 0; // 0=dark, 1=modern, 2=borland
 
     while running {
         // Draw frame
@@ -213,7 +221,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             // ── Keyboard ───────────────────────────────────────────────────
             CEvent::Key(key) => {
                 // Global: Alt+X quits (Borland convention)
-                if key.code == KeyCode::Char('x') && key.modifiers.contains(crossterm::event::KeyModifiers::ALT) {
+                if key.code == KeyCode::Char('x')
+                    && key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
+                {
                     running = false;
                     continue;
                 }
@@ -222,6 +232,19 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 if key.code == KeyCode::F(5) && !menu_bar.is_active() {
                     desktop.next_window();
                     last_cmd = "F5: next window";
+                    continue;
+                }
+
+                // F2: cycle theme (dark → modern → borland)
+                if key.code == KeyCode::F(2) && !menu_bar.is_active() {
+                    theme_index = (theme_index + 1) % 3;
+                    let name = apply_theme(theme_index);
+                    last_cmd = match name {
+                        "Dark" => "Theme: Dark",
+                        "Modern" => "Theme: Modern",
+                        "Borland Classic" => "Theme: Borland Classic",
+                        _ => "Theme changed",
+                    };
                     continue;
                 }
 
@@ -245,7 +268,23 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 // Otherwise pass to desktop
                 desktop.handle_event(&mut ev);
                 if let Some(cmd) = ev.command_id() {
-                    handle_command(cmd, &mut running, &mut last_cmd);
+                    if cmd == CM_CLOSE {
+                        if let Some(active_id) = desktop.active_window_id() {
+                            desktop.close_window(active_id);
+                            last_cmd = "Window closed";
+                        }
+                    } else if cmd == CM_THEME_TOGGLE {
+                        theme_index = (theme_index + 1) % 3;
+                        let name = apply_theme(theme_index);
+                        last_cmd = match name {
+                            "Dark" => "Theme: Dark",
+                            "Modern" => "Theme: Modern",
+                            "Borland Classic" => "Theme: Borland Classic",
+                            _ => "Theme changed",
+                        };
+                    } else {
+                        handle_command(cmd, &mut running, &mut last_cmd);
+                    }
                 }
             }
 
@@ -253,28 +292,49 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             CEvent::Mouse(mouse) => {
                 let mut ev = Event::mouse(mouse);
 
-                // Row 0 → menu bar
-                if mouse.row == 0 {
+                // When menu is active, it gets ALL mouse events first (like Borland TV).
+                // This prevents clicks on dropdown items from "falling through" to windows.
+                if menu_bar.is_active() {
+                    menu_bar.handle_event(&mut ev);
+                    if let Some(cmd) = ev.command_id() {
+                        handle_command(cmd, &mut running, &mut last_cmd);
+                        continue;
+                    }
+                    if ev.is_cleared() || ev.handled {
+                        continue;
+                    }
+                    // Menu didn't consume it — close menu and let it fall through to desktop
+                    menu_bar.close();
+                } else if mouse.row == 0 {
+                    // Menu bar row — always route there even when inactive
                     menu_bar.handle_event(&mut ev);
                     if let Some(cmd) = ev.command_id() {
                         handle_command(cmd, &mut running, &mut last_cmd);
                     }
-                    continue;
-                }
-
-                // Close any open menu if clicking outside it
-                if menu_bar.is_active()
-                    && matches!(
-                        mouse.kind,
-                        MouseEventKind::Down(crossterm::event::MouseButton::Left)
-                    )
-                {
-                    menu_bar.close();
+                    if ev.is_cleared() || ev.handled {
+                        continue;
+                    }
                 }
 
                 desktop.handle_event(&mut ev);
                 if let Some(cmd) = ev.command_id() {
-                    handle_command(cmd, &mut running, &mut last_cmd);
+                    if cmd == CM_CLOSE {
+                        if let Some(active_id) = desktop.active_window_id() {
+                            desktop.close_window(active_id);
+                            last_cmd = "Window closed";
+                        }
+                    } else if cmd == CM_THEME_TOGGLE {
+                        theme_index = (theme_index + 1) % 3;
+                        let name = apply_theme(theme_index);
+                        last_cmd = match name {
+                            "Dark" => "Theme: Dark",
+                            "Modern" => "Theme: Modern",
+                            "Borland Classic" => "Theme: Borland Classic",
+                            _ => "Theme changed",
+                        };
+                    } else {
+                        handle_command(cmd, &mut running, &mut last_cmd);
+                    }
                 }
             }
 
@@ -293,6 +353,32 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     }
 
     Ok(())
+}
+
+// ============================================================================
+// Theme cycling
+// ============================================================================
+
+/// Theme names for status display.
+const THEME_NAMES: [&str; 3] = ["Dark", "Modern", "Borland Classic"];
+
+/// Apply theme by index and return its name.
+fn apply_theme(index: usize) -> &'static str {
+    match index % 3 {
+        0 => {
+            theme::set(Theme::dark());
+            THEME_NAMES[0]
+        }
+        1 => {
+            theme::set(Theme::modern());
+            THEME_NAMES[1]
+        }
+        2 => {
+            theme::set(Theme::borland_classic());
+            THEME_NAMES[2]
+        }
+        _ => unreachable!(),
+    }
 }
 
 // ============================================================================
@@ -336,6 +422,14 @@ fn handle_command(cmd: u16, running: &mut bool, last_cmd: &mut &'static str) {
         }
         CM_ABOUT => {
             *last_cmd = "Help > About";
+        }
+        CM_CLOSE => {
+            // Close handled at event loop level — just label it
+            *last_cmd = "Close window";
+        }
+        CM_THEME_TOGGLE => {
+            // Theme toggle handled at event loop level — just label it
+            *last_cmd = "Toggle Theme";
         }
         _ => {}
     }

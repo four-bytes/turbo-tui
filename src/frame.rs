@@ -143,7 +143,7 @@ impl Frame {
     /// Return `true` if `(x, y)` is over the resize handle (bottom-right).
     pub fn is_resize_handle(&self, x: u16, y: u16) -> bool {
         let b = self.base.bounds();
-        self.resizable && y == b.y + b.height - 1 && x >= b.x + b.width.saturating_sub(2)
+        self.resizable && y == b.y + b.height - 1 && x == b.x + b.width.saturating_sub(1)
     }
 
     /// Return `true` while [`SF_DRAGGING`] is set on this frame.
@@ -262,23 +262,39 @@ impl View for Frame {
             return;
         }
 
-        let style = self.border_style();
+        let is_dragging = self.base.state() & SF_DRAGGING != 0;
+        let is_resizing = self.base.state() & SF_RESIZING != 0;
+        let style = if is_dragging || is_resizing {
+            theme::with_current(|t| t.window_frame_dragging)
+        } else {
+            self.border_style()
+        };
         let title_style = self.title_style();
 
-        // Border characters for the selected frame type.
-        // Resizable windows use single-line bottom corners (└┘) per Borland TV.
-        let (tl, tr, h, v) = match self.frame_type {
-            FrameType::Window | FrameType::Dialog => ('╔', '╗', '═', '║'),
-            FrameType::Single => ('┌', '┐', '─', '│'),
-        };
-        let (bl, br) = if self.resizable {
-            // Resizable windows: single-line bottom corners (Borland TV pattern)
-            ('└', '┘')
-        } else {
-            match self.frame_type {
-                FrameType::Window | FrameType::Dialog => ('╚', '╝'),
-                FrameType::Single => ('└', '┘'),
-            }
+        // Border characters from theme (supports different border styles per theme).
+        let (tl, tr, bl, br, h, v) = match self.frame_type {
+            FrameType::Window | FrameType::Dialog => theme::with_current(|t| {
+                let bl = if self.resizable {
+                    // Resizable windows: use single-line bottom corners for
+                    // visual distinction (Borland TV pattern).
+                    match t.border_bl {
+                        '╚' | '┗' => '└',
+                        _ => t.border_bl,
+                    }
+                } else {
+                    t.border_bl
+                };
+                let br = if self.resizable {
+                    match t.border_br {
+                        '╝' | '┛' => '┘',
+                        _ => t.border_br,
+                    }
+                } else {
+                    t.border_br
+                };
+                (t.border_tl, t.border_tr, bl, br, t.border_h, t.border_v)
+            }),
+            FrameType::Single => ('┌', '┐', '└', '┘', '─', '│'),
         };
 
         // --- Top border ---
@@ -309,7 +325,13 @@ impl View for Frame {
         }
 
         // --- Bottom border ---
-        clip_string(buf, area.x, area.y + area.height - 1, &bl.to_string(), style);
+        clip_string(
+            buf,
+            area.x,
+            area.y + area.height - 1,
+            &bl.to_string(),
+            style,
+        );
         for x in (area.x + 1)..(area.x + area.width - 1) {
             clip_string(buf, x, area.y + area.height - 1, &h.to_string(), style);
         }
@@ -322,10 +344,12 @@ impl View for Frame {
         );
 
         // Resize handle — only when resizable AND active (Borland TV pattern).
-        if self.resizable && (self.base.state() & SF_ACTIVE != 0 || self.base.state() & SF_FOCUSED != 0) {
+        if self.resizable
+            && (self.base.state() & SF_ACTIVE != 0 || self.base.state() & SF_FOCUSED != 0)
+        {
             clip_string(
                 buf,
-                area.x + area.width - 2,
+                area.x + area.width - 1,
                 area.y + area.height - 1,
                 "◢",
                 self.resize_handle_style(),
@@ -366,7 +390,7 @@ impl View for Frame {
                 // Resize handle: bottom-right corner.
                 if self.resizable
                     && row == area.y + area.height - 1
-                    && col >= area.x + area.width.saturating_sub(2)
+                    && col == area.x + area.width.saturating_sub(1)
                 {
                     let state = self.base.state();
                     self.base.set_state(state | SF_RESIZING);
@@ -400,6 +424,7 @@ impl View for Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn make_mouse_down(col: u16, row: u16) -> Event {
@@ -484,26 +509,26 @@ mod tests {
     fn test_frame_resize_handle_hit() {
         let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
         f.set_resizable(true);
-        // Bottom row = y + height - 1 = 9; handle cols >= width - 2 = 18
-        assert!(f.is_resize_handle(18, 9));
+        // Bottom row = y + height - 1 = 9; handle at the corner = width - 1 = 19
         assert!(f.is_resize_handle(19, 9));
         // One column to the left — not the handle
-        assert!(!f.is_resize_handle(17, 9));
+        assert!(!f.is_resize_handle(18, 9));
         // Wrong row
-        assert!(!f.is_resize_handle(18, 8));
+        assert!(!f.is_resize_handle(19, 8));
     }
 
     #[test]
     fn test_frame_resize_handle_disabled() {
         let f = Frame::new(Rect::new(0, 0, 20, 10), "T");
         // resizable = false by default
-        assert!(!f.is_resize_handle(18, 9));
+        assert!(!f.is_resize_handle(19, 9));
     }
 
     // --- Drawing ------------------------------------------------------------
 
     #[test]
     fn test_frame_draw_borders() {
+        theme::set(theme::Theme::borland_classic());
         let area = Rect::new(0, 0, 10, 6);
         let f = Frame::new(area, "");
         let mut buf = Buffer::empty(area);
@@ -541,6 +566,7 @@ mod tests {
 
     #[test]
     fn test_frame_draw_title() {
+        theme::set(theme::Theme::borland_classic());
         let area = Rect::new(0, 0, 20, 5);
         // Disable close button so it does not overwrite the title position
         let mut f = Frame::new(area, "Test");
@@ -559,6 +585,7 @@ mod tests {
 
     #[test]
     fn test_frame_draw_close_button() {
+        theme::set(theme::Theme::borland_classic());
         let area = Rect::new(0, 0, 20, 5);
         let f = Frame::new(area, "");
         let mut buf = Buffer::empty(area);
@@ -572,6 +599,7 @@ mod tests {
 
     #[test]
     fn test_frame_draw_resize_handle() {
+        theme::set(theme::Theme::borland_classic());
         let area = Rect::new(0, 0, 20, 5);
         let mut f = Frame::new(area, "");
         f.set_resizable(true);
@@ -581,12 +609,13 @@ mod tests {
         let mut buf = Buffer::empty(area);
         f.draw(&mut buf, area);
 
-        // Resize handle "◢" at (width-2, height-1) = (18, 4)
-        assert_eq!(buf[(18, 4)].symbol(), "◢");
+        // Resize handle "◢" at (width-1, height-1) = (19, 4)
+        assert_eq!(buf[(19, 4)].symbol(), "◢");
     }
 
     #[test]
     fn test_frame_draw_too_small() {
+        theme::set(theme::Theme::borland_classic());
         // width < 4 — draw() should be a no-op (no panic)
         let area = Rect::new(0, 0, 3, 5);
         let f = Frame::new(area, "T");
@@ -623,8 +652,8 @@ mod tests {
     fn test_frame_resize_click_sets_resizing() {
         let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
         f.set_resizable(true);
-        // Bottom-right corner: col 18 or 19, row 9
-        let mut event = make_mouse_down(18, 9);
+        // Bottom-right corner: col 19, row 9
+        let mut event = make_mouse_down(19, 9);
         f.handle_event(&mut event);
 
         assert!(f.is_resizing());
@@ -658,6 +687,7 @@ mod tests {
 
     #[test]
     fn test_frame_resizable_single_bottom_corners() {
+        theme::set(theme::Theme::borland_classic());
         let area = Rect::new(0, 0, 10, 6);
         let mut f = Frame::new(area, "");
         f.set_resizable(true);
@@ -671,6 +701,7 @@ mod tests {
 
     #[test]
     fn test_frame_draw_clipped_no_panic() {
+        theme::set(theme::Theme::borland_classic());
         // Frame extends beyond buffer — must not panic
         let frame = Frame::new(Rect::new(5, 3, 20, 10), "Clipped");
         let buf_area = Rect::new(0, 0, 15, 8); // Smaller than frame

@@ -50,6 +50,38 @@ pub struct Theme {
     pub window_close_button: Style,
     /// Resize handle `⋱`.
     pub window_resize_handle: Style,
+    /// Window frame border during drag/resize operation (highlighted).
+    pub window_frame_dragging: Style,
+
+    // ── Border Characters ─────────────────────────────────────────────
+    /// Window border: top-left corner.
+    pub border_tl: char,
+    /// Window border: top-right corner.
+    pub border_tr: char,
+    /// Window border: bottom-left corner.
+    pub border_bl: char,
+    /// Window border: bottom-right corner.
+    pub border_br: char,
+    /// Window border: horizontal line.
+    pub border_h: char,
+    /// Window border: vertical line.
+    pub border_v: char,
+    /// Menu dropdown border: top-left corner.
+    pub menu_border_tl: char,
+    /// Menu dropdown border: top-right corner.
+    pub menu_border_tr: char,
+    /// Menu dropdown border: bottom-left corner.
+    pub menu_border_bl: char,
+    /// Menu dropdown border: bottom-right corner.
+    pub menu_border_br: char,
+    /// Menu dropdown border: horizontal line.
+    pub menu_border_h: char,
+    /// Menu dropdown border: vertical line.
+    pub menu_border_v: char,
+    /// Menu dropdown: separator left junction.
+    pub menu_sep_l: char,
+    /// Menu dropdown: separator right junction.
+    pub menu_sep_r: char,
 
     // ── Dialog Frame ───────────────────────────────────────────────────
     /// Dialog frame border (always bright).
@@ -144,6 +176,26 @@ impl Theme {
             window_interior: Style::default().fg(Color::Gray).bg(Color::Blue),
             window_close_button: Style::default().fg(Color::LightCyan).bg(Color::Blue),
             window_resize_handle: Style::default().fg(Color::LightCyan).bg(Color::Blue),
+            window_frame_dragging: Style::default()
+                .fg(Color::Yellow)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+
+            // ── Border Characters ─────────────────────────────────────────
+            border_tl: '╔',
+            border_tr: '╗',
+            border_bl: '╚',
+            border_br: '╝',
+            border_h: '═',
+            border_v: '║',
+            menu_border_tl: '┌',
+            menu_border_tr: '┐',
+            menu_border_bl: '└',
+            menu_border_br: '┘',
+            menu_border_h: '─',
+            menu_border_v: '│',
+            menu_sep_l: '├',
+            menu_sep_r: '┤',
 
             // ── Dialog Frame ───────────────────────────────────────────
             dialog_frame: Style::default().fg(Color::White).bg(Color::Gray),
@@ -233,6 +285,26 @@ impl Theme {
             window_interior: Style::default().fg(Color::White).bg(Color::Rgb(30, 30, 30)),
             window_close_button: Style::default().fg(Color::Red).bg(Color::Black),
             window_resize_handle: Style::default().fg(Color::DarkGray).bg(Color::Black),
+            window_frame_dragging: Style::default()
+                .fg(Color::Yellow)
+                .bg(Color::Rgb(30, 30, 30))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Border Characters (thick) ─────────────────────────────────
+            border_tl: '┏',
+            border_tr: '┓',
+            border_bl: '┗',
+            border_br: '┛',
+            border_h: '━',
+            border_v: '┃',
+            menu_border_tl: '┌',
+            menu_border_tr: '┐',
+            menu_border_bl: '└',
+            menu_border_br: '┘',
+            menu_border_h: '─',
+            menu_border_v: '│',
+            menu_sep_l: '├',
+            menu_sep_r: '┤',
 
             // ── Dialog Frame ───────────────────────────────────────────
             dialog_frame: Style::default().fg(Color::White).bg(Color::DarkGray),
@@ -247,7 +319,9 @@ impl Theme {
 
             // ── Menu Bar ───────────────────────────────────────────────
             menu_bar_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
-            menu_bar_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+            menu_bar_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(0, 100, 150)),
             menu_bar_hotkey: Style::default()
                 .fg(Color::Cyan)
                 .bg(Color::Rgb(30, 30, 30))
@@ -258,10 +332,18 @@ impl Theme {
                 .add_modifier(Modifier::BOLD),
 
             // ── Menu Dropdown ──────────────────────────────────────────
-            menu_box_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(40, 40, 40)),
-            menu_box_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
-            menu_box_disabled: Style::default().fg(Color::DarkGray).bg(Color::Rgb(40, 40, 40)),
-            menu_box_separator: Style::default().fg(Color::DarkGray).bg(Color::Rgb(40, 40, 40)),
+            menu_box_normal: Style::default()
+                .fg(Color::Rgb(200, 200, 200))
+                .bg(Color::Rgb(45, 45, 45)),
+            menu_box_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(0, 100, 150)),
+            menu_box_disabled: Style::default()
+                .fg(Color::DarkGray)
+                .bg(Color::Rgb(40, 40, 40)),
+            menu_box_separator: Style::default()
+                .fg(Color::DarkGray)
+                .bg(Color::Rgb(40, 40, 40)),
             menu_box_hotkey: Style::default()
                 .fg(Color::Cyan)
                 .bg(Color::Rgb(40, 40, 40))
@@ -277,7 +359,9 @@ impl Theme {
                 .fg(Color::Cyan)
                 .bg(Color::Rgb(30, 30, 30))
                 .add_modifier(Modifier::BOLD),
-            status_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+            status_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(0, 100, 150)),
 
             // ── Button ─────────────────────────────────────────────────
             button_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(50, 50, 50)),
@@ -285,16 +369,341 @@ impl Theme {
                 .fg(Color::White)
                 .bg(Color::Rgb(50, 50, 50))
                 .add_modifier(Modifier::BOLD),
-            button_focused: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
-            button_disabled: Style::default().fg(Color::DarkGray).bg(Color::Rgb(50, 50, 50)),
+            button_focused: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(0, 100, 150)),
+            button_disabled: Style::default()
+                .fg(Color::DarkGray)
+                .bg(Color::Rgb(50, 50, 50)),
 
             // ── Static Text ────────────────────────────────────────────
             static_text: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
 
             // ── Scrollbar ──────────────────────────────────────────────
-            scrollbar_track: Style::default().fg(Color::Rgb(60, 60, 60)).bg(Color::Rgb(30, 30, 30)),
+            scrollbar_track: Style::default()
+                .fg(Color::Rgb(60, 60, 60))
+                .bg(Color::Rgb(30, 30, 30)),
             scrollbar_thumb: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
-            scrollbar_arrows: Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30)),
+            scrollbar_arrows: Style::default()
+                .fg(Color::DarkGray)
+                .bg(Color::Rgb(30, 30, 30)),
+        }
+    }
+
+    /// Create a modern dark theme with rounded borders.
+    ///
+    /// Uses rounded corner characters (╭╮╰╯) for a contemporary look.
+    /// Color palette uses subtle gradients with accent colors.
+    #[allow(clippy::too_many_lines)]
+    #[must_use]
+    pub fn modern() -> Self {
+        Self {
+            // ── Desktop ────────────────────────────────────────────────
+            desktop_bg: Style::default()
+                .fg(Color::Rgb(60, 60, 60))
+                .bg(Color::Rgb(20, 20, 25)),
+            desktop_char: ' ',
+
+            // ── Window Frame ───────────────────────────────────────────
+            window_frame_active: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(20, 20, 25)),
+            window_frame_inactive: Style::default()
+                .fg(Color::Rgb(70, 70, 80))
+                .bg(Color::Rgb(20, 20, 25)),
+            window_title_active: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(20, 20, 25))
+                .add_modifier(Modifier::BOLD),
+            window_title_inactive: Style::default()
+                .fg(Color::Rgb(100, 100, 110))
+                .bg(Color::Rgb(20, 20, 25)),
+            window_interior: Style::default()
+                .fg(Color::Rgb(210, 210, 220))
+                .bg(Color::Rgb(30, 30, 38)),
+            window_close_button: Style::default()
+                .fg(Color::Rgb(220, 80, 80))
+                .bg(Color::Rgb(20, 20, 25)),
+            window_resize_handle: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(20, 20, 25)),
+            window_frame_dragging: Style::default()
+                .fg(Color::Rgb(255, 200, 60))
+                .bg(Color::Rgb(20, 20, 25))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Border Characters (rounded) ───────────────────────────
+            border_tl: '╭',
+            border_tr: '╮',
+            border_bl: '╰',
+            border_br: '╯',
+            border_h: '─',
+            border_v: '│',
+            menu_border_tl: '╭',
+            menu_border_tr: '╮',
+            menu_border_bl: '╰',
+            menu_border_br: '╯',
+            menu_border_h: '─',
+            menu_border_v: '│',
+            menu_sep_l: '├',
+            menu_sep_r: '┤',
+
+            // ── Dialog Frame ───────────────────────────────────────────
+            dialog_frame: Style::default()
+                .fg(Color::Rgb(180, 180, 190))
+                .bg(Color::Rgb(45, 45, 55)),
+            dialog_title: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(45, 45, 55))
+                .add_modifier(Modifier::BOLD),
+            dialog_interior: Style::default()
+                .fg(Color::Rgb(210, 210, 220))
+                .bg(Color::Rgb(45, 45, 55)),
+
+            // ── Single Frame ───────────────────────────────────────────
+            single_frame: Style::default()
+                .fg(Color::Rgb(70, 70, 80))
+                .bg(Color::Rgb(20, 20, 25)),
+
+            // ── Menu Bar ───────────────────────────────────────────────
+            menu_bar_normal: Style::default()
+                .fg(Color::Rgb(180, 180, 190))
+                .bg(Color::Rgb(35, 35, 42)),
+            menu_bar_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(60, 100, 160)),
+            menu_bar_hotkey: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(35, 35, 42))
+                .add_modifier(Modifier::BOLD),
+            menu_bar_hotkey_selected: Style::default()
+                .fg(Color::Rgb(255, 200, 60))
+                .bg(Color::Rgb(60, 100, 160))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Menu Dropdown ──────────────────────────────────────────
+            menu_box_normal: Style::default()
+                .fg(Color::Rgb(200, 200, 210))
+                .bg(Color::Rgb(42, 42, 52)),
+            menu_box_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(60, 100, 160)),
+            menu_box_disabled: Style::default()
+                .fg(Color::Rgb(80, 80, 90))
+                .bg(Color::Rgb(42, 42, 52)),
+            menu_box_separator: Style::default()
+                .fg(Color::Rgb(60, 60, 70))
+                .bg(Color::Rgb(42, 42, 52)),
+            menu_box_hotkey: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(42, 42, 52))
+                .add_modifier(Modifier::BOLD),
+            menu_box_hotkey_selected: Style::default()
+                .fg(Color::Rgb(255, 200, 60))
+                .bg(Color::Rgb(60, 100, 160))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Status Line ────────────────────────────────────────────
+            status_normal: Style::default()
+                .fg(Color::Rgb(160, 160, 170))
+                .bg(Color::Rgb(35, 35, 42)),
+            status_hotkey: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(35, 35, 42))
+                .add_modifier(Modifier::BOLD),
+            status_selected: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(60, 100, 160)),
+
+            // ── Button ─────────────────────────────────────────────────
+            button_normal: Style::default()
+                .fg(Color::Rgb(180, 180, 190))
+                .bg(Color::Rgb(55, 55, 65)),
+            button_default: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(55, 55, 65))
+                .add_modifier(Modifier::BOLD),
+            button_focused: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(60, 100, 160)),
+            button_disabled: Style::default()
+                .fg(Color::Rgb(80, 80, 90))
+                .bg(Color::Rgb(55, 55, 65)),
+
+            // ── Static Text ────────────────────────────────────────────
+            static_text: Style::default()
+                .fg(Color::Rgb(180, 180, 190))
+                .bg(Color::Rgb(30, 30, 38)),
+
+            // ── Scrollbar ──────────────────────────────────────────────
+            scrollbar_track: Style::default()
+                .fg(Color::Rgb(50, 50, 60))
+                .bg(Color::Rgb(30, 30, 38)),
+            scrollbar_thumb: Style::default()
+                .fg(Color::Rgb(100, 149, 237))
+                .bg(Color::Rgb(30, 30, 38)),
+            scrollbar_arrows: Style::default()
+                .fg(Color::Rgb(80, 80, 90))
+                .bg(Color::Rgb(30, 30, 38)),
+        }
+    }
+
+    /// Create a matrix theme inspired by "The Matrix" green-on-black aesthetic.
+    ///
+    /// Uses standard single-line border characters with a green-on-dark color scheme.
+    /// The Legacy Computing Supplement characters (U+1FB70-1FB7F) are NOT used
+    /// for compatibility — standard box-drawing characters are used instead.
+    #[allow(clippy::too_many_lines)]
+    #[must_use]
+    pub fn matrix() -> Self {
+        Self {
+            // ── Desktop ────────────────────────────────────────────────
+            desktop_bg: Style::default()
+                .fg(Color::Rgb(40, 40, 40))
+                .bg(Color::Rgb(15, 15, 20)),
+            desktop_char: ' ',
+
+            // ── Window Frame ───────────────────────────────────────────
+            window_frame_active: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(15, 15, 20)),
+            window_frame_inactive: Style::default()
+                .fg(Color::Rgb(50, 80, 60))
+                .bg(Color::Rgb(15, 15, 20)),
+            window_title_active: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(15, 15, 20))
+                .add_modifier(Modifier::BOLD),
+            window_title_inactive: Style::default()
+                .fg(Color::Rgb(50, 80, 60))
+                .bg(Color::Rgb(15, 15, 20)),
+            window_interior: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(20, 22, 25)),
+            window_close_button: Style::default()
+                .fg(Color::Rgb(255, 80, 80))
+                .bg(Color::Rgb(15, 15, 20)),
+            window_resize_handle: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(15, 15, 20)),
+            window_frame_dragging: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(15, 15, 20))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Border Characters (standard single-line) ──────────────
+            border_tl: '┌',
+            border_tr: '┐',
+            border_bl: '└',
+            border_br: '┘',
+            border_h: '─',
+            border_v: '│',
+            menu_border_tl: '┌',
+            menu_border_tr: '┐',
+            menu_border_bl: '└',
+            menu_border_br: '┘',
+            menu_border_h: '─',
+            menu_border_v: '│',
+            menu_sep_l: '├',
+            menu_sep_r: '┤',
+
+            // ── Dialog Frame ───────────────────────────────────────────
+            dialog_frame: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(30, 35, 35)),
+            dialog_title: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(30, 35, 35))
+                .add_modifier(Modifier::BOLD),
+            dialog_interior: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(30, 35, 35)),
+
+            // ── Single Frame ───────────────────────────────────────────
+            single_frame: Style::default()
+                .fg(Color::Rgb(50, 80, 60))
+                .bg(Color::Rgb(15, 15, 20)),
+
+            // ── Menu Bar ───────────────────────────────────────────────
+            menu_bar_normal: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(25, 28, 30)),
+            menu_bar_selected: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120)),
+            menu_bar_hotkey: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(25, 28, 30))
+                .add_modifier(Modifier::BOLD),
+            menu_bar_hotkey_selected: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Menu Dropdown ──────────────────────────────────────────
+            menu_box_normal: Style::default()
+                .fg(Color::Rgb(0, 180, 100))
+                .bg(Color::Rgb(25, 28, 30)),
+            menu_box_selected: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120)),
+            menu_box_disabled: Style::default()
+                .fg(Color::Rgb(50, 60, 55))
+                .bg(Color::Rgb(25, 28, 30)),
+            menu_box_separator: Style::default()
+                .fg(Color::Rgb(40, 55, 45))
+                .bg(Color::Rgb(25, 28, 30)),
+            menu_box_hotkey: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(25, 28, 30))
+                .add_modifier(Modifier::BOLD),
+            menu_box_hotkey_selected: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Status Line ────────────────────────────────────────────
+            status_normal: Style::default()
+                .fg(Color::Rgb(0, 180, 100))
+                .bg(Color::Rgb(25, 28, 30)),
+            status_hotkey: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(25, 28, 30))
+                .add_modifier(Modifier::BOLD),
+            status_selected: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120)),
+
+            // ── Button ─────────────────────────────────────────────────
+            button_normal: Style::default()
+                .fg(Color::Rgb(0, 180, 100))
+                .bg(Color::Rgb(35, 40, 38)),
+            button_default: Style::default()
+                .fg(Color::Rgb(0, 255, 150))
+                .bg(Color::Rgb(35, 40, 38))
+                .add_modifier(Modifier::BOLD),
+            button_focused: Style::default()
+                .fg(Color::Rgb(15, 15, 20))
+                .bg(Color::Rgb(0, 200, 120)),
+            button_disabled: Style::default()
+                .fg(Color::Rgb(50, 60, 55))
+                .bg(Color::Rgb(35, 40, 38)),
+
+            // ── Static Text ────────────────────────────────────────────
+            static_text: Style::default()
+                .fg(Color::Rgb(0, 180, 100))
+                .bg(Color::Rgb(20, 22, 25)),
+
+            // ── Scrollbar ──────────────────────────────────────────────
+            scrollbar_track: Style::default()
+                .fg(Color::Rgb(30, 40, 35))
+                .bg(Color::Rgb(20, 22, 25)),
+            scrollbar_thumb: Style::default()
+                .fg(Color::Rgb(0, 200, 120))
+                .bg(Color::Rgb(20, 22, 25)),
+            scrollbar_arrows: Style::default()
+                .fg(Color::Rgb(50, 80, 60))
+                .bg(Color::Rgb(20, 22, 25)),
         }
     }
 }
@@ -375,6 +784,7 @@ mod tests {
             ("window_interior", t.window_interior),
             ("window_close_button", t.window_close_button),
             ("window_resize_handle", t.window_resize_handle),
+            ("window_frame_dragging", t.window_frame_dragging),
             ("dialog_frame", t.dialog_frame),
             ("dialog_title", t.dialog_title),
             ("dialog_interior", t.dialog_interior),
@@ -434,6 +844,7 @@ mod tests {
             ("window_interior", t.window_interior),
             ("window_close_button", t.window_close_button),
             ("window_resize_handle", t.window_resize_handle),
+            ("window_frame_dragging", t.window_frame_dragging),
             ("dialog_frame", t.dialog_frame),
             ("dialog_title", t.dialog_title),
             ("dialog_interior", t.dialog_interior),
@@ -494,5 +905,130 @@ mod tests {
         let t2 = t1.clone();
         assert_eq!(t1.desktop_bg, t2.desktop_bg);
         assert_eq!(t1.window_frame_active, t2.window_frame_active);
+    }
+
+    #[test]
+    fn test_modern_has_bg_on_all_styles() {
+        let t = Theme::modern();
+        let styles = [
+            ("desktop_bg", t.desktop_bg),
+            ("window_frame_active", t.window_frame_active),
+            ("window_frame_inactive", t.window_frame_inactive),
+            ("window_title_active", t.window_title_active),
+            ("window_title_inactive", t.window_title_inactive),
+            ("window_interior", t.window_interior),
+            ("window_close_button", t.window_close_button),
+            ("window_resize_handle", t.window_resize_handle),
+            ("window_frame_dragging", t.window_frame_dragging),
+            ("dialog_frame", t.dialog_frame),
+            ("dialog_title", t.dialog_title),
+            ("dialog_interior", t.dialog_interior),
+            ("single_frame", t.single_frame),
+            ("menu_bar_normal", t.menu_bar_normal),
+            ("menu_bar_selected", t.menu_bar_selected),
+            ("menu_bar_hotkey", t.menu_bar_hotkey),
+            ("menu_bar_hotkey_selected", t.menu_bar_hotkey_selected),
+            ("menu_box_normal", t.menu_box_normal),
+            ("menu_box_selected", t.menu_box_selected),
+            ("menu_box_disabled", t.menu_box_disabled),
+            ("menu_box_separator", t.menu_box_separator),
+            ("menu_box_hotkey", t.menu_box_hotkey),
+            ("menu_box_hotkey_selected", t.menu_box_hotkey_selected),
+            ("status_normal", t.status_normal),
+            ("status_hotkey", t.status_hotkey),
+            ("status_selected", t.status_selected),
+            ("button_normal", t.button_normal),
+            ("button_default", t.button_default),
+            ("button_focused", t.button_focused),
+            ("button_disabled", t.button_disabled),
+            ("static_text", t.static_text),
+            ("scrollbar_track", t.scrollbar_track),
+            ("scrollbar_thumb", t.scrollbar_thumb),
+            ("scrollbar_arrows", t.scrollbar_arrows),
+        ];
+        for (name, style) in styles {
+            assert!(
+                style.bg.is_some(),
+                "Modern theme style '{name}' is missing a background color"
+            );
+        }
+    }
+
+    #[test]
+    fn test_matrix_has_bg_on_all_styles() {
+        let t = Theme::matrix();
+        let styles = [
+            ("desktop_bg", t.desktop_bg),
+            ("window_frame_active", t.window_frame_active),
+            ("window_frame_inactive", t.window_frame_inactive),
+            ("window_title_active", t.window_title_active),
+            ("window_title_inactive", t.window_title_inactive),
+            ("window_interior", t.window_interior),
+            ("window_close_button", t.window_close_button),
+            ("window_resize_handle", t.window_resize_handle),
+            ("window_frame_dragging", t.window_frame_dragging),
+            ("dialog_frame", t.dialog_frame),
+            ("dialog_title", t.dialog_title),
+            ("dialog_interior", t.dialog_interior),
+            ("single_frame", t.single_frame),
+            ("menu_bar_normal", t.menu_bar_normal),
+            ("menu_bar_selected", t.menu_bar_selected),
+            ("menu_bar_hotkey", t.menu_bar_hotkey),
+            ("menu_bar_hotkey_selected", t.menu_bar_hotkey_selected),
+            ("menu_box_normal", t.menu_box_normal),
+            ("menu_box_selected", t.menu_box_selected),
+            ("menu_box_disabled", t.menu_box_disabled),
+            ("menu_box_separator", t.menu_box_separator),
+            ("menu_box_hotkey", t.menu_box_hotkey),
+            ("menu_box_hotkey_selected", t.menu_box_hotkey_selected),
+            ("status_normal", t.status_normal),
+            ("status_hotkey", t.status_hotkey),
+            ("status_selected", t.status_selected),
+            ("button_normal", t.button_normal),
+            ("button_default", t.button_default),
+            ("button_focused", t.button_focused),
+            ("button_disabled", t.button_disabled),
+            ("static_text", t.static_text),
+            ("scrollbar_track", t.scrollbar_track),
+            ("scrollbar_thumb", t.scrollbar_thumb),
+            ("scrollbar_arrows", t.scrollbar_arrows),
+        ];
+        for (name, style) in styles {
+            assert!(
+                style.bg.is_some(),
+                "Matrix theme style '{name}' is missing a background color"
+            );
+        }
+    }
+
+    #[test]
+    fn test_modern_has_rounded_borders() {
+        let t = Theme::modern();
+        assert_eq!(t.border_tl, '╭');
+        assert_eq!(t.border_tr, '╮');
+        assert_eq!(t.border_bl, '╰');
+        assert_eq!(t.border_br, '╯');
+    }
+
+    #[test]
+    fn test_borland_has_double_borders() {
+        let t = Theme::borland_classic();
+        assert_eq!(t.border_tl, '╔');
+        assert_eq!(t.border_tr, '╗');
+        assert_eq!(t.border_bl, '╚');
+        assert_eq!(t.border_br, '╝');
+        assert_eq!(t.border_h, '═');
+        assert_eq!(t.border_v, '║');
+    }
+
+    #[test]
+    fn test_dark_has_thick_borders() {
+        let t = Theme::dark();
+        assert_eq!(t.border_tl, '┏');
+        assert_eq!(t.border_tr, '┓');
+        assert_eq!(t.border_bl, '┗');
+        assert_eq!(t.border_br, '┛');
+        assert_eq!(t.border_h, '━');
+        assert_eq!(t.border_v, '┃');
     }
 }

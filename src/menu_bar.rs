@@ -488,18 +488,25 @@ impl MenuBar {
         #[allow(clippy::cast_possible_truncation)]
         let drop_height = menu.items.len() as u16 + 2;
 
-        let (box_style, border_style, selected_style, disabled_style, sep_style, hotkey_style, hotkey_selected_style) =
-            theme::with_current(|t| {
-                (
-                    t.menu_box_normal,
-                    t.menu_box_normal,
-                    t.menu_box_selected,
-                    t.menu_box_disabled,
-                    t.menu_box_separator,
-                    t.menu_box_hotkey,
-                    t.menu_box_hotkey_selected,
-                )
-            });
+        let (
+            box_style,
+            border_style,
+            selected_style,
+            disabled_style,
+            sep_style,
+            hotkey_style,
+            hotkey_selected_style,
+        ) = theme::with_current(|t| {
+            (
+                t.menu_box_normal,
+                t.menu_box_normal,
+                t.menu_box_selected,
+                t.menu_box_disabled,
+                t.menu_box_separator,
+                t.menu_box_hotkey,
+                t.menu_box_hotkey_selected,
+            )
+        });
 
         // Top border
         buf.set_string(drop_x, drop_y, "┌", border_style);
@@ -742,21 +749,28 @@ impl MenuBar {
             }
 
             MouseEventKind::Moved => {
-                // Hover over dropdown items
                 if self.is_active() {
+                    // Hover over dropdown items — update selection
                     if let Some(item_idx) = self.item_at_position(col, row) {
                         if self
                             .active_menu
                             .is_some_and(|m| self.is_item_selectable(m, item_idx))
                         {
                             self.selected_item = Some(item_idx);
-                            event.clear();
                         }
                     }
+                    // Always consume mouse move when menu is active
+                    event.clear();
                 }
             }
 
-            _ => {}
+            _ => {
+                // When menu is active, consume ALL mouse events (Up, Drag, Scroll, etc.)
+                // to prevent them from reaching windows underneath.
+                if self.is_active() {
+                    event.clear();
+                }
+            }
         }
     }
 }

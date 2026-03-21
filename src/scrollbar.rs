@@ -437,9 +437,8 @@ impl View for ScrollBar {
         }
 
         // Get theme styles
-        let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
-            (t.scrollbar_track, t.scrollbar_thumb, t.scrollbar_arrows)
-        });
+        let (track_style, thumb_style, arrow_style) =
+            theme::with_current(|t| (t.scrollbar_track, t.scrollbar_thumb, t.scrollbar_arrows));
 
         // Calculate track size
         let (thumb_pos, _thumb_len) = self.thumb_range();

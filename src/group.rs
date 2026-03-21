@@ -51,8 +51,22 @@ impl Group {
     /// Add a child view and return its `ViewId`.
     ///
     /// The child is added at the front (highest Z-order).
-    pub fn add(&mut self, child: Box<dyn View>) -> ViewId {
+    ///
+    /// Children are created with coordinates relative to their parent group.
+    /// At `add()` time, we shift them by the group's origin to get absolute coords.
+    pub fn add(&mut self, mut child: Box<dyn View>) -> ViewId {
         let id = child.id();
+
+        // Convert child bounds from relative (to this group) to absolute screen coordinates.
+        let group_bounds = self.base.bounds();
+        let cb = child.bounds();
+        child.set_bounds(Rect::new(
+            group_bounds.x + cb.x,
+            group_bounds.y + cb.y,
+            cb.width,
+            cb.height,
+        ));
+
         self.children.push(child);
         id
     }
@@ -344,7 +358,12 @@ impl Group {
     fn draw_children(&self, buf: &mut Buffer, area: Rect) {
         for child in &self.children {
             if child.state() & SF_VISIBLE != 0 {
-                child.draw(buf, area);
+                // Pass the clip area (parent bounds) — children use their own bounds
+                // for positioning but should clip to this area
+                let clip = child.bounds().intersection(area);
+                if clip.width > 0 && clip.height > 0 {
+                    child.draw(buf, area);
+                }
             }
         }
     }
@@ -408,7 +427,8 @@ impl Group {
                 // its bounds (e.g., when resizing a window larger).
                 if matches!(
                     mouse.kind,
-                    crossterm::event::MouseEventKind::Drag(_) | crossterm::event::MouseEventKind::Up(_)
+                    crossterm::event::MouseEventKind::Drag(_)
+                        | crossterm::event::MouseEventKind::Up(_)
                 ) {
                     if let Some(focused_idx) = self.focused {
                         let child_state = self.children[focused_idx].state();
@@ -465,7 +485,27 @@ impl View for Group {
     }
 
     fn set_bounds(&mut self, bounds: Rect) {
+        let old_bounds = self.base.bounds();
         self.base.set_bounds(bounds);
+
+        // Propagate position delta to all children (like Borland TV's TGroup::changeBounds).
+        // We only propagate the POSITION delta (dx, dy), NOT the size delta (dw, dh).
+        // Size propagation would require GrowMode flags which we don't have.
+        // Children keep their original size but shift with the parent.
+        let dx = i32::from(bounds.x) - i32::from(old_bounds.x);
+        let dy = i32::from(bounds.y) - i32::from(old_bounds.y);
+
+        if dx != 0 || dy != 0 {
+            for child in &mut self.children {
+                let cb = child.bounds();
+                // Casts are safe: screen coordinates fit in i32, result clamped to >= 0
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let new_x = (i32::from(cb.x) + dx).max(0) as u16;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let new_y = (i32::from(cb.y) + dy).max(0) as u16;
+                child.set_bounds(Rect::new(new_x, new_y, cb.width, cb.height));
+            }
+        }
     }
 
     fn draw(&self, buf: &mut Buffer, area: Rect) {
@@ -902,5 +942,47 @@ mod tests {
         assert_eq!(evts1[0], "broadcast:10");
         assert_eq!(evts2[0], "broadcast:10");
         assert_eq!(evts3[0], "broadcast:10");
+    }
+
+    #[test]
+    fn test_group_set_bounds_propagates_delta() {
+        let mut group = Group::new(Rect::new(10, 20, 80, 24));
+
+        // Add child at relative (5, 3, 10, 5) — becomes absolute (15, 23, 10, 5)
+        group.add(Box::new(TestView::new(Rect::new(5, 3, 10, 5))));
+
+        // Verify child was converted to absolute
+        assert_eq!(
+            group.child_at(0).unwrap().bounds(),
+            Rect::new(15, 23, 10, 5)
+        );
+
+        // Move group by (+5, +10)
+        group.set_bounds(Rect::new(15, 30, 80, 24));
+
+        // Child should have moved by the same delta
+        assert_eq!(
+            group.child_at(0).unwrap().bounds(),
+            Rect::new(20, 33, 10, 5)
+        );
+    }
+
+    #[test]
+    fn test_group_add_converts_relative_to_absolute() {
+        let mut group = Group::new(Rect::new(10, 20, 40, 30));
+
+        // Child at relative (0, 0, 10, 5)
+        group.add(Box::new(TestView::new(Rect::new(0, 0, 10, 5))));
+        assert_eq!(
+            group.child_at(0).unwrap().bounds(),
+            Rect::new(10, 20, 10, 5)
+        );
+
+        // Child at relative (5, 3, 10, 5)
+        group.add(Box::new(TestView::new(Rect::new(5, 3, 10, 5))));
+        assert_eq!(
+            group.child_at(1).unwrap().bounds(),
+            Rect::new(15, 23, 10, 5)
+        );
     }
 }

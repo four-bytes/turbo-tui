@@ -46,6 +46,11 @@ pub struct Window {
     frame: Frame,
     /// Interior group holding child views.
     interior: Group,
+    /// Frame-level children (e.g. scrollbars on the border).
+    /// Positioned relative to window bounds, not interior.
+    frame_children: Vec<Box<dyn View>>,
+    /// Original relative bounds of each frame child (relative to window).
+    frame_child_rel: Vec<Rect>,
     /// Offset from mouse to window origin during drag (`mouse_x` - `window_x`, `mouse_y` - `window_y`).
     drag_offset: Option<(i16, i16)>,
     /// Original size at the start of a resize operation.
@@ -74,6 +79,7 @@ impl Window {
             base: ViewBase::new(bounds),
             frame,
             interior,
+            frame_children: Vec::new(),
             drag_offset: None,
             resize_start: None,
             min_size: (16, 6),
@@ -92,6 +98,7 @@ impl Window {
             base: ViewBase::new(bounds),
             frame,
             interior,
+            frame_children: Vec::new(),
             drag_offset: None,
             resize_start: None,
             min_size: (16, 6),
@@ -146,6 +153,28 @@ impl Window {
     /// Returns the [`ViewId`] of the added child.
     pub fn add(&mut self, child: Box<dyn View>) -> ViewId {
         self.interior.add(child)
+    }
+
+    /// Add a frame-level child (e.g. a scrollbar on the window border).
+    ///
+    /// Frame children are positioned **relative to the window bounds**
+    /// (not the interior). They are drawn on top of the frame but below
+    /// overlapping windows. Use this for scrollbars that sit on the border.
+    ///
+    /// Returns the [`ViewId`] of the added child.
+    pub fn add_frame_child(&mut self, mut child: Box<dyn View>) -> ViewId {
+        let id = child.id();
+        // Convert from relative-to-window to absolute coordinates
+        let wb = self.base.bounds();
+        let cb = child.bounds();
+        child.set_bounds(Rect::new(
+            wb.x + cb.x,
+            wb.y + cb.y,
+            cb.width,
+            cb.height,
+        ));
+        self.frame_children.push(child);
+        id
     }
 
     /// Get the number of child views in the interior.
@@ -218,14 +247,41 @@ impl Window {
         self.base.set_bounds(new_bounds);
         self.frame.set_bounds(new_bounds);
         self.update_interior_bounds();
+        // Shift frame children by the same delta
+        let dx = i32::from(x) - i32::from(bounds.x);
+        let dy = i32::from(y) - i32::from(bounds.y);
+        for child in &mut self.frame_children {
+            let cb = child.bounds();
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let new_x = (i32::from(cb.x) + dx).max(0) as u16;
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let new_y = (i32::from(cb.y) + dy).max(0) as u16;
+            child.set_bounds(Rect::new(new_x, new_y, cb.width, cb.height));
+        }
     }
 
     /// Resize the window to new dimensions.
     fn resize_to(&mut self, x: u16, y: u16, w: u16, h: u16) {
+        let old_bounds = self.base.bounds();
         let new_bounds = Rect::new(x, y, w, h);
         self.base.set_bounds(new_bounds);
         self.frame.set_bounds(new_bounds);
         self.update_interior_bounds();
+        // Reposition frame children based on new window bounds
+        // Frame children need to be shifted by position delta only
+        // (size changes are NOT propagated — no GrowMode)
+        let dx = i32::from(x) - i32::from(old_bounds.x);
+        let dy = i32::from(y) - i32::from(old_bounds.y);
+        if dx != 0 || dy != 0 {
+            for child in &mut self.frame_children {
+                let cb = child.bounds();
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let new_x = (i32::from(cb.x) + dx).max(0) as u16;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let new_y = (i32::from(cb.y) + dy).max(0) as u16;
+                child.set_bounds(Rect::new(new_x, new_y, cb.width, cb.height));
+            }
+        }
     }
 
     /// Update the interior group bounds to match the frame's interior.
@@ -313,12 +369,21 @@ impl View for Window {
 
         // 3. Draw interior children
         self.interior.draw(buf, interior_area);
+
+        // 4. Draw frame children (scrollbars on border)
+        let window_bounds = self.base.bounds();
+        for child in &self.frame_children {
+            if child.state() & SF_VISIBLE != 0{
+                child.draw(buf, window_bounds);
+            }
+        }
     }
 
     #[allow(
         clippy::cast_possible_wrap,
         clippy::cast_possible_truncation,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        clippy::too_many_lines
     )]
     fn handle_event(&mut self, event: &mut Event) {
         if event.is_cleared() {
@@ -335,10 +400,30 @@ impl View for Window {
                 let mouse_col = mouse.column;
                 let mouse_row = mouse.row;
 
+                // Route mouse events to frame children first (e.g. scrollbar clicks)
+                for fc in &mut self.frame_children {
+                    let fcb = fc.bounds();
+                    if mouse_col >= fcb.x
+                        && mouse_col < fcb.x + fcb.width
+                        && mouse_row >= fcb.y
+                        && mouse_row < fcb.y + fcb.height
+                    {
+                        fc.handle_event(event);
+                        if event.is_cleared() {
+                            return;
+                        }
+                    }
+                }
+
                 match mouse_kind {
                     MouseEventKind::Down(MouseButton::Left) => {
                         // First, let frame handle it (close button, drag/resize initiation)
                         self.frame.handle_event(event);
+
+                        // Close button: frame converts to CM_CLOSE command — let it bubble up
+                        if event.command_id() == Some(CM_CLOSE) {
+                            return;
+                        }
 
                         // Check if frame initiated drag
                         if self.frame.is_dragging() {
@@ -351,6 +436,7 @@ impl View for Window {
                             self.frame.clear_drag_resize();
                             let state = self.base.state();
                             self.base.set_state(state | SF_DRAGGING);
+                            self.frame.set_state(state | SF_DRAGGING);
                             event.clear();
                             return;
                         }
@@ -361,6 +447,7 @@ impl View for Window {
                             self.frame.clear_drag_resize();
                             let state = self.base.state();
                             self.base.set_state(state | SF_RESIZING);
+                            self.frame.set_state(state | SF_RESIZING);
                             event.clear();
                             return;
                         }
@@ -412,6 +499,7 @@ impl View for Window {
                         if self.base.state() & (SF_DRAGGING | SF_RESIZING) != 0 {
                             let state = self.base.state();
                             self.base.set_state(state & !SF_DRAGGING & !SF_RESIZING);
+                            self.frame.set_state(state & !SF_DRAGGING & !SF_RESIZING);
                             self.drag_offset = None;
                             self.resize_start = None;
                             event.clear();
@@ -681,8 +769,8 @@ mod tests {
 
         // Mouse down on resize handle (bottom-right)
         // Window bounds: x=10, y=5, width=20, height=10
-        // Resize handle: columns 28-29, row 14
-        let mut event = make_mouse_down(28, 14);
+        // Resize handle: column 29 (x + width - 1), row 14
+        let mut event = make_mouse_down(29, 14);
         w.handle_event(&mut event);
 
         // Window should be in resize state
@@ -749,5 +837,41 @@ mod tests {
     fn test_window_with_frame_type() {
         let w = Window::with_frame_type(Rect::new(0, 0, 20, 10), "Dialog", FrameType::Dialog);
         assert_eq!(w.frame.frame_type(), FrameType::Dialog);
+    }
+
+    #[test]
+    fn test_window_move_propagates_to_children() {
+        let mut w = Window::new(Rect::new(10, 10, 30, 15), "Test");
+        // Add child at relative (2, 1, 10, 3) — becomes absolute interior coords
+        w.add(Box::new(TestChild::new(Rect::new(2, 1, 10, 3))));
+
+        // Interior is at (11, 11) with size (28, 13)
+        // So child should be at absolute (11+2, 11+1) = (13, 12)
+        let child_bounds_before = w.interior.child_at(0).unwrap().bounds();
+        assert_eq!(child_bounds_before, Rect::new(13, 12, 10, 3));
+
+        // Move window by (+5, +3)
+        w.move_to(15, 13);
+
+        // Child should have moved by the same delta
+        let child_bounds_after = w.interior.child_at(0).unwrap().bounds();
+        assert_eq!(child_bounds_after, Rect::new(18, 15, 10, 3));
+    }
+
+    #[test]
+    fn test_window_resize_propagates_to_children() {
+        let mut w = Window::new(Rect::new(10, 10, 30, 15), "Test");
+        w.add(Box::new(TestChild::new(Rect::new(0, 0, 10, 3))));
+
+        // Child at absolute (11, 11, 10, 3) — interior origin is (11, 11)
+        let child_bounds_before = w.interior.child_at(0).unwrap().bounds();
+        assert_eq!(child_bounds_before, Rect::new(11, 11, 10, 3));
+
+        // Resize window (position stays same, size changes) — no position delta
+        w.resize_to(10, 10, 40, 20);
+
+        // Child position should NOT change (only position delta matters, not size delta)
+        let child_bounds_after = w.interior.child_at(0).unwrap().bounds();
+        assert_eq!(child_bounds_after, Rect::new(11, 11, 10, 3));
     }
 }

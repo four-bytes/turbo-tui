@@ -179,9 +179,8 @@ impl StatusLine {
         }
 
         // Get theme styles
-        let (style, hotkey_style, selected_style) = theme::with_current(|t| {
-            (t.status_normal, t.status_hotkey, t.status_selected)
-        });
+        let (style, hotkey_style, selected_style) =
+            theme::with_current(|t| (t.status_normal, t.status_hotkey, t.status_selected));
 
         // Clear the line
         for x in area.left()..area.right() {

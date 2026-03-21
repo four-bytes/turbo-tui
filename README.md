@@ -17,7 +17,7 @@ Overlapping windows, modal dialogs, dropdown menus, and more — all rendering t
 
 ## Status
 
-🚧 **Early Development** — Command system implemented, more coming.
+🟢 **v0.1.0 — Core Complete** — All 12 widget modules implemented, 157 tests passing.
 
 ## Quick Start
 
@@ -45,15 +45,15 @@ Application (yours)
 ## Roadmap
 
 1. ✅ Command System (`command.rs`)
-2. ⬜ View Trait + ViewId
-3. ⬜ Group Container
-4. ⬜ Frame + Window
-5. ⬜ Desktop
-6. ⬜ Dialog + MessageBox
-7. ⬜ MenuBar
-8. ⬜ StatusLine
-9. ⬜ Scrollbar
-10. ⬜ Button + InputLine
+2. ✅ View Trait + ViewId (`view.rs`)
+3. ✅ Group Container (`group.rs`)
+4. ✅ Frame + Window (`frame.rs`, `window.rs`)
+5. ✅ Desktop (`desktop.rs`)
+6. ✅ Dialog + MessageBox (`dialog.rs`, `msgbox.rs`)
+7. ✅ MenuBar (`menu_bar.rs`, `menu_box.rs`)
+8. ✅ StatusLine (`status_line.rs`)
+9. ✅ Scrollbar (`scrollbar.rs`)
+10. ✅ Button + StaticText (`button.rs`, `static_text.rs`)
 
 ## Inspiration
 

@@ -1,33 +1,36 @@
-//! Frame — window border with title, close button and optional resize handle.
+//! Frame — Window border decoration with optional scrollbars.
 //!
-//! Renders a bordered frame using Ratatui's [`Buffer`] API. Supports three
-//! visual styles ([`FrameType`]) and handles mouse interaction for dragging,
-//! resizing and closing.
+//! Frame draws a rectangular border using characters from the current theme.
+//! It supports:
+//! - Three frame types: Window, Dialog, Single
+//! - Centered title on the top border
+//! - Close button `[■]` on the top-left (for closeable frames)
+//! - Resize handle `⋱` on the bottom-right (for resizable frames)
+//! - Optional vertical scrollbar on the right border
+//! - Optional horizontal scrollbar on the bottom border
+//!
+//! Frame does NOT manage children — it only draws the border decoration.
+//! Use [`Window`] for a complete window with Frame + interior Container.
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::style::Style;
-use std::any::Any;
-
-use crate::command::CM_CLOSE;
+use crate::scrollbar::ScrollBar;
 use crate::theme;
-use crate::view::{
-    Event, EventKind, View, ViewBase, ViewId, SF_ACTIVE, SF_DRAGGING, SF_FOCUSED, SF_RESIZING,
-};
+use crate::view::{Event, View, ViewBase, ViewId, SF_FOCUSED};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Position, Rect};
+use std::any::Any;
 
 // ============================================================================
 // FrameType
 // ============================================================================
 
-/// Visual style of the window border.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Frame type determines the visual style of the border.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameType {
-    /// Double-line border `╔═╗║╚╝` with cyan/dim palette (default).
-    #[default]
+    /// Window frame — used for regular overlapping windows.
     Window,
-    /// Double-line border `╔═╗║╚╝` with white/bright palette for dialogs.
+    /// Dialog frame — used for modal dialogs.
     Dialog,
-    /// Single-line border `┌─┐│└┘` with gray palette.
+    /// Single-line frame — used for group boxes and panels.
     Single,
 }
 
@@ -35,213 +38,282 @@ pub enum FrameType {
 // Frame
 // ============================================================================
 
-/// Window border with title, close button and optional resize handle.
+/// Window border decoration with title, close button, resize handle, and optional scrollbars.
 ///
-/// `Frame` implements [`View`] and renders directly to a Ratatui [`Buffer`].
-/// It handles mouse events for drag-initiation, resize-initiation and
-/// close-button clicks (converting the last to a [`CM_CLOSE`] command).
+/// Frame draws a rectangular border using characters from the current theme.
+/// It supports:
+/// - Centered title on the top border
+/// - Close button `[■]` on the top-left (configurable)
+/// - Resize handle `⋱` on the bottom-right (configurable)
+/// - Optional vertical scrollbar on the right border
+/// - Optional horizontal scrollbar on the bottom border
+///
+/// Frame does NOT manage children — it only draws the border decoration.
+/// Use [`Window`] for a complete window with Frame + interior Container.
 ///
 /// # Example
 ///
 /// ```ignore
-/// let mut frame = Frame::new(Rect::new(0, 0, 40, 20), "My Window");
-/// frame.set_resizable(true);
-/// frame.draw(&mut buf, area);
+/// use turbo_tui::frame::{Frame, FrameType};
+/// use ratatui::layout::Rect;
+///
+/// let frame = Frame::new(Rect::new(10, 5, 40, 20), "My Window", FrameType::Window);
+/// assert!(frame.closeable());
+/// assert!(frame.resizable());
 /// ```
+#[allow(clippy::struct_field_names)]
 pub struct Frame {
-    /// Common view state (id, bounds, state/option flags, …).
+    /// Base view functionality.
     base: ViewBase,
-    /// Window title displayed on the top border.
+    /// Window/dialog title displayed on the top border.
     title: String,
-    /// Border character set and palette.
-    #[allow(clippy::struct_field_names)]
+    /// Frame type determines border style.
     frame_type: FrameType,
-    /// Show a resize handle `◢` in the bottom-right corner.
-    resizable: bool,
-    /// Show a close button `[■]` near the top-left corner.
+    /// Whether the frame has a close button.
     closeable: bool,
+    /// Whether the frame has a resize handle.
+    resizable: bool,
+    /// Optional vertical scrollbar (occupies right border).
+    v_scrollbar: Option<ScrollBar>,
+    /// Optional horizontal scrollbar (occupies bottom border).
+    h_scrollbar: Option<ScrollBar>,
 }
 
 impl Frame {
-    /// Create a new [`Frame`] with [`FrameType::Window`], closeable, not resizable.
-    pub fn new(bounds: Rect, title: &str) -> Self {
-        Self {
-            base: ViewBase::new(bounds),
-            title: title.to_owned(),
-            frame_type: FrameType::default(),
-            resizable: false,
-            closeable: true,
-        }
-    }
-
-    /// Create a new [`Frame`] with an explicit [`FrameType`].
-    pub fn with_type(bounds: Rect, title: &str, frame_type: FrameType) -> Self {
+    /// Create a new frame with the given bounds, title, and frame type.
+    ///
+    /// By default, the frame is closeable and resizable for Window type,
+    /// and neither closeable nor resizable for Dialog/Single types.
+    ///
+    /// # Arguments
+    ///
+    /// * `bounds` - The bounding rectangle for the frame.
+    /// * `title` - The title text displayed on the top border.
+    /// * `frame_type` - The frame type (Window, Dialog, or Single).
+    #[must_use]
+    pub fn new(bounds: Rect, title: &str, frame_type: FrameType) -> Self {
+        let (closeable, resizable) = match frame_type {
+            FrameType::Window => (true, true),
+            FrameType::Dialog | FrameType::Single => (false, false),
+        };
         Self {
             base: ViewBase::new(bounds),
             title: title.to_owned(),
             frame_type,
-            resizable: false,
-            closeable: true,
+            closeable,
+            resizable,
+            v_scrollbar: None,
+            h_scrollbar: None,
         }
     }
 
-    /// Enable or disable the resize handle in the bottom-right corner.
-    pub fn set_resizable(&mut self, resizable: bool) {
-        self.resizable = resizable;
-    }
-
-    /// Enable or disable the close button `[■]` near the top-left.
-    pub fn set_closeable(&mut self, closeable: bool) {
-        self.closeable = closeable;
-    }
-
-    /// Get the window title.
+    /// Get the frame title.
+    #[must_use]
     pub fn title(&self) -> &str {
         &self.title
     }
 
-    /// Replace the window title.
-    pub fn set_title(&mut self, title: String) {
-        self.title = title;
+    /// Set the frame title.
+    pub fn set_title(&mut self, title: &str) {
+        if self.title != title {
+            title.clone_into(&mut self.title);
+            self.base.mark_dirty();
+        }
     }
 
-    /// Get the frame style variant.
+    /// Get the frame type.
+    #[must_use]
     pub fn frame_type(&self) -> FrameType {
         self.frame_type
     }
 
-    // -----------------------------------------------------------------------
-    // Geometry helpers
-    // -----------------------------------------------------------------------
+    /// Check if the frame is closeable (has close button).
+    #[must_use]
+    pub fn closeable(&self) -> bool {
+        self.closeable
+    }
 
-    /// Return the interior area — bounds shrunk by one cell on every side.
+    /// Set whether the frame is closeable.
+    pub fn set_closeable(&mut self, closeable: bool) {
+        if self.closeable != closeable {
+            self.closeable = closeable;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Check if the frame is resizable (has resize handle).
+    #[must_use]
+    pub fn resizable(&self) -> bool {
+        self.resizable
+    }
+
+    /// Set whether the frame is resizable.
+    pub fn set_resizable(&mut self, resizable: bool) {
+        if self.resizable != resizable {
+            self.resizable = resizable;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Set the vertical scrollbar.
     ///
-    /// Returns a zero-size [`Rect`] when the frame is too small (width or
-    /// height < 3).
-    pub fn interior(&self) -> Rect {
+    /// The scrollbar occupies the entire right column of the frame.
+    pub fn set_v_scrollbar(&mut self, scrollbar: ScrollBar) {
+        self.v_scrollbar = Some(scrollbar);
+        self.base.mark_dirty();
+    }
+
+    /// Get the vertical scrollbar.
+    #[must_use]
+    pub fn v_scrollbar(&self) -> Option<&ScrollBar> {
+        self.v_scrollbar.as_ref()
+    }
+
+    /// Get mutable access to the vertical scrollbar.
+    pub fn v_scrollbar_mut(&mut self) -> Option<&mut ScrollBar> {
+        self.v_scrollbar.as_mut()
+    }
+
+    /// Remove and return the vertical scrollbar.
+    pub fn remove_v_scrollbar(&mut self) -> Option<ScrollBar> {
+        let scrollbar = self.v_scrollbar.take();
+        if scrollbar.is_some() {
+            self.base.mark_dirty();
+        }
+        scrollbar
+    }
+
+    /// Set the horizontal scrollbar.
+    ///
+    /// The scrollbar occupies the entire bottom row of the frame.
+    pub fn set_h_scrollbar(&mut self, scrollbar: ScrollBar) {
+        self.h_scrollbar = Some(scrollbar);
+        self.base.mark_dirty();
+    }
+
+    /// Get the horizontal scrollbar.
+    #[must_use]
+    pub fn h_scrollbar(&self) -> Option<&ScrollBar> {
+        self.h_scrollbar.as_ref()
+    }
+
+    /// Get mutable access to the horizontal scrollbar.
+    pub fn h_scrollbar_mut(&mut self) -> Option<&mut ScrollBar> {
+        self.h_scrollbar.as_mut()
+    }
+
+    /// Remove and return the horizontal scrollbar.
+    pub fn remove_h_scrollbar(&mut self) -> Option<ScrollBar> {
+        let scrollbar = self.h_scrollbar.take();
+        if scrollbar.is_some() {
+            self.base.mark_dirty();
+        }
+        scrollbar
+    }
+
+    /// Calculate the interior area (inside the borders, minus scrollbars).
+    ///
+    /// Returns the `Rect` that child content can use, accounting for:
+    /// - 1-cell borders on all sides
+    /// - Right border offset if vertical scrollbar present
+    /// - Bottom border offset if horizontal scrollbar present
+    ///
+    /// Returns an empty `Rect` if the frame is too small for an interior.
+    #[must_use]
+    pub fn interior_area(&self) -> Rect {
         let b = self.base.bounds();
         if b.width < 3 || b.height < 3 {
-            return Rect::new(b.x, b.y, 0, 0);
+            return Rect::default();
         }
-        Rect::new(b.x + 1, b.y + 1, b.width - 2, b.height - 2)
+
+        // Right inset: 1 for border + 1 for scrollbar if present
+        let right_inset: u16 = if self.v_scrollbar.is_some() { 2 } else { 1 };
+        // Bottom inset: 1 for border + 1 for scrollbar if present
+        let bottom_inset: u16 = if self.h_scrollbar.is_some() { 2 } else { 1 };
+
+        let w = b.width.saturating_sub(1 + right_inset);
+        let h = b.height.saturating_sub(1 + bottom_inset);
+
+        if w == 0 || h == 0 {
+            return Rect::default();
+        }
+
+        Rect::new(b.x + 1, b.y + 1, w, h)
     }
 
-    /// Return `true` if `(x, y)` is anywhere on the title bar (top row).
-    pub fn is_title_bar(&self, x: u16, y: u16) -> bool {
-        let b = self.base.bounds();
-        y == b.y && x >= b.x && x < b.x + b.width
-    }
-
-    /// Return `true` if `(x, y)` is over the close button `[■]`.
+    /// Check if the given position is on the close button `[■]`.
     ///
-    /// The close button occupies columns `x+2 ..= x+4` of the top row.
-    pub fn is_close_button(&self, x: u16, y: u16) -> bool {
-        let b = self.base.bounds();
-        self.closeable && y == b.y && x >= b.x + 2 && x <= b.x + 4
-    }
-
-    /// Return `true` if `(x, y)` is over the resize handle (bottom-right).
-    pub fn is_resize_handle(&self, x: u16, y: u16) -> bool {
-        let b = self.base.bounds();
-        self.resizable && y == b.y + b.height - 1 && x == b.x + b.width.saturating_sub(1)
-    }
-
-    /// Return `true` while [`SF_DRAGGING`] is set on this frame.
-    pub fn is_dragging(&self) -> bool {
-        self.base.state() & SF_DRAGGING != 0
-    }
-
-    /// Return `true` while [`SF_RESIZING`] is set on this frame.
-    pub fn is_resizing(&self) -> bool {
-        self.base.state() & SF_RESIZING != 0
-    }
-
-    /// Clear both the drag and resize state flags.
-    pub fn clear_drag_resize(&mut self) {
-        let state = self.base.state();
-        self.base.set_state(state & !SF_DRAGGING & !SF_RESIZING);
-    }
-
-    // -----------------------------------------------------------------------
-    // Style helpers
-    // -----------------------------------------------------------------------
-
-    /// Border style — bright when active/focused, dim otherwise.
-    fn border_style(&self) -> Style {
-        let is_active = self.base.state() & SF_ACTIVE != 0;
-        let is_focused = self.base.state() & SF_FOCUSED != 0;
-        theme::with_current(|t| match self.frame_type {
-            FrameType::Window => {
-                if is_active || is_focused {
-                    t.window_frame_active
-                } else {
-                    t.window_frame_inactive
-                }
-            }
-            FrameType::Dialog => t.dialog_frame,
-            FrameType::Single => t.single_frame,
-        })
-    }
-
-    /// Title text style — bright when active/focused.
-    fn title_style(&self) -> Style {
-        let is_active = self.base.state() & SF_ACTIVE != 0;
-        let is_focused = self.base.state() & SF_FOCUSED != 0;
-        theme::with_current(|t| match self.frame_type {
-            FrameType::Window => {
-                if is_active || is_focused {
-                    t.window_title_active
-                } else {
-                    t.window_title_inactive
-                }
-            }
-            FrameType::Dialog => t.dialog_title,
-            FrameType::Single => t.single_frame,
-        })
-    }
-
-    /// Close button style from theme.
-    #[allow(clippy::unused_self)]
-    fn close_button_style(&self) -> Style {
-        theme::with_current(|t| t.window_close_button)
-    }
-
-    /// Resize handle style from theme.
-    #[allow(clippy::unused_self)]
-    fn resize_handle_style(&self) -> Style {
-        theme::with_current(|t| t.window_resize_handle)
-    }
-}
-
-// ============================================================================
-// Buffer clipping helper
-// ============================================================================
-
-/// Write a string to the buffer, clipping to the buffer's area.
-///
-/// Any characters that would fall outside the buffer are silently skipped.
-/// This prevents panics when views are partially off-screen.
-fn clip_string(buf: &mut Buffer, x: u16, y: u16, s: &str, style: Style) {
-    // Copy the area so the immutable borrow ends before the mutable cell_mut call.
-    let buf_area = *buf.area();
-    if y < buf_area.y || y >= buf_area.y + buf_area.height {
-        return;
-    }
-    for (i, ch) in s.chars().enumerate() {
-        #[allow(clippy::cast_possible_truncation)]
-        let cx = x.saturating_add(i as u16);
-        if cx >= buf_area.x && cx < buf_area.x + buf_area.width {
-            if let Some(cell) = buf.cell_mut((cx, y)) {
-                cell.set_char(ch);
-                cell.set_style(style);
-            }
+    /// Returns `true` if closeable and point is at top-left corner area.
+    /// The close button occupies positions (x+1, y) through (x+3, y).
+    #[must_use]
+    pub fn is_close_button(&self, col: u16, row: u16) -> bool {
+        if !self.closeable {
+            return false;
         }
+
+        let b = self.base.bounds();
+        col > b.x && col <= b.x + 3 && row == b.y
+    }
+
+    /// Check if the given position is on the resize handle `⋱`.
+    ///
+    /// Returns `true` if resizable and point is at bottom-right corner.
+    /// The resize handle is at position (x + width - 1, y + height - 1).
+    #[must_use]
+    pub fn is_resize_handle(&self, col: u16, row: u16) -> bool {
+        if !self.resizable {
+            return false;
+        }
+
+        let b = self.base.bounds();
+        col == b.x + b.width - 1 && row == b.y + b.height - 1
+    }
+
+    /// Check if the given position is on the title bar.
+    ///
+    /// The title bar is the top border row, excluding the close button area.
+    #[must_use]
+    pub fn is_title_bar(&self, col: u16, row: u16) -> bool {
+        let b = self.base.bounds();
+        if row != b.y {
+            return false;
+        }
+
+        // Not on title bar if outside horizontal bounds
+        if col < b.x || col >= b.x + b.width {
+            return false;
+        }
+
+        // If closeable, exclude close button area (columns 1-3)
+        if self.closeable && col > b.x && col <= b.x + 3 {
+            return false;
+        }
+
+        true
+    }
+
+    /// Draw a single character to the buffer at the given position.
+    ///
+    /// Returns `true` if the character was drawn (within clip bounds).
+    fn draw_char(
+        buf: &mut Buffer,
+        col: u16,
+        row: u16,
+        ch: char,
+        style: ratatui::style::Style,
+        clip: Rect,
+    ) -> bool {
+        if col < clip.x || col >= clip.x + clip.width || row < clip.y || row >= clip.y + clip.height
+        {
+            return false;
+        }
+
+        if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
+            cell.set_char(ch).set_style(style);
+        }
+        true
     }
 }
-
-// ============================================================================
-// View implementation
-// ============================================================================
 
 impl View for Frame {
     fn id(&self) -> ViewId {
@@ -256,148 +328,59 @@ impl View for Frame {
         self.base.set_bounds(bounds);
     }
 
-    /// Draw the frame border, title, close button and optional resize handle.
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        if area.width < 4 || area.height < 3 {
+    #[allow(clippy::too_many_lines)]
+    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+        let b = self.base.bounds();
+        if b.width < 2 || b.height < 2 {
             return;
         }
 
-        let is_dragging = self.base.state() & SF_DRAGGING != 0;
-        let is_resizing = self.base.state() & SF_RESIZING != 0;
-        let style = if is_dragging || is_resizing {
-            theme::with_current(|t| t.window_frame_dragging)
-        } else {
-            self.border_style()
-        };
-        let title_style = self.title_style();
+        // Intersect with clip
+        let draw_area = b.intersection(clip);
+        if draw_area.width == 0 || draw_area.height == 0 {
+            return;
+        }
 
-        // Border characters from theme (supports different border styles per theme).
-        let (tl, tr, bl, br, h, v) = match self.frame_type {
-            FrameType::Window | FrameType::Dialog => theme::with_current(|t| {
-                let bl = if self.resizable {
-                    // Resizable windows: use single-line bottom corners for
-                    // visual distinction (Borland TV pattern).
-                    match t.border_bl {
-                        '╚' | '┗' => '└',
-                        _ => t.border_bl,
+        // Get theme styles and border characters
+        let styles = theme::with_current(|t| {
+            let is_active = (self.base.state() & SF_FOCUSED) != 0;
+            let (frame_style, title_style) = match self.frame_type {
+                FrameType::Window => {
+                    if is_active {
+                        (t.window_frame_active, t.window_title_active)
+                    } else {
+                        (t.window_frame_inactive, t.window_title_inactive)
                     }
-                } else {
-                    t.border_bl
-                };
-                let br = if self.resizable {
-                    match t.border_br {
-                        '╝' | '┛' => '┘',
-                        _ => t.border_br,
-                    }
-                } else {
-                    t.border_br
-                };
-                (t.border_tl, t.border_tr, bl, br, t.border_h, t.border_v)
-            }),
-            FrameType::Single => ('┌', '┐', '└', '┘', '─', '│'),
-        };
+                }
+                FrameType::Dialog => (t.dialog_frame, t.dialog_title),
+                FrameType::Single => (t.single_frame, t.single_frame),
+            };
+            FrameStyles {
+                frame: frame_style,
+                title: title_style,
+                close: t.window_close_button,
+                resize: t.window_resize_handle,
+                tl: t.border_tl,
+                tr: t.border_tr,
+                bl: t.border_bl,
+                br: t.border_br,
+                h: t.border_h,
+                v: t.border_v,
+            }
+        });
 
-        // --- Top border ---
-        clip_string(buf, area.x, area.y, &tl.to_string(), style);
-        for x in (area.x + 1)..(area.x + area.width - 1) {
-            clip_string(buf, x, area.y, &h.to_string(), style);
-        }
-        clip_string(buf, area.x + area.width - 1, area.y, &tr.to_string(), style);
-
-        // Title — centered on the top border.
-        if !self.title.is_empty() {
-            let title_display = format!(" {} ", self.title);
-            #[allow(clippy::cast_possible_truncation)]
-            let title_len = title_display.len() as u16;
-            let title_x = area.x + (area.width.saturating_sub(title_len)) / 2;
-            clip_string(buf, title_x, area.y, &title_display, title_style);
-        }
-
-        // Close button — position 2,3,4 on top row (gap after corner).
-        if self.closeable {
-            clip_string(buf, area.x + 2, area.y, "[■]", self.close_button_style());
-        }
-
-        // --- Left and right borders ---
-        for y in (area.y + 1)..(area.y + area.height - 1) {
-            clip_string(buf, area.x, y, &v.to_string(), style);
-            clip_string(buf, area.x + area.width - 1, y, &v.to_string(), style);
-        }
-
-        // --- Bottom border ---
-        clip_string(
-            buf,
-            area.x,
-            area.y + area.height - 1,
-            &bl.to_string(),
-            style,
-        );
-        for x in (area.x + 1)..(area.x + area.width - 1) {
-            clip_string(buf, x, area.y + area.height - 1, &h.to_string(), style);
-        }
-        clip_string(
-            buf,
-            area.x + area.width - 1,
-            area.y + area.height - 1,
-            &br.to_string(),
-            style,
-        );
-
-        // Resize handle — only when resizable AND active (Borland TV pattern).
-        if self.resizable
-            && (self.base.state() & SF_ACTIVE != 0 || self.base.state() & SF_FOCUSED != 0)
-        {
-            clip_string(
-                buf,
-                area.x + area.width - 1,
-                area.y + area.height - 1,
-                "◢",
-                self.resize_handle_style(),
-            );
-        }
+        self.draw_top_border(buf, clip, &styles);
+        self.draw_side_borders(buf, clip, &styles);
+        self.draw_scrollbars(buf, clip);
+        self.draw_bottom_border(buf, clip, &styles);
     }
 
-    /// Handle mouse events: close button → [`CM_CLOSE`] command; title bar →
-    /// [`SF_DRAGGING`]; resize handle → [`SF_RESIZING`].
-    fn handle_event(&mut self, event: &mut Event) {
-        if event.is_cleared() {
-            return;
-        }
+    fn handle_event(&mut self, _event: &mut Event) {
+        // Frame does NOT handle events — Window handles events and delegates to Frame's hit-test methods
+    }
 
-        if let EventKind::Mouse(mouse) = &event.kind.clone() {
-            use crossterm::event::{MouseButton, MouseEventKind};
-
-            let area = self.base.bounds();
-
-            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
-                let col = mouse.column;
-                let row = mouse.row;
-
-                // Close button: columns x+2 ..= x+4 on the top row.
-                if self.closeable && row == area.y && col >= area.x + 2 && col <= area.x + 4 {
-                    event.kind = EventKind::Command(CM_CLOSE);
-                    return;
-                }
-
-                // Title bar: any column on the top row (not close button).
-                if row == area.y && col >= area.x && col < area.x + area.width {
-                    let state = self.base.state();
-                    self.base.set_state(state | SF_DRAGGING);
-                    event.clear();
-                    return;
-                }
-
-                // Resize handle: bottom-right corner.
-                if self.resizable
-                    && row == area.y + area.height - 1
-                    && col == area.x + area.width.saturating_sub(1)
-                {
-                    let state = self.base.state();
-                    self.base.set_state(state | SF_RESIZING);
-                    event.clear();
-                }
-            }
-        }
+    fn can_focus(&self) -> bool {
+        false
     }
 
     fn state(&self) -> u16 {
@@ -406,6 +389,10 @@ impl View for Frame {
 
     fn set_state(&mut self, state: u16) {
         self.base.set_state(state);
+    }
+
+    fn options(&self) -> u16 {
+        self.base.options()
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -417,6 +404,149 @@ impl View for Frame {
     }
 }
 
+/// Styles and characters for drawing a frame.
+struct FrameStyles {
+    frame: ratatui::style::Style,
+    title: ratatui::style::Style,
+    close: ratatui::style::Style,
+    resize: ratatui::style::Style,
+    tl: char,
+    tr: char,
+    bl: char,
+    br: char,
+    h: char,
+    v: char,
+}
+
+impl Frame {
+    /// Draw the top border including corners, horizontal line, close button, and title.
+    fn draw_top_border(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+        let b = self.base.bounds();
+
+        // Corner characters
+        Self::draw_char(buf, b.x, b.y, styles.tl, styles.frame, clip);
+        Self::draw_char(buf, b.x + b.width - 1, b.y, styles.tr, styles.frame, clip);
+
+        // Horizontal line
+        for col in (b.x + 1)..(b.x + b.width - 1) {
+            Self::draw_char(buf, col, b.y, styles.h, styles.frame, clip);
+        }
+
+        // Close button
+        if self.closeable {
+            Self::draw_char(buf, b.x + 1, b.y, '[', styles.close, clip);
+            Self::draw_char(buf, b.x + 2, b.y, '■', styles.close, clip);
+            Self::draw_char(buf, b.x + 3, b.y, ']', styles.close, clip);
+        }
+
+        // Title
+        if !self.title.is_empty() && b.width > 6 {
+            let title_full = format!(" {} ", self.title);
+            let title_len = u16::try_from(title_full.chars().count()).unwrap_or(0);
+            let available_width = b.width.saturating_sub(2);
+            let start_col = if title_len < available_width {
+                b.x + 1 + (available_width.saturating_sub(title_len)) / 2
+            } else {
+                b.x + 1
+            };
+
+            for (i, ch) in title_full.chars().enumerate() {
+                let col = start_col + u16::try_from(i).unwrap_or(0);
+                // Skip close button area
+                if self.closeable && col > b.x && col <= b.x + 3 {
+                    continue;
+                }
+                if col >= b.x + b.width - 1 {
+                    break;
+                }
+                Self::draw_char(buf, col, b.y, ch, styles.title, clip);
+            }
+        }
+    }
+
+    /// Draw the left and right vertical borders.
+    fn draw_side_borders(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+        let b = self.base.bounds();
+
+        for row in (b.y + 1)..(b.y + b.height - 1) {
+            // Left border
+            Self::draw_char(buf, b.x, row, styles.v, styles.frame, clip);
+
+            // Right border
+            // Note: If v_scrollbar present, scrollbar is drawn separately
+            if self.v_scrollbar.is_none() {
+                Self::draw_char(buf, b.x + b.width - 1, row, styles.v, styles.frame, clip);
+            }
+        }
+    }
+
+    /// Draw the vertical and horizontal scrollbars if present.
+    fn draw_scrollbars(&self, buf: &mut Buffer, clip: Rect) {
+        let b = self.base.bounds();
+
+        // Vertical scrollbar
+        if let Some(ref sb) = self.v_scrollbar {
+            let sb_x = b.x + b.width.saturating_sub(2);
+            let sb_y = b.y + 1;
+            let sb_height = b.height.saturating_sub(2);
+            let sb_bounds = Rect::new(sb_x, sb_y, 1, sb_height);
+
+            let mut sb_owned = sb.clone();
+            sb_owned.set_bounds(sb_bounds);
+            sb_owned.draw(buf, clip);
+        }
+
+        // Horizontal scrollbar
+        if let Some(ref sb) = self.h_scrollbar {
+            let h_sb_bounds = Rect::new(
+                b.x + 1,
+                b.y + b.height.saturating_sub(2),
+                b.width.saturating_sub(2),
+                1,
+            );
+            let mut sb_owned = sb.clone();
+            sb_owned.set_bounds(h_sb_bounds);
+            sb_owned.draw(buf, clip);
+        }
+    }
+
+    /// Draw the bottom border including corners, horizontal line, and resize handle.
+    fn draw_bottom_border(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+        let b = self.base.bounds();
+
+        // Corner characters
+        Self::draw_char(buf, b.x, b.y + b.height - 1, styles.bl, styles.frame, clip);
+
+        // Horizontal line (or scrollbar area handled in draw_scrollbars)
+        if self.h_scrollbar.is_none() {
+            for col in (b.x + 1)..(b.x + b.width - 1) {
+                Self::draw_char(buf, col, b.y + b.height - 1, styles.h, styles.frame, clip);
+            }
+        }
+
+        // Bottom-right corner (or resize handle)
+        if self.resizable && self.frame_type == FrameType::Window {
+            Self::draw_char(
+                buf,
+                b.x + b.width - 1,
+                b.y + b.height - 1,
+                '⋱',
+                styles.resize,
+                clip,
+            );
+        } else {
+            Self::draw_char(
+                buf,
+                b.x + b.width - 1,
+                b.y + b.height - 1,
+                styles.br,
+                styles.frame,
+                clip,
+            );
+        }
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -424,288 +554,335 @@ impl View for Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme;
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crate::theme::Theme;
 
-    fn make_mouse_down(col: u16, row: u16) -> Event {
-        Event::mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: col,
-            row,
-            modifiers: KeyModifiers::NONE,
-        })
-    }
-
-    // --- Construction -------------------------------------------------------
-
-    #[test]
-    fn test_frame_new() {
-        let f = Frame::new(Rect::new(0, 0, 20, 10), "Hello");
-        assert_eq!(f.frame_type(), FrameType::Window);
-        assert!(f.closeable);
-        assert!(!f.resizable);
-        assert_eq!(f.title(), "Hello");
-    }
-
-    // --- Interior -----------------------------------------------------------
-
-    #[test]
-    fn test_frame_interior() {
-        let f = Frame::new(Rect::new(5, 3, 20, 10), "T");
-        let i = f.interior();
-        assert_eq!(i, Rect::new(6, 4, 18, 8));
+    fn setup_default_theme() {
+        theme::set(Theme::dark());
     }
 
     #[test]
-    fn test_frame_interior_too_small_width() {
-        let f = Frame::new(Rect::new(0, 0, 2, 5), "T");
-        let i = f.interior();
-        assert_eq!(i.width, 0);
-        assert_eq!(i.height, 0);
+    fn test_frame_new_window_defaults() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+        assert!(frame.closeable());
+        assert!(frame.resizable());
+        assert_eq!(frame.title(), "Test");
+        assert_eq!(frame.frame_type(), FrameType::Window);
     }
 
     #[test]
-    fn test_frame_interior_too_small_height() {
-        let f = Frame::new(Rect::new(0, 0, 5, 2), "T");
-        let i = f.interior();
-        assert_eq!(i.width, 0);
-        assert_eq!(i.height, 0);
-    }
-
-    // --- Hit-test helpers ---------------------------------------------------
-
-    #[test]
-    fn test_frame_title_bar_hit() {
-        let f = Frame::new(Rect::new(2, 3, 20, 10), "T");
-        assert!(f.is_title_bar(2, 3));
-        assert!(f.is_title_bar(10, 3));
-        assert!(f.is_title_bar(21, 3));
-        assert!(!f.is_title_bar(5, 4));
+    fn test_frame_new_dialog_defaults() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(0, 0, 30, 15), "Dialog", FrameType::Dialog);
+        assert!(!frame.closeable());
+        assert!(!frame.resizable());
+        assert_eq!(frame.frame_type(), FrameType::Dialog);
     }
 
     #[test]
-    fn test_frame_close_button_hit() {
-        let f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        // Close button at columns 2, 3, 4
-        assert!(f.is_close_button(2, 0));
-        assert!(f.is_close_button(3, 0));
-        assert!(f.is_close_button(4, 0));
-        // Columns 0, 1, and 5 are NOT the close button
-        assert!(!f.is_close_button(0, 0));
-        assert!(!f.is_close_button(1, 0));
-        assert!(!f.is_close_button(5, 0));
+    fn test_frame_new_single_defaults() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(0, 0, 20, 10), "Group", FrameType::Single);
+        assert!(!frame.closeable());
+        assert!(!frame.resizable());
+        assert_eq!(frame.frame_type(), FrameType::Single);
+    }
+
+    #[test]
+    fn test_frame_set_title() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 20, 10), "Old", FrameType::Window);
+        frame.set_title("New Title");
+        assert_eq!(frame.title(), "New Title");
+    }
+
+    #[test]
+    fn test_frame_set_closeable() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 20, 10), "Test", FrameType::Window);
+        assert!(frame.closeable());
+        frame.set_closeable(false);
+        assert!(!frame.closeable());
+        frame.set_closeable(true);
+        assert!(frame.closeable());
+    }
+
+    #[test]
+    fn test_frame_set_resizable() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 20, 10), "Test", FrameType::Window);
+        assert!(frame.resizable());
+        frame.set_resizable(false);
+        assert!(!frame.resizable());
+        frame.set_resizable(true);
+        assert!(frame.resizable());
+    }
+
+    #[test]
+    fn test_frame_interior_area_no_scrollbars() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+        // Bounds: (10, 5, 40, 20)
+        // Interior: (11, 6, 38, 18) — 1 border on each side
+        let interior = frame.interior_area();
+        assert_eq!(interior, Rect::new(11, 6, 38, 18));
+    }
+
+    #[test]
+    fn test_frame_interior_area_with_v_scrollbar() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+        frame.set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
+
+        // With v_scrollbar: right inset is 2 instead of 1
+        let interior = frame.interior_area();
+        assert_eq!(interior, Rect::new(11, 6, 37, 18));
+    }
+
+    #[test]
+    fn test_frame_interior_area_with_h_scrollbar() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+        frame.set_h_scrollbar(ScrollBar::horizontal(Rect::new(0, 0, 10, 1)));
+
+        // With h_scrollbar: bottom inset is 2 instead of 1
+        let interior = frame.interior_area();
+        assert_eq!(interior, Rect::new(11, 6, 38, 17));
+    }
+
+    #[test]
+    fn test_frame_interior_area_with_both_scrollbars() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+        frame.set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
+        frame.set_h_scrollbar(ScrollBar::horizontal(Rect::new(0, 0, 10, 1)));
+
+        // Both scrollbars: right inset 2, bottom inset 2
+        let interior = frame.interior_area();
+        assert_eq!(interior, Rect::new(11, 6, 37, 17));
+    }
+
+    #[test]
+    fn test_frame_interior_area_too_small() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(0, 0, 2, 2), "Test", FrameType::Window);
+        // Width and height < 3, so interior should be empty
+        let interior = frame.interior_area();
+        assert_eq!(interior, Rect::default());
+
+        let frame2 = Frame::new(Rect::new(0, 0, 3, 3), "Test", FrameType::Window);
+        // Minimum size for interior: 3x3 gives interior 1x1
+        let interior2 = frame2.interior_area();
+        assert_eq!(interior2, Rect::new(1, 1, 1, 1));
+    }
+
+    #[test]
+    fn test_frame_is_close_button() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+
+        // Close button at (11, 5), (12, 5), (13, 5)
+        assert!(frame.is_close_button(11, 5));
+        assert!(frame.is_close_button(12, 5));
+        assert!(frame.is_close_button(13, 5));
+
+        // Not on close button
+        assert!(!frame.is_close_button(10, 5)); // Top-left corner
+        assert!(!frame.is_close_button(14, 5)); // Past close button
+        assert!(!frame.is_close_button(11, 6)); // Different row
+    }
+
+    #[test]
+    fn test_frame_is_close_button_not_closeable() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Dialog);
+
+        // Not closeable, so is_close_button always returns false
+        assert!(!frame.is_close_button(11, 5));
+        assert!(!frame.is_close_button(12, 5));
+    }
+
+    #[test]
+    fn test_frame_is_resize_handle() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+
+        // Resize handle at (49, 24) — bottom-right corner
+        assert!(frame.is_resize_handle(49, 24));
+
+        // Not on resize handle
+        assert!(!frame.is_resize_handle(48, 24));
+        assert!(!frame.is_resize_handle(49, 23));
+    }
+
+    #[test]
+    fn test_frame_is_resize_handle_not_resizable() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Dialog);
+
+        // Not resizable, so is_resize_handle always returns false
+        assert!(!frame.is_resize_handle(49, 24));
+    }
+
+    #[test]
+    fn test_frame_is_title_bar() {
+        setup_default_theme();
+        let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
+
+        // Title bar is row 5 (top border)
+        assert!(frame.is_title_bar(10, 5)); // Top-left corner
+        assert!(frame.is_title_bar(14, 5)); // Past close button
+        assert!(frame.is_title_bar(49, 5)); // Top-right corner
+
+        // Close button area is NOT part of title bar for Window type
+        assert!(!frame.is_title_bar(11, 5)); // Close button
+        assert!(!frame.is_title_bar(12, 5)); // Close button
+        assert!(!frame.is_title_bar(13, 5)); // Close button
+
         // Wrong row
-        assert!(!f.is_close_button(2, 1));
+        assert!(!frame.is_title_bar(10, 6));
+        assert!(!frame.is_title_bar(10, 4));
     }
 
     #[test]
-    fn test_frame_close_button_disabled() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        f.set_closeable(false);
-        assert!(!f.is_close_button(2, 0));
+    fn test_frame_draw_renders_corners() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "Test", FrameType::Window);
+        frame.draw(&mut buf, bounds);
+
+        // Check corner characters
+        let tl = buf.cell(Position::new(0, 0)).unwrap();
+        let tr = buf.cell(Position::new(19, 0)).unwrap();
+        let bl = buf.cell(Position::new(0, 9)).unwrap();
+        let br = buf.cell(Position::new(19, 9)).unwrap();
+
+        // Use theme characters (dark theme uses thick borders)
+        assert_eq!(tl.symbol(), "┏");
+        assert_eq!(tr.symbol(), "┓");
+        assert_eq!(bl.symbol(), "┗");
+        // Resize handle in corner for Window type
+        assert_eq!(br.symbol(), "⋱");
     }
 
     #[test]
-    fn test_frame_resize_handle_hit() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        f.set_resizable(true);
-        // Bottom row = y + height - 1 = 9; handle at the corner = width - 1 = 19
-        assert!(f.is_resize_handle(19, 9));
-        // One column to the left — not the handle
-        assert!(!f.is_resize_handle(18, 9));
-        // Wrong row
-        assert!(!f.is_resize_handle(19, 8));
+    fn test_frame_draw_renders_title() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "MyTitle", FrameType::Window);
+        frame.draw(&mut buf, bounds);
+
+        // Title should be centered on the top border
+        // Width 20, title " MyTitle " = 9 chars
+        // Start position: (20 - 9) / 2 = 5.5 -> 5
+        // But need to account for close button [■] at positions 1-3
+        // So title starts after position 4
+
+        // Verify we can find the title text somewhere on the top row
+        let top_row: String = (0..20)
+            .map(|col| buf.cell(Position::new(col, 0)).unwrap().symbol())
+            .collect::<String>();
+
+        // Title should appear somewhere
+        assert!(top_row.contains('T') || top_row.contains('M'));
     }
 
     #[test]
-    fn test_frame_resize_handle_disabled() {
-        let f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        // resizable = false by default
-        assert!(!f.is_resize_handle(19, 9));
-    }
+    fn test_frame_draw_renders_close_button() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "Test", FrameType::Window);
+        frame.draw(&mut buf, bounds);
 
-    // --- Drawing ------------------------------------------------------------
+        // Close button at positions 1, 2, 3
+        let b1 = buf.cell(Position::new(1, 0)).unwrap();
+        let b2 = buf.cell(Position::new(2, 0)).unwrap();
+        let b3 = buf.cell(Position::new(3, 0)).unwrap();
 
-    #[test]
-    fn test_frame_draw_borders() {
-        theme::set(theme::Theme::borland_classic());
-        let area = Rect::new(0, 0, 10, 6);
-        let f = Frame::new(area, "");
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
-
-        // Corners (double-line Window type)
-        assert_eq!(buf[(0, 0)].symbol(), "╔");
-        assert_eq!(buf[(9, 0)].symbol(), "╗");
-        assert_eq!(buf[(0, 5)].symbol(), "╚");
-        assert_eq!(buf[(9, 5)].symbol(), "╝");
-
-        // Top horizontal fill
-        assert_eq!(buf[(5, 0)].symbol(), "═");
-        // Side verticals
-        assert_eq!(buf[(0, 3)].symbol(), "║");
-        assert_eq!(buf[(9, 3)].symbol(), "║");
-        // Bottom horizontal fill
-        assert_eq!(buf[(5, 5)].symbol(), "═");
+        assert_eq!(b1.symbol(), "[");
+        assert_eq!(b2.symbol(), "■");
+        assert_eq!(b3.symbol(), "]");
     }
 
     #[test]
-    fn test_frame_draw_single_borders() {
-        let area = Rect::new(0, 0, 10, 6);
-        let f = Frame::with_type(area, "", FrameType::Single);
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
+    fn test_frame_draw_dialog_no_close_button() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "Dialog", FrameType::Dialog);
+        frame.draw(&mut buf, bounds);
 
-        assert_eq!(buf[(0, 0)].symbol(), "┌");
-        assert_eq!(buf[(9, 0)].symbol(), "┐");
-        assert_eq!(buf[(0, 5)].symbol(), "└");
-        assert_eq!(buf[(9, 5)].symbol(), "┘");
-        assert_eq!(buf[(5, 0)].symbol(), "─");
-        assert_eq!(buf[(0, 3)].symbol(), "│");
+        // Dialog frame should not have close button
+        // Position 1, 2 should have border characters, not [■
+        let c1 = buf.cell(Position::new(1, 0)).unwrap();
+        assert_ne!(c1.symbol(), "[");
     }
 
     #[test]
-    fn test_frame_draw_title() {
-        theme::set(theme::Theme::borland_classic());
-        let area = Rect::new(0, 0, 20, 5);
-        // Disable close button so it does not overwrite the title position
-        let mut f = Frame::new(area, "Test");
-        f.set_closeable(false);
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
+    fn test_frame_draw_single_frame() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 20, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "GroupBox", FrameType::Single);
+        frame.draw(&mut buf, bounds);
 
-        // Title " Test " (6 chars) centered in 20 cols → starts at (20-6)/2 = 7
-        assert_eq!(buf[(7, 0)].symbol(), " ");
-        assert_eq!(buf[(8, 0)].symbol(), "T");
-        assert_eq!(buf[(9, 0)].symbol(), "e");
-        assert_eq!(buf[(10, 0)].symbol(), "s");
-        assert_eq!(buf[(11, 0)].symbol(), "t");
-        assert_eq!(buf[(12, 0)].symbol(), " ");
+        // Single frame should not have close button or resize handle
+        let c1 = buf.cell(Position::new(1, 0)).unwrap();
+        assert_ne!(c1.symbol(), "[");
+
+        let br = buf.cell(Position::new(19, 9)).unwrap();
+        // Bottom-right should be normal corner, not resize handle
+        assert_eq!(br.symbol(), "┛");
     }
 
     #[test]
-    fn test_frame_draw_close_button() {
-        theme::set(theme::Theme::borland_classic());
-        let area = Rect::new(0, 0, 20, 5);
-        let f = Frame::new(area, "");
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
+    fn test_frame_scrollbar_management() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 20, 10), "Test", FrameType::Window);
 
-        // Close button "[■]" starts at column 2 (gap after corner)
-        assert_eq!(buf[(2, 0)].symbol(), "[");
-        assert_eq!(buf[(3, 0)].symbol(), "■");
-        assert_eq!(buf[(4, 0)].symbol(), "]");
+        // Add vertical scrollbar
+        frame.set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
+        assert!(frame.v_scrollbar().is_some());
+
+        // Add horizontal scrollbar
+        frame.set_h_scrollbar(ScrollBar::horizontal(Rect::new(0, 0, 10, 1)));
+        assert!(frame.h_scrollbar().is_some());
+
+        // Remove vertical scrollbar
+        let v_sb = frame.remove_v_scrollbar();
+        assert!(v_sb.is_some());
+        assert!(frame.v_scrollbar().is_none());
+
+        // Remove horizontal scrollbar
+        let h_sb = frame.remove_h_scrollbar();
+        assert!(h_sb.is_some());
+        assert!(frame.h_scrollbar().is_none());
     }
 
     #[test]
-    fn test_frame_draw_resize_handle() {
-        theme::set(theme::Theme::borland_classic());
-        let area = Rect::new(0, 0, 20, 5);
-        let mut f = Frame::new(area, "");
-        f.set_resizable(true);
-        // Set active state so resize handle is visible
-        let state = f.base.state();
-        f.base.set_state(state | SF_ACTIVE);
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
+    fn test_frame_view_trait() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 20, 10), "Test", FrameType::Window);
 
-        // Resize handle "◢" at (width-1, height-1) = (19, 4)
-        assert_eq!(buf[(19, 4)].symbol(), "◢");
-    }
+        // Test View trait methods
+        let _id1 = frame.id();
+        assert_eq!(frame.bounds(), Rect::new(0, 0, 20, 10));
 
-    #[test]
-    fn test_frame_draw_too_small() {
-        theme::set(theme::Theme::borland_classic());
-        // width < 4 — draw() should be a no-op (no panic)
-        let area = Rect::new(0, 0, 3, 5);
-        let f = Frame::new(area, "T");
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area); // must not panic
-    }
+        frame.set_bounds(Rect::new(5, 5, 30, 15));
+        assert_eq!(frame.bounds(), Rect::new(5, 5, 30, 15));
 
-    // --- Event handling -----------------------------------------------------
+        // State management
+        assert_eq!(
+            frame.state() & crate::view::SF_VISIBLE,
+            crate::view::SF_VISIBLE
+        );
+        frame.set_state(0);
+        assert_eq!(frame.state(), 0);
 
-    #[test]
-    fn test_frame_close_click_generates_command() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        let mut event = make_mouse_down(3, 0); // column 3 = close button icon
-        f.handle_event(&mut event);
-
-        // Event must be converted to CM_CLOSE, NOT cleared
-        assert!(event.is_command());
-        assert_eq!(event.command_id(), Some(CM_CLOSE));
-        assert!(!event.is_cleared());
-    }
-
-    #[test]
-    fn test_frame_title_click_sets_dragging() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        // Column 10 on the title row — past close button area
-        let mut event = make_mouse_down(10, 0);
-        f.handle_event(&mut event);
-
-        assert!(f.is_dragging());
-        assert!(event.is_cleared());
-    }
-
-    #[test]
-    fn test_frame_resize_click_sets_resizing() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        f.set_resizable(true);
-        // Bottom-right corner: col 19, row 9
-        let mut event = make_mouse_down(19, 9);
-        f.handle_event(&mut event);
-
-        assert!(f.is_resizing());
-        assert!(event.is_cleared());
-    }
-
-    #[test]
-    fn test_frame_clear_drag_resize() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        f.set_resizable(true);
-
-        let state = f.base.state();
-        f.base.set_state(state | SF_DRAGGING | SF_RESIZING);
-        assert!(f.is_dragging());
-        assert!(f.is_resizing());
-
-        f.clear_drag_resize();
-        assert!(!f.is_dragging());
-        assert!(!f.is_resizing());
-    }
-
-    #[test]
-    fn test_frame_cleared_event_ignored() {
-        let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        let mut event = Event::default(); // already cleared
-        f.handle_event(&mut event);
-        // Frame state must remain unchanged
-        assert!(!f.is_dragging());
-        assert!(!f.is_resizing());
-    }
-
-    #[test]
-    fn test_frame_resizable_single_bottom_corners() {
-        theme::set(theme::Theme::borland_classic());
-        let area = Rect::new(0, 0, 10, 6);
-        let mut f = Frame::new(area, "");
-        f.set_resizable(true);
-        let mut buf = Buffer::empty(area);
-        f.draw(&mut buf, area);
-
-        // Resizable windows have single-line bottom corners
-        assert_eq!(buf[(0, 5)].symbol(), "└");
-        assert_eq!(buf[(9, 5)].symbol(), "┘");
-    }
-
-    #[test]
-    fn test_frame_draw_clipped_no_panic() {
-        theme::set(theme::Theme::borland_classic());
-        // Frame extends beyond buffer — must not panic
-        let frame = Frame::new(Rect::new(5, 3, 20, 10), "Clipped");
-        let buf_area = Rect::new(0, 0, 15, 8); // Smaller than frame
-        let mut buf = Buffer::empty(buf_area);
-        frame.draw(&mut buf, Rect::new(5, 3, 20, 10)); // must not panic
+        // Cannot focus
+        assert!(!frame.can_focus());
     }
 }

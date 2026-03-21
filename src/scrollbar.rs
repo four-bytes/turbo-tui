@@ -71,6 +71,7 @@ pub enum Orientation {
 ///
 /// let value = scrollbar.value();
 /// ```
+#[derive(Clone)]
 pub struct ScrollBar {
     /// Base view functionality.
     base: ViewBase,

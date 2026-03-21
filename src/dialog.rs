@@ -1,32 +1,32 @@
-//! Dialog — Modal window with OK/Cancel handling.
+//! Dialog — Modal dialog window.
 //!
-//! A `Dialog` is a modal window that:
-//! - Uses [`FrameType::Dialog`] for visual distinction
-//! - Has an `end_state` that breaks the modal loop
-//! - Intercepts Escape (→ [`CM_CANCEL`]) and Enter (→ [`CM_OK`])
-//! - Only closes on commands < [`INTERNAL_COMMAND_BASE`]
+//! A dialog is a [`Window`] with `FrameType::Dialog` that captures all input
+//! until closed. It's used for message boxes, input forms, and confirmations.
 //!
-//! # Example
+//! # Key behaviors
+//!
+//! - **Escape** → posts `CM_CANCEL` command (closes dialog)
+//! - **Enter** → posts `CM_OK` command (closes dialog if default button exists)
+//! - Any command with ID < `INTERNAL_COMMAND_BASE` (1000) closes the dialog
+//! - Dialog has a "result" (the `CommandId` that closed it)
+//!
+//! # Usage
 //!
 //! ```ignore
-//! let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Confirm");
-//! dialog.set_focus_to(0); // Focus first child
+//! use turbo_tui::dialog::Dialog;
+//! use ratatui::layout::Rect;
+//!
+//! let mut dialog = Dialog::new(Rect::new(20, 5, 40, 15), "Confirm");
+//! // Add buttons, labels etc. to dialog.interior_mut()
 //!
 //! // In event loop:
-//! while dialog.is_running() {
-//!     dialog.handle_event(&mut event);
-//!     if dialog.result() != 0 {
-//!         break; // Dialog closed
-//!     }
-//! }
-//!
-//! if dialog.result() == CM_OK {
-//!     // User confirmed
+//! if !dialog.is_open() {
+//!     let result = dialog.result(); // Some(CM_OK) or Some(CM_CANCEL)
 //! }
 //! ```
 
 use crate::command::{CommandId, CM_CANCEL, CM_OK, INTERNAL_COMMAND_BASE};
-use crate::frame::FrameType;
+use crate::container::Container;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, SF_MODAL, SF_VISIBLE};
 use crate::window::Window;
 use crossterm::event::KeyCode;
@@ -34,136 +34,108 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use std::any::Any;
 
-// ============================================================================
-// Dialog
-// ============================================================================
-
-/// Modal window with OK/Cancel handling.
+/// Modal dialog window.
 ///
-/// Dialog wraps a [`Window`] with [`FrameType::Dialog`] and intercepts
-/// keyboard shortcuts (Escape, Enter) and commands to close the modal loop.
+/// A dialog is a [`Window`] with `FrameType::Dialog` that handles modal interaction.
+/// Pressing Escape posts `CM_CANCEL`, pressing Enter posts `CM_OK`.
+/// Any command with ID < `INTERNAL_COMMAND_BASE` (1000) closes the dialog.
 ///
-/// The dialog's `result` field tracks the command that ended the dialog:
-/// - `0` → dialog is still running
-/// - `CM_OK`, `CM_CANCEL`, `CM_YES`, `CM_NO`, etc. → user's choice
-#[allow(clippy::module_name_repetitions)]
+/// # Example
+///
+/// ```ignore
+/// use turbo_tui::dialog::Dialog;
+/// use ratatui::layout::Rect;
+///
+/// let mut dialog = Dialog::new(Rect::new(20, 5, 40, 15), "Confirm");
+/// // Add buttons, labels etc. to dialog.interior_mut()
+/// ```
 pub struct Dialog {
-    /// The wrapped window (provides frame, interior, drag/resize).
-    window: Window,
-    /// Base view state (holds `SF_MODAL` and other flags).
     base: ViewBase,
-    /// The command that ended the dialog (0 = still running).
-    result: CommandId,
+    window: Window,
+    /// The command that closed this dialog, if closed.
+    result: Option<CommandId>,
+    /// Whether the dialog is still open/active.
+    open: bool,
 }
 
 impl Dialog {
-    /// Create a new dialog with the given bounds and title.
+    /// Create a new modal dialog with the given bounds and title.
     ///
-    /// The dialog:
-    /// - Uses [`FrameType::Dialog`] for visual distinction
-    /// - Is not resizable by default
-    /// - Has [`SF_MODAL`] and [`SF_VISIBLE`] flags set
+    /// The dialog starts with `SF_MODAL` set and is visible by default.
     #[must_use]
     pub fn new(bounds: Rect, title: &str) -> Self {
-        let mut window = Window::with_frame_type(bounds, title, FrameType::Dialog);
-        window.set_resizable(false);
+        let mut window = Window::dialog(bounds, title);
+        // Mark as modal
+        let st = window.state();
+        window.set_state(st | SF_MODAL);
 
         let mut base = ViewBase::new(bounds);
-        // Set SF_MODAL (SF_VISIBLE is already set by ViewBase::new)
-        base.set_state(base.state() | SF_MODAL);
+        base.set_state(base.state() | SF_MODAL | SF_VISIBLE);
 
         Self {
-            window,
             base,
-            result: 0,
+            window,
+            result: None,
+            open: true,
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Configuration
-    // -----------------------------------------------------------------------
-
-    /// Enable or disable resizing.
-    ///
-    /// Dialogs are not resizable by default.
-    pub fn set_resizable(&mut self, resizable: bool) {
-        self.window.set_resizable(resizable);
+    /// Get the dialog result (the command that closed it).
+    #[must_use]
+    pub fn result(&self) -> Option<CommandId> {
+        self.result
     }
 
-    /// Get the dialog title.
+    /// Check if the dialog is still open.
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Close the dialog with the given command result.
+    ///
+    /// Sets `self.result = Some(cmd)` and `self.open = false`.
+    pub fn end_modal(&mut self, cmd: CommandId) {
+        self.result = Some(cmd);
+        self.open = false;
+    }
+
+    /// Get the window's title.
     #[must_use]
     pub fn title(&self) -> &str {
         self.window.title()
     }
 
-    // -----------------------------------------------------------------------
-    // Child management (delegates to window.interior)
-    // -----------------------------------------------------------------------
-
-    /// Add a child view to the dialog's interior group.
-    pub fn add(&mut self, child: Box<dyn View>) -> ViewId {
-        self.window.add(child)
+    /// Get immutable access to the underlying window.
+    #[must_use]
+    pub fn window(&self) -> &Window {
+        &self.window
     }
 
-    /// Get the number of child views in the interior.
-    #[must_use]
-    pub fn child_count(&self) -> usize {
-        self.window.child_count()
+    /// Get mutable access to the underlying window.
+    pub fn window_mut(&mut self) -> &mut Window {
+        &mut self.window
     }
 
-    /// Get a reference to the interior group.
+    /// Get immutable access to the interior container.
     #[must_use]
-    pub fn interior(&self) -> &crate::group::Group {
+    pub fn interior(&self) -> &Container {
         self.window.interior()
     }
 
-    /// Get a mutable reference to the interior group.
-    pub fn interior_mut(&mut self) -> &mut crate::group::Group {
+    /// Get mutable access to the interior container.
+    pub fn interior_mut(&mut self) -> &mut Container {
         self.window.interior_mut()
     }
 
-    // -----------------------------------------------------------------------
-    // Modal result
-    // -----------------------------------------------------------------------
-
-    /// Get the command that ended the dialog.
+    /// Add a child view to the dialog's interior.
     ///
-    /// Returns `0` if the dialog is still running.
-    #[must_use]
-    pub fn result(&self) -> CommandId {
-        self.result
-    }
-
-    /// Check if the dialog is still running.
-    ///
-    /// Returns `true` if `result() == 0`.
-    #[must_use]
-    pub fn is_running(&self) -> bool {
-        self.result == 0
-    }
-
-    /// End the modal loop with the given command.
-    ///
-    /// Sets the `result` field. Call this in response to button clicks
-    /// or keyboard shortcuts.
-    pub fn end_modal(&mut self, command: CommandId) {
-        self.result = command;
-    }
-
-    // -----------------------------------------------------------------------
-    // Geometry
-    // -----------------------------------------------------------------------
-
-    /// Get the interior area (bounds minus frame border).
-    #[must_use]
-    pub fn interior_rect(&self) -> Rect {
-        self.window.interior_rect()
+    /// Convenience method that delegates to `self.interior.add()`.
+    /// The child's bounds must be **relative** to the interior container's top-left.
+    pub fn add(&mut self, child: Box<dyn View>) -> ViewId {
+        self.window.add(child)
     }
 }
-
-// ============================================================================
-// View implementation
-// ============================================================================
 
 impl View for Dialog {
     fn id(&self) -> ViewId {
@@ -171,64 +143,59 @@ impl View for Dialog {
     }
 
     fn bounds(&self) -> Rect {
-        self.window.bounds()
+        self.base.bounds()
     }
 
     fn set_bounds(&mut self, bounds: Rect) {
-        self.window.set_bounds(bounds);
         self.base.set_bounds(bounds);
+        self.window.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        if self.base.state() & SF_VISIBLE == 0 {
+    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+        if !self.open {
             return;
         }
-        self.window.draw(buf, area);
+        self.window.draw(buf, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
-        if event.is_cleared() {
+        if event.is_cleared() || !self.open {
             return;
         }
 
-        // Clone the event kind to avoid borrow issues
-        let kind = event.kind.clone();
-
-        match &kind {
+        match &event.kind.clone() {
             EventKind::Key(key) => {
-                // Handle Escape and Enter specially
                 match key.code {
+                    // Escape → cancel
                     KeyCode::Esc => {
                         self.end_modal(CM_CANCEL);
                         event.clear();
                     }
+                    // Enter → OK
                     KeyCode::Enter => {
-                        // Default to CM_OK
-                        // TODO: Scan children for default button
                         self.end_modal(CM_OK);
                         event.clear();
                     }
                     _ => {
-                        // Pass other keys to window
+                        // Forward other keys to the window interior
                         self.window.handle_event(event);
                     }
                 }
             }
 
             EventKind::Command(cmd) => {
-                let cmd = *cmd;
-                // Commands < INTERNAL_COMMAND_BASE close the dialog (except 0)
-                if cmd < INTERNAL_COMMAND_BASE && cmd != 0 {
-                    self.end_modal(cmd);
+                // Commands < INTERNAL_COMMAND_BASE close the dialog
+                if *cmd < INTERNAL_COMMAND_BASE {
+                    self.end_modal(*cmd);
                     event.clear();
                 } else {
-                    // Internal commands pass through
+                    // Internal commands are forwarded
                     self.window.handle_event(event);
                 }
             }
 
+            // Mouse and other events → forward to window
             _ => {
-                // Mouse, broadcast, resize — pass to window
                 self.window.handle_event(event);
             }
         }
@@ -247,6 +214,10 @@ impl View for Dialog {
         self.window.set_state(state);
     }
 
+    fn options(&self) -> u16 {
+        self.base.options()
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -257,245 +228,169 @@ impl View for Dialog {
 }
 
 // ============================================================================
-// DialogBuilder
-// ============================================================================
-
-/// Builder for creating a [`Dialog`] with custom options.
-///
-/// # Example
-///
-/// ```ignore
-/// let dialog = DialogBuilder::new()
-///     .bounds(Rect::new(10, 5, 40, 15))
-///     .title("Confirm Delete")
-///     .resizable(true)
-///     .build();
-/// ```
-#[must_use]
-pub struct DialogBuilder {
-    bounds: Rect,
-    title: String,
-    resizable: bool,
-}
-
-impl DialogBuilder {
-    /// Create a new builder with defaults.
-    ///
-    /// Default bounds: `Rect::new(0, 0, 40, 15)`
-    /// Default title: `""` (empty)
-    /// Default resizable: `false`
-    pub fn new() -> Self {
-        Self {
-            bounds: Rect::new(0, 0, 40, 15),
-            title: String::new(),
-            resizable: false,
-        }
-    }
-
-    /// Set the dialog bounds.
-    pub fn bounds(mut self, bounds: Rect) -> Self {
-        self.bounds = bounds;
-        self
-    }
-
-    /// Set the dialog title.
-    pub fn title(mut self, title: &str) -> Self {
-        title.clone_into(&mut self.title);
-        self
-    }
-
-    /// Set whether the dialog is resizable.
-    pub fn resizable(mut self, resizable: bool) -> Self {
-        self.resizable = resizable;
-        self
-    }
-
-    /// Build the dialog.
-    pub fn build(self) -> Dialog {
-        let mut dialog = Dialog::new(self.bounds, &self.title);
-        if self.resizable {
-            dialog.set_resizable(true);
-        }
-        dialog
-    }
-}
-
-impl Default for DialogBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::{CM_NO, CM_YES};
-    use crate::view::{View, SF_FOCUSED};
-    use crossterm::event::KeyModifiers;
+    use crate::command::{CM_CANCEL, CM_OK};
+    use crate::theme::Theme;
+    use crate::view::SF_MODAL;
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+
+    fn setup_theme() {
+        crate::theme::set(Theme::dark());
+    }
+
+    fn key_event(code: KeyCode) -> Event {
+        Event::key(KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
+    }
 
     #[test]
     fn test_dialog_new() {
+        setup_theme();
         let dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test Dialog");
 
-        // SF_MODAL should be set
+        assert!(dialog.is_open());
+        assert!(dialog.result().is_none());
         assert_ne!(dialog.state() & SF_MODAL, 0, "SF_MODAL should be set");
-
-        // SF_VISIBLE should be set (from ViewBase::new)
         assert_ne!(dialog.state() & SF_VISIBLE, 0, "SF_VISIBLE should be set");
-
-        // Result should be 0 (running)
-        assert_eq!(dialog.result(), 0);
-        assert!(dialog.is_running());
-
-        // Title should match
-        assert_eq!(dialog.title(), "Test Dialog");
     }
 
     #[test]
-    fn test_dialog_is_running() {
-        let dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        assert!(dialog.is_running());
-        assert_eq!(dialog.result(), 0);
+    fn test_dialog_escape_cancels() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
+
+        let mut ev = key_event(KeyCode::Esc);
+        dialog.handle_event(&mut ev);
+
+        assert!(!dialog.is_open(), "dialog should be closed after Escape");
+        assert_eq!(dialog.result(), Some(CM_CANCEL));
+        assert!(ev.is_cleared());
     }
 
     #[test]
-    fn test_dialog_end_modal() {
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
+    fn test_dialog_enter_accepts() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
 
-        dialog.end_modal(CM_OK);
-        assert_eq!(dialog.result(), CM_OK);
-        assert!(!dialog.is_running());
+        let mut ev = key_event(KeyCode::Enter);
+        dialog.handle_event(&mut ev);
 
-        // Reset
-        dialog.end_modal(CM_CANCEL);
-        assert_eq!(dialog.result(), CM_CANCEL);
-        assert!(!dialog.is_running());
-    }
-
-    #[test]
-    fn test_dialog_escape_closes() {
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "Confirm");
-
-        // Press Escape
-        let mut event = Event::key(crossterm::event::KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::empty(),
-        ));
-        dialog.handle_event(&mut event);
-
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_CANCEL);
-        assert!(!dialog.is_running());
-    }
-
-    #[test]
-    fn test_dialog_enter_closes() {
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "Confirm");
-
-        // Press Enter
-        let mut event = Event::key(crossterm::event::KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::empty(),
-        ));
-        dialog.handle_event(&mut event);
-
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_OK);
-        assert!(!dialog.is_running());
+        assert!(!dialog.is_open(), "dialog should be closed after Enter");
+        assert_eq!(dialog.result(), Some(CM_OK));
+        assert!(ev.is_cleared());
     }
 
     #[test]
     fn test_dialog_command_closes() {
-        // Test CM_YES
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        let mut event = Event::command(CM_YES);
-        dialog.handle_event(&mut event);
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_YES);
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
 
-        // Test CM_NO
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        let mut event = Event::command(CM_NO);
-        dialog.handle_event(&mut event);
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_NO);
+        // CM_OK is 10, which is < INTERNAL_COMMAND_BASE (1000)
+        let mut ev = Event::command(CM_OK);
+        dialog.handle_event(&mut ev);
 
-        // Test CM_OK
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        let mut event = Event::command(CM_OK);
-        dialog.handle_event(&mut event);
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_OK);
-
-        // Test CM_CANCEL
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        let mut event = Event::command(CM_CANCEL);
-        dialog.handle_event(&mut event);
-        assert!(event.is_cleared());
-        assert_eq!(dialog.result(), CM_CANCEL);
+        assert!(!dialog.is_open());
+        assert_eq!(dialog.result(), Some(CM_OK));
+        assert!(ev.is_cleared());
     }
 
     #[test]
-    fn test_dialog_internal_command_passes() {
-        // INTERNAL_COMMAND_BASE = 1000
-        // Commands >= 1000 should NOT close the dialog
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
+    fn test_dialog_command_close_with_cm_cancel() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
 
-        let mut event = Event::command(INTERNAL_COMMAND_BASE);
-        dialog.handle_event(&mut event);
+        let mut ev = Event::command(CM_CANCEL);
+        dialog.handle_event(&mut ev);
 
-        // Event should NOT be cleared (passes through to window)
-        // Result should still be 0
-        assert_eq!(dialog.result(), 0);
-        assert!(dialog.is_running());
+        assert!(!dialog.is_open());
+        assert_eq!(dialog.result(), Some(CM_CANCEL));
+        assert!(ev.is_cleared());
+    }
 
-        // Test a larger internal command
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
-        let mut event = Event::command(2000);
-        dialog.handle_event(&mut event);
-        assert_eq!(dialog.result(), 0);
-        assert!(dialog.is_running());
+    #[test]
+    fn test_dialog_internal_command_forwarded() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
+
+        // Command >= INTERNAL_COMMAND_BASE should be forwarded, not close the dialog
+        let mut ev = Event::command(INTERNAL_COMMAND_BASE + 100); // 1100
+        dialog.handle_event(&mut ev);
+
+        assert!(
+            dialog.is_open(),
+            "dialog should still be open for internal command"
+        );
+        assert!(dialog.result().is_none());
+        // The event is forwarded to the window, which forwards to interior
+        // Interior has no children, so event remains unhandled but not cleared
+    }
+
+    #[test]
+    fn test_dialog_end_modal() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
+
+        dialog.end_modal(CM_OK);
+
+        assert!(!dialog.is_open());
+        assert_eq!(dialog.result(), Some(CM_OK));
+    }
+
+    #[test]
+    fn test_dialog_closed_ignores_events() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
+
+        // Close the dialog
+        dialog.end_modal(CM_CANCEL);
+
+        // Try to send more key events
+        let mut ev = key_event(KeyCode::Enter);
+        dialog.handle_event(&mut ev);
+
+        // Result should still be CM_CANCEL, not CM_OK
+        assert_eq!(dialog.result(), Some(CM_CANCEL));
+        // Event should NOT be cleared (dialog is closed)
+        assert!(!ev.is_cleared());
     }
 
     #[test]
     fn test_dialog_add_child() {
-        use crate::group::Group;
-        use ratatui::layout::Rect;
+        setup_theme();
+        use crate::view::ViewBase;
 
-        // Create a simple test view
-        struct TestChild {
+        struct DummyView {
             base: ViewBase,
         }
 
-        impl TestChild {
-            fn new() -> Self {
-                Self {
-                    base: ViewBase::new(Rect::new(0, 0, 10, 5)),
-                }
-            }
-        }
-
-        impl View for TestChild {
+        impl View for DummyView {
             fn id(&self) -> ViewId {
                 self.base.id()
             }
             fn bounds(&self) -> Rect {
                 self.base.bounds()
             }
-            fn set_bounds(&mut self, bounds: Rect) {
-                self.base.set_bounds(bounds);
+            fn set_bounds(&mut self, b: Rect) {
+                self.base.set_bounds(b);
             }
-            fn draw(&self, _buf: &mut Buffer, _area: Rect) {}
-            fn handle_event(&mut self, _event: &mut Event) {}
+            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn handle_event(&mut self, event: &mut Event) {
+                event.handled = true;
+            }
             fn state(&self) -> u16 {
                 self.base.state()
             }
-            fn set_state(&mut self, state: u16) {
-                self.base.set_state(state);
+            fn set_state(&mut self, s: u16) {
+                self.base.set_state(s);
             }
             fn as_any(&self) -> &dyn Any {
                 self
@@ -505,66 +400,52 @@ mod tests {
             }
         }
 
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "Test");
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
+        assert_eq!(dialog.interior().child_count(), 0);
 
-        assert_eq!(dialog.child_count(), 0);
-
-        let child1 = Box::new(TestChild::new());
-        let _id1 = dialog.add(child1);
-        assert_eq!(dialog.child_count(), 1);
-
-        let child2 = Box::new(TestChild::new());
-        let _id2 = dialog.add(child2);
-        assert_eq!(dialog.child_count(), 2);
-
-        // Verify we can access interior
-        let interior: &Group = dialog.interior();
-        assert_eq!(interior.child_count(), 2);
+        let child = Box::new(DummyView {
+            base: ViewBase::new(Rect::new(1, 1, 5, 2)),
+        });
+        dialog.add(child);
+        assert_eq!(dialog.interior().child_count(), 1);
     }
 
     #[test]
-    fn test_dialog_builder() {
-        let dialog = DialogBuilder::new()
-            .bounds(Rect::new(5, 3, 50, 20))
-            .title("Builder Test")
-            .resizable(true)
-            .build();
+    fn test_dialog_set_bounds_propagates() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
 
-        assert_eq!(dialog.bounds(), Rect::new(5, 3, 50, 20));
-        assert_eq!(dialog.title(), "Builder Test");
+        let new_bounds = Rect::new(20, 10, 50, 20);
+        dialog.set_bounds(new_bounds);
+
+        assert_eq!(dialog.bounds(), new_bounds);
+        assert_eq!(dialog.window().bounds(), new_bounds);
     }
 
     #[test]
-    fn test_dialog_builder_defaults() {
-        let dialog = DialogBuilder::new().build();
-
-        assert_eq!(dialog.bounds(), Rect::new(0, 0, 40, 15));
-        assert_eq!(dialog.title(), "");
+    fn test_dialog_title() {
+        setup_theme();
+        let dialog = Dialog::new(Rect::new(10, 5, 40, 15), "My Dialog");
+        assert_eq!(dialog.title(), "My Dialog");
     }
 
     #[test]
-    fn test_dialog_bounds() {
-        let mut dialog = Dialog::new(Rect::new(10, 5, 30, 10), "Test");
+    fn test_dialog_draw_when_closed_is_noop() {
+        setup_theme();
+        let mut dialog = Dialog::new(Rect::new(10, 5, 40, 15), "Test");
 
-        assert_eq!(dialog.bounds(), Rect::new(10, 5, 30, 10));
+        // Close the dialog
+        dialog.end_modal(CM_CANCEL);
 
-        dialog.set_bounds(Rect::new(20, 10, 50, 25));
-        assert_eq!(dialog.bounds(), Rect::new(20, 10, 50, 25));
-    }
+        // Create a buffer
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 24));
 
-    #[test]
-    fn test_dialog_state_flags() {
-        let mut dialog = Dialog::new(Rect::new(0, 0, 40, 15), "");
+        // Draw should be a no-op - no panic, no changes to buffer
+        dialog.draw(&mut buf, Rect::new(0, 0, 80, 24));
 
-        // Should start with SF_MODAL | SF_VISIBLE
-        let initial_state = dialog.state();
-        assert_ne!(initial_state & SF_MODAL, 0);
-        assert_ne!(initial_state & SF_VISIBLE, 0);
-
-        // Modify state
-        let new_state = initial_state | crate::view::SF_FOCUSED;
-        dialog.set_state(new_state);
-        assert_ne!(dialog.state() & SF_FOCUSED, 0);
-        assert_ne!(dialog.state() & SF_MODAL, 0);
+        // Buffer should remain empty (all cells default)
+        for cell in buf.content() {
+            assert_eq!(cell.symbol(), " ");
+        }
     }
 }

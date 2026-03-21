@@ -1,35 +1,27 @@
-//! Message Box — pre-built dialog factories for common dialogs.
+//! `MsgBox` — Factory functions for pre-built dialog boxes.
 //!
-//! This module provides factory functions that create common message box
-//! patterns using [`Dialog`], [`StaticText`], and [`Button`].
+//! Convenience functions that create [`Dialog`] instances with standard layouts:
+//! message boxes, confirmation dialogs, and error dialogs.
 //!
-//! # Available Dialogs
+//! # Factory Functions
 //!
-//! - [`message_box()`] — OK-only information box
-//! - [`confirm_box()`] — Yes/No confirmation
-//! - [`confirm_cancel_box()`] — Yes/No/Cancel confirmation
-//! - [`error_box()`] — Error message box
+//! - [`message_box()`] — Information message with OK button
+//! - [`confirm_box()`] — Yes/No question
+//! - [`confirm_cancel_box()`] — Yes/No/Cancel question
+//! - [`error_box()`] — Error message with OK button
 //!
-//! # Example
+//! # Usage
 //!
 //! ```ignore
-//! use four_turbo_tui::{message_box, Rect};
+//! use turbo_tui::msgbox::message_box;
+//! use ratatui::layout::Rect;
 //!
-//! // Create and run an OK message box
-//! let dialog = message_box(
-//!     Rect::new(10, 5, 40, 10),
-//!     "Information",
-//!     "Operation completed successfully."
-//! );
+//! // Create a message box dialog
+//! let screen = Rect::new(0, 0, 80, 24);
+//! let mut dialog = message_box("Info", "Operation completed.", screen);
 //!
-//! // In your event loop:
-//! while dialog.is_running() {
-//!     dialog.handle_event(&mut event);
-//! }
-//!
-//! if dialog.result() == CM_OK {
-//!     // User clicked OK
-//! }
+//! // Add to application or render directly
+//! // dialog is a Dialog with children (StaticText + Button)
 //! ```
 
 use crate::button::Button;
@@ -38,317 +30,310 @@ use crate::dialog::Dialog;
 use crate::static_text::StaticText;
 use ratatui::layout::Rect;
 
-/// Create an OK message box.
+/// Create a message box dialog with an OK button.
 ///
-/// Returns a [`Dialog`] with:
-/// - A [`StaticText`] message (centered)
-/// - An OK button (default)
+/// The dialog is centered relative to the given `screen` area.
+/// Content is displayed as a static text label above the button.
 ///
 /// # Arguments
 ///
-/// * `bounds` — Dialog bounds (recommended: width >= 30, height >= 10).
-/// * `title` — Dialog title.
-/// * `message` — Message text to display.
+/// * `title` — Dialog title
+/// * `message` — Message text
+/// * `screen` — Screen bounds (for centering the dialog)
 ///
-/// # Example
+/// # Returns
 ///
-/// ```ignore
-/// let dialog = message_box(
-///     Rect::new(10, 5, 40, 10),
-///     "Information",
-///     "File saved successfully."
-/// );
-/// ```
+/// A [`Dialog`] configured with the message and OK button.
 #[must_use]
-pub fn message_box(bounds: Rect, title: &str, message: &str) -> Dialog {
+pub fn message_box(title: &str, message: &str, screen: Rect) -> Dialog {
+    let (dialog_w, dialog_h) = calculate_dialog_size(message, 1);
+    let bounds = center_rect(dialog_w, dialog_h, screen);
+
     let mut dialog = Dialog::new(bounds, title);
 
-    // Add message text (centered, row 2 of interior)
-    let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(
-        0,
-        1, // Row 2 (row 1 is border, row 0 would be first interior row)
-        interior.width,
-        1,
-    );
-    dialog.add(Box::new(StaticText::centered(text_bounds, message)));
+    // Add message text (relative to dialog interior)
+    let text = StaticText::new(Rect::new(1, 1, dialog_w.saturating_sub(4), 1), message);
+    dialog.add(Box::new(text));
 
-    // Add OK button at bottom center
-    let button_width = 10u16;
-    let button_x = interior.width.saturating_sub(button_width) / 2;
-    let button_y = interior.height.saturating_sub(2);
-    let button_bounds = Rect::new(button_x, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(button_bounds, "OK", CM_OK, true)));
+    // Add OK button (centered at bottom)
+    let btn_w = 10;
+    let btn_x = (dialog_w.saturating_sub(4)).saturating_sub(btn_w) / 2;
+    let btn_y = dialog_h.saturating_sub(4);
+    let ok_btn = Button::new(Rect::new(btn_x, btn_y, btn_w, 1), "~O~K", CM_OK, true);
+    dialog.add(Box::new(ok_btn));
 
     dialog
 }
 
-/// Create a Yes/No confirmation box.
+/// Create a confirmation dialog with Yes and No buttons.
 ///
-/// Returns a [`Dialog`] with:
-/// - A [`StaticText`] message (centered)
-/// - A Yes button (default) and a No button
+/// The dialog is centered relative to the given `screen` area.
+/// Returns a [`Dialog`] with the message and two buttons (Yes/No).
 ///
 /// # Arguments
 ///
-/// * `bounds` — Dialog bounds (recommended: width >= 40, height >= 10).
-/// * `title` — Dialog title.
-/// * `message` — Question text to display.
+/// * `title` — Dialog title
+/// * `message` — Question text
+/// * `screen` — Screen bounds (for centering the dialog)
 ///
-/// # Example
+/// # Returns
 ///
-/// ```ignore
-/// let dialog = confirm_box(
-///     Rect::new(10, 5, 40, 10),
-///     "Confirm",
-///     "Are you sure you want to delete this file?"
-/// );
-/// ```
+/// A [`Dialog`] configured with the message and Yes/No buttons.
 #[must_use]
-pub fn confirm_box(bounds: Rect, title: &str, message: &str) -> Dialog {
+pub fn confirm_box(title: &str, message: &str, screen: Rect) -> Dialog {
+    let (dialog_w, dialog_h) = calculate_dialog_size(message, 2);
+    let bounds = center_rect(dialog_w, dialog_h, screen);
+
     let mut dialog = Dialog::new(bounds, title);
 
-    // Add message text
-    let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(0, 1, interior.width, 1);
-    dialog.add(Box::new(StaticText::centered(text_bounds, message)));
+    let text = StaticText::new(Rect::new(1, 1, dialog_w.saturating_sub(4), 1), message);
+    dialog.add(Box::new(text));
 
-    // Add Yes/No buttons side by side at bottom
-    let button_width = 10u16;
-    let spacing = 2u16;
-    let total_button_width = button_width * 2 + spacing;
-    let start_x = interior.width.saturating_sub(total_button_width) / 2;
-    let button_y = interior.height.saturating_sub(2);
+    // Yes and No buttons side by side
+    let btn_w = 10;
+    let total_btn_w = btn_w * 2 + 2; // 2 buttons + gap
+    let start_x = (dialog_w.saturating_sub(4)).saturating_sub(total_btn_w) / 2;
+    let btn_y = dialog_h.saturating_sub(4);
 
-    // Yes button (default)
-    let yes_bounds = Rect::new(start_x, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(yes_bounds, "Yes", CM_YES, true)));
+    let yes_btn = Button::new(Rect::new(start_x, btn_y, btn_w, 1), "~Y~es", CM_YES, true);
+    dialog.add(Box::new(yes_btn));
 
-    // No button
-    let no_bounds = Rect::new(start_x + button_width + spacing, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(no_bounds, "No", CM_NO, false)));
+    let no_btn = Button::new(
+        Rect::new(start_x + btn_w + 2, btn_y, btn_w, 1),
+        "~N~o",
+        CM_NO,
+        false,
+    );
+    dialog.add(Box::new(no_btn));
 
     dialog
 }
 
-/// Create a Yes/No/Cancel confirmation box.
+/// Create a confirmation dialog with Yes, No, and Cancel buttons.
 ///
-/// Returns a [`Dialog`] with:
-/// - A [`StaticText`] message (centered)
-/// - Three buttons: Yes (default), No, Cancel
+/// The dialog is centered relative to the given `screen` area.
+/// Returns a [`Dialog`] with the message and three buttons (Yes/No/Cancel).
 ///
 /// # Arguments
 ///
-/// * `bounds` — Dialog bounds (recommended: width >= 50, height >= 10).
-/// * `title` — Dialog title.
-/// * `message` — Question text to display.
+/// * `title` — Dialog title
+/// * `message` — Question text
+/// * `screen` — Screen bounds (for centering the dialog)
 ///
-/// # Example
+/// # Returns
 ///
-/// ```ignore
-/// let dialog = confirm_cancel_box(
-///     Rect::new(5, 3, 50, 10),
-///     "Save Changes?",
-///     "Do you want to save changes before closing?"
-/// );
-/// ```
+/// A [`Dialog`] configured with the message and Yes/No/Cancel buttons.
 #[must_use]
-pub fn confirm_cancel_box(bounds: Rect, title: &str, message: &str) -> Dialog {
+pub fn confirm_cancel_box(title: &str, message: &str, screen: Rect) -> Dialog {
+    let (dialog_w, dialog_h) = calculate_dialog_size(message, 3);
+    let bounds = center_rect(dialog_w, dialog_h, screen);
+
     let mut dialog = Dialog::new(bounds, title);
 
-    // Add message text
-    let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(0, 1, interior.width, 1);
-    dialog.add(Box::new(StaticText::centered(text_bounds, message)));
+    let text = StaticText::new(Rect::new(1, 1, dialog_w.saturating_sub(4), 1), message);
+    dialog.add(Box::new(text));
 
-    // Add Yes/No/Cancel buttons at bottom
-    let button_width = 10u16;
-    let spacing = 2u16;
-    let total_button_width = button_width * 3 + spacing * 2;
-    let start_x = interior.width.saturating_sub(total_button_width) / 2;
-    let button_y = interior.height.saturating_sub(2);
+    let btn_w = 10;
+    let total_btn_w = btn_w * 3 + 4; // 3 buttons + 2 gaps
+    let start_x = (dialog_w.saturating_sub(4)).saturating_sub(total_btn_w) / 2;
+    let btn_y = dialog_h.saturating_sub(4);
 
-    // Yes button (default)
-    let yes_bounds = Rect::new(start_x, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(yes_bounds, "Yes", CM_YES, true)));
+    let yes_btn = Button::new(Rect::new(start_x, btn_y, btn_w, 1), "~Y~es", CM_YES, true);
+    dialog.add(Box::new(yes_btn));
 
-    // No button
-    let no_bounds = Rect::new(start_x + button_width + spacing, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(no_bounds, "No", CM_NO, false)));
-
-    // Cancel button
-    let cancel_bounds = Rect::new(
-        start_x + (button_width + spacing) * 2,
-        button_y,
-        button_width,
-        1,
+    let no_btn = Button::new(
+        Rect::new(start_x + btn_w + 2, btn_y, btn_w, 1),
+        "~N~o",
+        CM_NO,
+        false,
     );
-    dialog.add(Box::new(Button::new(
-        cancel_bounds,
+    dialog.add(Box::new(no_btn));
+
+    let cancel_btn = Button::new(
+        Rect::new(start_x + (btn_w + 2) * 2, btn_y, btn_w, 1),
         "Cancel",
         CM_CANCEL,
         false,
-    )));
+    );
+    dialog.add(Box::new(cancel_btn));
 
     dialog
 }
 
-/// Create an error message box.
+/// Create an error message box with OK button.
 ///
-/// Returns a [`Dialog`] with:
-/// - A [`StaticText`] error message (centered)
-/// - An OK button
+/// Same as `message_box` but with "Error" as default title.
 ///
 /// # Arguments
 ///
-/// * `bounds` — Dialog bounds (recommended: width >= 40, height >= 10).
-/// * `message` — Error message to display.
+/// * `message` — Error message text
+/// * `screen` — Screen bounds (for centering the dialog)
 ///
-/// # Example
+/// # Returns
 ///
-/// ```ignore
-/// let dialog = error_box(
-///     Rect::new(10, 5, 40, 10),
-///     "Failed to open file: permission denied."
-/// );
-/// ```
+/// A [`Dialog`] configured with the error message and OK button.
 #[must_use]
-pub fn error_box(bounds: Rect, message: &str) -> Dialog {
-    let mut dialog = Dialog::new(bounds, "Error");
-
-    // Add error message
-    let interior = dialog.interior_rect();
-    let text_bounds = Rect::new(0, 1, interior.width, 1);
-    dialog.add(Box::new(StaticText::centered(text_bounds, message)));
-
-    // Add OK button at bottom center
-    let button_width = 10u16;
-    let button_x = interior.width.saturating_sub(button_width) / 2;
-    let button_y = interior.height.saturating_sub(2);
-    let button_bounds = Rect::new(button_x, button_y, button_width, 1);
-    dialog.add(Box::new(Button::new(button_bounds, "OK", CM_OK, true)));
-
-    dialog
+pub fn error_box(message: &str, screen: Rect) -> Dialog {
+    message_box("Error", message, screen)
 }
+
+// ============================================================================
+// Private helpers
+// ============================================================================
+
+/// Calculate dialog size based on message length and number of buttons.
+///
+/// Returns `(width, height)` tuple.
+fn calculate_dialog_size(message: &str, button_count: u16) -> (u16, u16) {
+    #[allow(clippy::cast_possible_truncation)]
+    let msg_len = message.len() as u16;
+    #[allow(clippy::cast_possible_truncation)]
+    let btn_space = button_count * 10 + (button_count.saturating_sub(1)) * 2;
+
+    // Width: max of message + padding or buttons + padding, minimum 30
+    let content_w = msg_len.max(btn_space);
+    let w = (content_w + 6).clamp(30, 70); // +6 for borders + padding
+
+    // Height: title bar + padding + message + gap + buttons + padding + bottom border
+    let h: u16 = 7;
+
+    (w, h)
+}
+
+/// Center a rectangle within a screen area.
+fn center_rect(w: u16, h: u16, screen: Rect) -> Rect {
+    let x = screen.x + (screen.width.saturating_sub(w)) / 2;
+    let y = screen.y + (screen.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::view::{View, OF_SELECTABLE};
+    use crate::theme::Theme;
+    use crate::view::View;
 
-    fn count_buttons(dialog: &Dialog) -> usize {
-        let interior = dialog.interior();
-        let mut count = 0;
-        for i in 0..interior.child_count() {
-            if let Some(child) = interior.child_at(i) {
-                // Buttons are selectable
-                if child.options() & OF_SELECTABLE != 0 {
-                    count += 1;
-                }
-            }
-        }
-        count
+    fn setup_theme() {
+        crate::theme::set(Theme::dark());
     }
 
     #[test]
-    fn test_message_box_has_ok() {
-        let dialog = message_box(Rect::new(0, 0, 40, 10), "Info", "Test message");
+    fn test_message_box_creates_dialog() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = message_box("Info", "Test message", screen);
 
+        assert!(dialog.is_open());
         assert_eq!(dialog.title(), "Info");
-        // Should have message text + 1 OK button
-        assert_eq!(dialog.child_count(), 2);
-        assert_eq!(count_buttons(&dialog), 1);
+        assert!(dialog.result().is_none());
     }
 
     #[test]
-    fn test_message_box_result() {
-        let dialog = message_box(Rect::new(0, 0, 40, 10), "Info", "Test message");
+    fn test_message_box_has_ok_button() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = message_box("Info", "Test message", screen);
 
-        // Result should be 0 (still running)
-        assert_eq!(dialog.result(), 0);
-        assert!(dialog.is_running());
+        // Dialog should have 2 children: text + button
+        assert_eq!(dialog.interior().child_count(), 2);
     }
 
     #[test]
-    fn test_confirm_box_has_yes_no() {
-        let dialog = confirm_box(Rect::new(0, 0, 40, 10), "Confirm", "Are you sure?");
+    fn test_confirm_box_creates_dialog() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = confirm_box("Confirm", "Are you sure?", screen);
 
+        assert!(dialog.is_open());
         assert_eq!(dialog.title(), "Confirm");
-        // Should have message text + Yes + No buttons
-        assert_eq!(dialog.child_count(), 3);
-        assert_eq!(count_buttons(&dialog), 2);
+    }
+
+    #[test]
+    fn test_confirm_box_has_two_buttons() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = confirm_box("Confirm", "Are you sure?", screen);
+
+        // Dialog should have 3 children: text + 2 buttons
+        assert_eq!(dialog.interior().child_count(), 3);
+    }
+
+    #[test]
+    fn test_confirm_cancel_box_creates_dialog() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = confirm_cancel_box("Save?", "Save changes?", screen);
+
+        assert!(dialog.is_open());
+        assert_eq!(dialog.title(), "Save?");
     }
 
     #[test]
     fn test_confirm_cancel_box_has_three_buttons() {
-        let dialog = confirm_cancel_box(Rect::new(0, 0, 50, 10), "Question", "Save changes?");
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = confirm_cancel_box("Save?", "Save changes?", screen);
 
-        assert_eq!(dialog.title(), "Question");
-        // Should have message text + Yes + No + Cancel buttons
-        assert_eq!(dialog.child_count(), 4);
-        assert_eq!(count_buttons(&dialog), 3);
+        // Dialog should have 4 children: text + 3 buttons
+        assert_eq!(dialog.interior().child_count(), 4);
     }
 
     #[test]
-    fn test_error_box() {
-        let dialog = error_box(Rect::new(0, 0, 40, 10), "File not found.");
+    fn test_error_box_creates_dialog() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = error_box("Something went wrong", screen);
 
+        assert!(dialog.is_open());
         assert_eq!(dialog.title(), "Error");
-        // Should have error text + 1 OK button
-        assert_eq!(dialog.child_count(), 2);
-        assert_eq!(count_buttons(&dialog), 1);
     }
 
     #[test]
-    fn test_message_box_small_bounds() {
-        // Test with minimum bounds (should not panic)
-        let dialog = message_box(Rect::new(0, 0, 30, 8), "Title", "Message");
-        assert_eq!(dialog.child_count(), 2);
+    fn test_dialog_centered() {
+        setup_theme();
+        let screen = Rect::new(0, 0, 80, 24);
+        let dialog = message_box("Info", "Test", screen);
+
+        let bounds = dialog.bounds();
+        // Dialog should be roughly centered
+        // Width should be at least 30 (minimum), height is 7
+        assert!(bounds.width >= 30);
+        assert_eq!(bounds.height, 7);
+
+        // Center position should be reasonable
+        let center_x = screen.x + screen.width / 2;
+        let center_y = screen.y + screen.height / 2;
+        let dialog_center_x = bounds.x + bounds.width / 2;
+        let dialog_center_y = bounds.y + bounds.height / 2;
+
+        // Allow some tolerance for rounding
+        assert!(
+            (dialog_center_x as i32 - center_x as i32).abs() <= 1,
+            "Dialog should be horizontally centered"
+        );
+        assert!(
+            (dialog_center_y as i32 - center_y as i32).abs() <= 1,
+            "Dialog should be vertically centered"
+        );
     }
 
     #[test]
-    fn test_confirm_box_can_focus() {
-        let dialog = confirm_box(Rect::new(0, 0, 40, 10), "Confirm", "Test");
+    fn test_calculate_dialog_size() {
+        // Minimum width is 30
+        let (w, h) = calculate_dialog_size("Hi", 1);
+        assert!(w >= 30);
+        assert_eq!(h, 7);
 
-        // Check that dialog can be focused
-        assert!(dialog.can_focus());
-    }
+        // Maximum width is 70
+        let (w, _) = calculate_dialog_size(&"x".repeat(100), 1);
+        assert_eq!(w, 70);
 
-    #[test]
-    fn test_message_box_escape_closes() {
-        use crate::view::Event;
-        use crossterm::event::{KeyCode, KeyModifiers};
-
-        let mut dialog = message_box(Rect::new(0, 0, 40, 10), "Test", "Message");
-
-        // Press Escape
-        let mut event = Event::key(crossterm::event::KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::empty(),
-        ));
-        dialog.handle_event(&mut event);
-
-        // Dialog should close with CM_CANCEL
-        assert_eq!(dialog.result(), CM_CANCEL);
-        assert!(!dialog.is_running());
-    }
-
-    #[test]
-    fn test_message_box_enter_closes() {
-        use crate::view::Event;
-        use crossterm::event::{KeyCode, KeyModifiers};
-
-        let mut dialog = message_box(Rect::new(0, 0, 40, 10), "Test", "Message");
-
-        // Press Enter
-        let mut event = Event::key(crossterm::event::KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::empty(),
-        ));
-        dialog.handle_event(&mut event);
-
-        // Dialog should close with CM_OK
-        assert_eq!(dialog.result(), CM_OK);
-        assert!(!dialog.is_running());
+        // Height is always 7
+        let (_, h) = calculate_dialog_size("Test", 2);
+        assert_eq!(h, 7);
     }
 }

@@ -5,7 +5,7 @@
 **turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.1.0 — Core Complete (14 modules, 157 tests)
+- **Status:** v0.2.0-dev — Rebuild in progress (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui
@@ -14,34 +14,40 @@
 
 ## Architecture
 
-Single crate, 14 modules (~8,100 lines total):
+Single crate, 18 source files (~8,500+ lines total):
 
 ```
 src/
-├── lib.rs              # Public API + prelude exports (57 lines)
+├── lib.rs              # Public API + prelude exports
 ├── command.rs          # CommandId (u16), CommandSet bitfield, 25+ CM_* constants
-├── view.rs             # View trait, ViewId (atomic), StateFlags, OptionFlags, Event system (698 lines, 17 tests)
-├── group.rs            # Container with Z-order, three-phase event dispatch (887 lines, 11 tests)
-├── frame.rs            # Window borders, 3 frame types (Window/Dialog/Single), close/resize handles (606 lines, 19 tests)
-├── window.rs           # Overlapping windows: drag, resize, zoom toggle (735 lines, 13 tests)
-├── desktop.rs          # Window manager: tile, cascade, click-to-focus, background (477 lines, 10 tests)
-├── dialog.rs           # Modal dialogs: Esc/Enter/command handling (570 lines, 12 tests)
-├── menu_bar.rs         # Horizontal menu bar: dropdown activation, ~X~ hotkeys, Alt+letter (1021 lines, 12 tests)
-├── menu_box.rs         # Standalone dropdown menu box (572 lines, 8 tests)
-├── status_line.rs      # Context-sensitive status bar with OF_PRE_PROCESS (646 lines, 7 tests)
-├── scrollbar.rs        # Vertical/horizontal scrollbar with thumb drag (712 lines, 11 tests)
-├── button.rs           # Clickable button with hotkey support (369 lines, 11 tests)
-├── static_text.rs      # Non-interactive text label (247 lines, 8 tests)
-└── msgbox.rs           # Pre-built message/confirm/error dialog factories (354 lines, 9 tests)
+├── theme.rs            # Theme struct, 4 Themes (dark, borland_classic, modern, matrix)
+├── view.rs             # View trait, ViewBase, StateFlags, OptionFlags, Event system, deferred queue, lifecycle hooks
+├── container/
+│   ├── mod.rs          # Container struct + public API (renamed from Group)
+│   ├── dispatch.rs     # Three-phase event dispatch + mouse capture
+│   └── draw.rs         # draw_children + intersection clipping
+├── frame.rs            # Smart Border: borders, title, close, resize, optional ScrollBars
+├── window.rs           # Overlapping windows: drag/resize state machine, zoom toggle
+├── desktop.rs          # Window manager: tile, cascade, click-to-focus, background
+├── overlay.rs          # OverlayManager for dropdowns/tooltips above all windows
+├── application.rs      # Event Loop, dispatch chain, deferred events, screen resize
+├── dialog.rs           # Modal dialogs: Esc/Enter/command handling
+├── menu_bar.rs         # Horizontal menu bar: dropdown activation, ~X~ hotkeys, Alt+letter
+├── menu_box.rs         # Standalone dropdown menu box
+├── status_line.rs      # Context-sensitive status bar with OF_PRE_PROCESS
+├── scrollbar.rs        # Vertical/horizontal scrollbar with thumb drag
+├── button.rs           # Clickable button with hotkey support
+├── static_text.rs      # Non-interactive text label
+└── msgbox.rs           # Pre-built message/confirm/error dialog factories
 examples/
-└── demo.rs             # Interactive demo: Desktop + MenuBar + Windows + Buttons + StatusLine (334 lines)
+└── demo.rs             # Interactive demo: Application + MenuBar + Windows + Buttons + StatusLine
 ```
 
 ## Development Workflow
 
 ```bash
 cargo check                     # Quick syntax check (fastest)
-cargo test                      # Run all 157 tests
+cargo test                      # Run all 222 tests
 cargo clippy -- -D warnings     # Lint (pedantic enabled)
 cargo fmt                       # Format
 cargo run --example demo        # Run the interactive demo
@@ -73,6 +79,7 @@ No Makefile — use cargo directly.
 ### Reference
 - Pattern source: [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT) — study patterns, don't copy code
 - Architecture decision: [ADR-002](~/four-code/docs/ADR-002-turbo-tui-windowing.md) in four-code
+- **v0.2 Architecture Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md) — Detailed build plan with 10 steps, architecture decisions, new concepts (Deferred Event Queue, Lifecycle Hooks, Overlay System, Event Coalescing)
 
 ## Key Design Decisions
 
@@ -87,13 +94,46 @@ No Makefile — use cargo directly.
 |------|-------|
 | Add new widget | `src/lib.rs` (module + prelude), new `src/widget_name.rs` |
 | Change window behavior | `src/window.rs`, `src/frame.rs` |
-| Change event routing | `src/group.rs` (dispatch_event, lines 362-436) |
+| Change event routing | `src/container/dispatch.rs` (dispatch_event, three-phase) |
 | Change menu behavior | `src/menu_bar.rs`, `src/menu_box.rs` |
 | Change background/theming | `src/desktop.rs` (draw_background), `src/frame.rs` (styles) |
 | Add commands | `src/command.rs` (CM_* constants) |
 | Demo changes | `examples/demo.rs` |
 
-## Known Bugs (v0.1.0 — To Fix)
+## v0.2 Rebuild — Current State
+
+**Branch:** `v0.2-rebuild` | **Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md)
+
+### Completed (Steps 1-8, 10)
+- Level 0: command.rs + theme.rs (unchanged from v0.1)
+- Level 1: view.rs — dirty-flag, clip semantics, deferred events, lifecycle hooks (21 tests)
+- Level 2: container/ — renamed from Group, split into mod/dispatch/draw submodules (16 tests)
+- Level 3: frame.rs — Smart Border with ScrollBars, hit-testing (23 tests)
+- Level 3: window.rs — Drag/resize state machine, zoom toggle (20 tests)
+- Level 3: desktop.rs — Window manager, tile, cascade, click-to-front (17 tests)
+- Level 4: overlay.rs — OverlayManager, dismiss logic, overflow calculation (14 tests)
+- Level 4: application.rs — Event loop orchestrator, dispatch chain, deferred events (9 tests)
+- Level 4: dialog.rs — Modal dialog, Escape/Enter/command handling (12 tests)
+- Level 5b: msgbox.rs — Factory functions for message/confirm/error boxes (9 tests)
+- Demo: examples/demo.rs — Interactive demo using Application struct
+
+### Remaining (Deferred to v0.2.1)
+- Step 9b: MenuBar→Overlay dropdown refactor (MenuBar currently self-draws dropdown)
+- Step 9a/c/d: Widget adaptations (minor — existing widgets work but don't use v0.2 patterns fully)
+
+### Build Order (10 Steps)
+1. Container submodules (rename Group→Container, split mod/dispatch/draw)
+2. View trait extensions (deferred events + lifecycle hooks)
+3. Frame (Smart Border with ScrollBars)
+4. Window (Frame + Interior Container, Drag/Resize state machine)
+5. Desktop (Window Manager)
+6. Overlay system
+7. Application (Event Loop, Coalescing)
+8. Dialog (Modal)
+9. Widget adaptations (MenuBar→Overlay dropdown, MenuBox overflow)
+10. MsgBox + Demo
+
+## Known Bugs (v0.1.0 — Addressed by v0.2 Rebuild)
 
 ### Bug 1: Background pattern too noisy
 - **File:** `src/desktop.rs` line 55
@@ -144,3 +184,4 @@ No Makefile — use cargo directly.
 |---------|------|-------------|
 | four-code | `~/four-code` | Consumer — terminal IDE that will use turbo-tui for windowing |
 | ADR-002 | `~/four-code/docs/ADR-002-turbo-tui-windowing.md` | Architecture decision record |
+| v0.2 Plan | `docs/PLAN-v0.2.md` | Detailed architecture plan for v0.2 rebuild |

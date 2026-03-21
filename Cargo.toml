@@ -1,0 +1,29 @@
+[package]
+name = "turbo-tui"
+version = "0.1.0"
+edition = "2021"
+authors = ["Robby Beyer <robby@four-bytes.de>"]
+license = "MIT"
+repository = "https://github.com/four-bytes/turbo-tui"
+homepage = "https://github.com/four-bytes/turbo-tui"
+description = "Borland Turbo Vision windowing patterns for Ratatui"
+keywords = ["tui", "terminal", "ui", "ratatui", "windowing"]
+categories = ["command-line-interface", "gui"]
+readme = "README.md"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+
+[dev-dependencies]
+# Will add test utilities later
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

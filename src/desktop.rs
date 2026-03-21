@@ -10,7 +10,7 @@ use crate::view::{Event, EventKind, View, ViewId};
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use std::any::Any;
 
 /// Desktop container that manages overlapping windows.
@@ -46,14 +46,14 @@ impl Desktop {
     /// Create a new desktop with the given bounds.
     ///
     /// Defaults:
-    /// - Background character: `'░'` (light shade)
-    /// - Background style: `Style::default()`
+    /// - Background character: `' '` (space with blue background — Borland classic)
+    /// - Background style: `Style::default().bg(Color::Blue)`
     #[must_use]
     pub fn new(bounds: Rect) -> Self {
         Self {
             group: Group::new(bounds),
-            background_char: '░',
-            background_style: Style::default(),
+            background_char: ' ',
+            background_style: Style::default().bg(Color::Blue),
         }
     }
 
@@ -299,7 +299,7 @@ mod tests {
         let desktop = Desktop::new(Rect::new(0, 0, 80, 24));
 
         assert_eq!(desktop.bounds(), Rect::new(0, 0, 80, 24));
-        assert_eq!(desktop.background_char, '░');
+        assert_eq!(desktop.background_char, ' ');
         assert_eq!(desktop.window_count(), 0);
     }
 

@@ -4,7 +4,7 @@
 //!
 //! Keys:
 //!   F10        — open/close menu bar
-//!   Escape     — quit (or close open menu)
+//!   Alt+X      — quit (Borland convention)
 //!   F5         — cycle active window
 //!   Mouse      — click windows to focus, drag title bars
 
@@ -114,7 +114,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             StatusItem::new("~F1~ Help", 0, KB_F1),
             StatusItem::new("~F5~ Next win", 0, KB_F5),
             StatusItem::new("~F10~ Menu", 0, KB_F10),
-            StatusItem::new("~Esc~ Quit", 0, 0),
+            StatusItem::new("~Alt+X~ Quit", 0, 0),
         ],
     );
 
@@ -203,15 +203,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         })?;
 
         // Poll for input (50 ms tick)
-        if !event::poll(Duration::from_millis(50))? {
+        if !event::poll(Duration::from_millis(16))? {
             continue;
         }
 
         match event::read()? {
             // ── Keyboard ───────────────────────────────────────────────────
             CEvent::Key(key) => {
-                // Global: Escape quits (unless menu is open — menu handles it)
-                if key.code == KeyCode::Esc && !menu_bar.is_active() {
+                // Global: Alt+X quits (Borland convention)
+                if key.code == KeyCode::Char('x') && key.modifiers.contains(crossterm::event::KeyModifiers::ALT) {
                     running = false;
                     continue;
                 }
@@ -225,13 +225,19 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
                 let mut ev = Event::key(key);
 
-                // Menu bar gets priority when active or for F10
-                if menu_bar.is_active() || key.code == KeyCode::F(10) {
+                // Menu bar gets priority when active, for F10, or for Alt+letter hotkeys
+                if menu_bar.is_active()
+                    || key.code == KeyCode::F(10)
+                    || key.modifiers.contains(crossterm::event::KeyModifiers::ALT)
+                {
                     menu_bar.handle_event(&mut ev);
                     if let Some(cmd) = ev.command_id() {
                         handle_command(cmd, &mut running, &mut last_cmd);
+                        continue;
                     }
-                    continue;
+                    if ev.is_cleared() || ev.handled {
+                        continue;
+                    }
                 }
 
                 // Otherwise pass to desktop

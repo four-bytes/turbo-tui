@@ -55,7 +55,7 @@ pub struct Frame {
     /// Border character set and palette.
     #[allow(clippy::struct_field_names)]
     frame_type: FrameType,
-    /// Show a resize handle `◘` in the bottom-right corner.
+    /// Show a resize handle `⋱` in the bottom-right corner.
     resizable: bool,
     /// Show a close button `[■]` near the top-left corner.
     closeable: bool,
@@ -197,10 +197,10 @@ impl Frame {
         Style::default().fg(Color::Red)
     }
 
-    /// Resize handle style — dark gray.
+    /// Resize handle style — cyan.
     #[allow(clippy::unused_self)]
     fn resize_handle_style(&self) -> Style {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(Color::Cyan)
     }
 }
 
@@ -280,7 +280,7 @@ impl View for Frame {
             buf.set_string(
                 area.x + area.width - 2,
                 area.y + area.height - 1,
-                "◘",
+                "⋱",
                 self.resize_handle_style(),
             );
         }
@@ -529,8 +529,8 @@ mod tests {
         let mut buf = Buffer::empty(area);
         f.draw(&mut buf, area);
 
-        // Resize handle "◘" at (width-2, height-1) = (18, 4)
-        assert_eq!(buf[(18, 4)].symbol(), "◘");
+        // Resize handle "⋱" at (width-2, height-1) = (18, 4)
+        assert_eq!(buf[(18, 4)].symbol(), "⋱");
     }
 
     #[test]

@@ -5,7 +5,7 @@
 
 use crate::view::{
     Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS,
-    OF_SELECTABLE, OF_TOP_SELECT, SF_VISIBLE,
+    OF_SELECTABLE, OF_TOP_SELECT, SF_DRAGGING, SF_RESIZING, SF_VISIBLE,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -402,7 +402,26 @@ impl Group {
                 let col = mouse.column;
                 let row = mouse.row;
 
-                // Reverse Z-order (front to back)
+                // Mouse capture: Drag and Up events go to focused child first
+                // if it's in a dragging/resizing state. This ensures the view
+                // continues to receive events even when the mouse moves outside
+                // its bounds (e.g., when resizing a window larger).
+                if matches!(
+                    mouse.kind,
+                    crossterm::event::MouseEventKind::Drag(_) | crossterm::event::MouseEventKind::Up(_)
+                ) {
+                    if let Some(focused_idx) = self.focused {
+                        let child_state = self.children[focused_idx].state();
+                        if child_state & (SF_DRAGGING | SF_RESIZING) != 0 {
+                            self.children[focused_idx].handle_event(event);
+                            if event.is_cleared() {
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                // Normal hit-testing: Reverse Z-order (front to back)
                 for i in (0..self.children.len()).rev() {
                     if event.is_cleared() {
                         break;

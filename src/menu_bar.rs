@@ -389,11 +389,12 @@ impl MenuBar {
             return None;
         }
 
+        // Border rows return None
+        if row == drop_y || row == drop_y + drop_height - 1 {
+            return None;
+        }
         // Row inside the border (border rows are 0 and last)
         let inner_row = row - drop_y - 1;
-        if row == drop_y || row == drop_y + drop_height - 1 {
-            return None; // Border row
-        }
         Some(inner_row as usize)
     }
 
@@ -592,13 +593,14 @@ impl View for MenuBar {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        if area.height == 0 {
+    fn draw(&self, buf: &mut Buffer, _area: Rect) {
+        let bounds = self.base.bounds();
+        if bounds.height == 0 {
             return;
         }
-        self.draw_bar(buf, area);
+        self.draw_bar(buf, bounds);
         if self.active_menu.is_some() {
-            self.draw_dropdown(buf, area);
+            self.draw_dropdown(buf, bounds);
         }
     }
 

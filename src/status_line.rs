@@ -171,10 +171,11 @@ impl StatusLine {
     }
 
     /// Draw the status line to the buffer.
-    fn draw_status(&self, buf: &mut Buffer, area: Rect) {
+    fn draw_status(&self, buf: &mut Buffer, _area: Rect) {
+        let bounds = self.base.bounds();
         let buf_area = buf.area();
         // Early return if status line row is outside the buffer
-        if area.y >= buf_area.y + buf_area.height || area.y < buf_area.y {
+        if bounds.y >= buf_area.y + buf_area.height || bounds.y < buf_area.y {
             return;
         }
 
@@ -183,13 +184,13 @@ impl StatusLine {
             theme::with_current(|t| (t.status_normal, t.status_hotkey, t.status_selected));
 
         // Clear the line
-        for x in area.left()..area.right() {
-            if let Some(cell) = buf.cell_mut((x, area.y)) {
+        for x in bounds.left()..bounds.right() {
+            if let Some(cell) = buf.cell_mut((x, bounds.y)) {
                 cell.set_style(style);
             }
         }
 
-        let mut x = area.x;
+        let mut x = bounds.x;
         self.item_positions.borrow_mut().clear();
 
         // Draw each item
@@ -209,13 +210,13 @@ impl StatusLine {
                     style
                 };
 
-                buf.set_string(x, area.y, text, seg_style);
+                buf.set_string(x, bounds.y, text, seg_style);
                 x += u16::try_from(text.len()).unwrap_or(u16::MAX);
             }
 
             // Add space between items
             if idx < self.items.len() - 1 {
-                buf.set_string(x, area.y, "  ", style);
+                buf.set_string(x, bounds.y, "  ", style);
                 x += 2;
             }
 
@@ -226,9 +227,9 @@ impl StatusLine {
         // Draw hint text right-aligned
         if let Some(hint) = &self.hint_text {
             let hint_len = u16::try_from(hint.len()).unwrap_or(u16::MAX);
-            if hint_len < area.width {
-                let hint_x = area.x + area.width - hint_len - 1;
-                buf.set_string(hint_x, area.y, hint, style);
+            if hint_len < bounds.width {
+                let hint_x = bounds.x + bounds.width - hint_len - 1;
+                buf.set_string(hint_x, bounds.y, hint, style);
             }
         }
     }
@@ -248,7 +249,7 @@ impl View for StatusLine {
     }
 
     fn draw(&self, buf: &mut Buffer, area: Rect) {
-        self.draw_status(buf, area);
+        self.draw_status(buf, area); // area is passed but draw_status uses self.base.bounds()
     }
 
     fn handle_event(&mut self, event: &mut Event) {

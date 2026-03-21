@@ -293,12 +293,21 @@ impl View for Window {
         // 1. Draw frame
         self.frame.draw(buf, self.base.bounds());
 
-        // 2. Fill interior with background color from theme
+        // 2. Fill interior with background color from theme (clipped to buffer)
         let interior_area = self.frame.interior();
         let bg_style = theme::with_current(|t| t.window_interior);
+        let (buf_x, buf_y, buf_w, buf_h) = {
+            let a = *buf.area();
+            (a.x, a.y, a.width, a.height)
+        };
         for y in interior_area.y..interior_area.y.saturating_add(interior_area.height) {
+            if y < buf_y || y >= buf_y + buf_h {
+                continue;
+            }
             for x in interior_area.x..interior_area.x.saturating_add(interior_area.width) {
-                buf.set_string(x, y, " ", bg_style);
+                if x >= buf_x && x < buf_x + buf_w {
+                    buf.set_string(x, y, " ", bg_style);
+                }
             }
         }
 

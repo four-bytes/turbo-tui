@@ -9,10 +9,10 @@
 //! ```ignore
 //! use turbo_tui::theme;
 //!
-//! // Use Borland classic colors (default)
+//! // Use dark theme (default)
 //! let t = theme::current();
 //!
-//! // Switch to a custom theme at runtime
+//! // Switch to Borland classic at runtime
 //! theme::set(Theme::borland_classic());
 //! ```
 
@@ -208,11 +208,100 @@ impl Theme {
             scrollbar_arrows: Style::default().fg(Color::LightCyan).bg(Color::Blue),
         }
     }
+
+    /// Create a dark theme suitable for modern terminals.
+    ///
+    /// - Black desktop background (uses terminal default)
+    /// - Dark gray window interiors with white/gray text
+    /// - Dark gray menu bar and status line
+    /// - Cyan accent for selection and highlights
+    #[must_use]
+    pub fn dark() -> Self {
+        Self {
+            // ── Desktop ────────────────────────────────────────────────
+            desktop_bg: Style::default().fg(Color::DarkGray).bg(Color::Black),
+            desktop_char: ' ',
+
+            // ── Window Frame ───────────────────────────────────────────
+            window_frame_active: Style::default().fg(Color::Cyan).bg(Color::Black),
+            window_frame_inactive: Style::default().fg(Color::DarkGray).bg(Color::Black),
+            window_title_active: Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+            window_title_inactive: Style::default().fg(Color::DarkGray).bg(Color::Black),
+            window_interior: Style::default().fg(Color::White).bg(Color::Rgb(30, 30, 30)),
+            window_close_button: Style::default().fg(Color::Red).bg(Color::Black),
+            window_resize_handle: Style::default().fg(Color::DarkGray).bg(Color::Black),
+
+            // ── Dialog Frame ───────────────────────────────────────────
+            dialog_frame: Style::default().fg(Color::White).bg(Color::DarkGray),
+            dialog_title: Style::default()
+                .fg(Color::White)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+            dialog_interior: Style::default().fg(Color::White).bg(Color::DarkGray),
+
+            // ── Single Frame ───────────────────────────────────────────
+            single_frame: Style::default().fg(Color::DarkGray).bg(Color::Black),
+
+            // ── Menu Bar ───────────────────────────────────────────────
+            menu_bar_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
+            menu_bar_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+            menu_bar_hotkey: Style::default()
+                .fg(Color::Cyan)
+                .bg(Color::Rgb(30, 30, 30))
+                .add_modifier(Modifier::BOLD),
+            menu_bar_hotkey_selected: Style::default()
+                .fg(Color::Yellow)
+                .bg(Color::Rgb(0, 100, 150))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Menu Dropdown ──────────────────────────────────────────
+            menu_box_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(40, 40, 40)),
+            menu_box_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+            menu_box_disabled: Style::default().fg(Color::DarkGray).bg(Color::Rgb(40, 40, 40)),
+            menu_box_separator: Style::default().fg(Color::DarkGray).bg(Color::Rgb(40, 40, 40)),
+            menu_box_hotkey: Style::default()
+                .fg(Color::Cyan)
+                .bg(Color::Rgb(40, 40, 40))
+                .add_modifier(Modifier::BOLD),
+            menu_box_hotkey_selected: Style::default()
+                .fg(Color::Yellow)
+                .bg(Color::Rgb(0, 100, 150))
+                .add_modifier(Modifier::BOLD),
+
+            // ── Status Line ────────────────────────────────────────────
+            status_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
+            status_hotkey: Style::default()
+                .fg(Color::Cyan)
+                .bg(Color::Rgb(30, 30, 30))
+                .add_modifier(Modifier::BOLD),
+            status_selected: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+
+            // ── Button ─────────────────────────────────────────────────
+            button_normal: Style::default().fg(Color::Gray).bg(Color::Rgb(50, 50, 50)),
+            button_default: Style::default()
+                .fg(Color::White)
+                .bg(Color::Rgb(50, 50, 50))
+                .add_modifier(Modifier::BOLD),
+            button_focused: Style::default().fg(Color::White).bg(Color::Rgb(0, 100, 150)),
+            button_disabled: Style::default().fg(Color::DarkGray).bg(Color::Rgb(50, 50, 50)),
+
+            // ── Static Text ────────────────────────────────────────────
+            static_text: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
+
+            // ── Scrollbar ──────────────────────────────────────────────
+            scrollbar_track: Style::default().fg(Color::Rgb(60, 60, 60)).bg(Color::Rgb(30, 30, 30)),
+            scrollbar_thumb: Style::default().fg(Color::Gray).bg(Color::Rgb(30, 30, 30)),
+            scrollbar_arrows: Style::default().fg(Color::DarkGray).bg(Color::Rgb(30, 30, 30)),
+        }
+    }
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::borland_classic()
+        Self::dark()
     }
 }
 
@@ -221,7 +310,7 @@ impl Default for Theme {
 // ============================================================================
 
 thread_local! {
-    static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::borland_classic());
+    static CURRENT_THEME: RefCell<Theme> = RefCell::new(Theme::dark());
 }
 
 /// Get the current theme and pass it to a closure.
@@ -322,14 +411,62 @@ mod tests {
     }
 
     #[test]
-    fn test_default_is_borland() {
+    fn test_default_is_dark() {
         let default = Theme::default();
-        let borland = Theme::borland_classic();
+        let dark = Theme::dark();
 
         // Spot-check a few styles
-        assert_eq!(default.desktop_bg, borland.desktop_bg);
-        assert_eq!(default.window_frame_active, borland.window_frame_active);
-        assert_eq!(default.menu_bar_normal, borland.menu_bar_normal);
+        assert_eq!(default.desktop_bg, dark.desktop_bg);
+        assert_eq!(default.window_frame_active, dark.window_frame_active);
+        assert_eq!(default.menu_bar_normal, dark.menu_bar_normal);
+    }
+
+    #[test]
+    fn test_dark_has_bg_on_all_styles() {
+        let t = Theme::dark();
+
+        let styles = [
+            ("desktop_bg", t.desktop_bg),
+            ("window_frame_active", t.window_frame_active),
+            ("window_frame_inactive", t.window_frame_inactive),
+            ("window_title_active", t.window_title_active),
+            ("window_title_inactive", t.window_title_inactive),
+            ("window_interior", t.window_interior),
+            ("window_close_button", t.window_close_button),
+            ("window_resize_handle", t.window_resize_handle),
+            ("dialog_frame", t.dialog_frame),
+            ("dialog_title", t.dialog_title),
+            ("dialog_interior", t.dialog_interior),
+            ("single_frame", t.single_frame),
+            ("menu_bar_normal", t.menu_bar_normal),
+            ("menu_bar_selected", t.menu_bar_selected),
+            ("menu_bar_hotkey", t.menu_bar_hotkey),
+            ("menu_bar_hotkey_selected", t.menu_bar_hotkey_selected),
+            ("menu_box_normal", t.menu_box_normal),
+            ("menu_box_selected", t.menu_box_selected),
+            ("menu_box_disabled", t.menu_box_disabled),
+            ("menu_box_separator", t.menu_box_separator),
+            ("menu_box_hotkey", t.menu_box_hotkey),
+            ("menu_box_hotkey_selected", t.menu_box_hotkey_selected),
+            ("status_normal", t.status_normal),
+            ("status_hotkey", t.status_hotkey),
+            ("status_selected", t.status_selected),
+            ("button_normal", t.button_normal),
+            ("button_default", t.button_default),
+            ("button_focused", t.button_focused),
+            ("button_disabled", t.button_disabled),
+            ("static_text", t.static_text),
+            ("scrollbar_track", t.scrollbar_track),
+            ("scrollbar_thumb", t.scrollbar_thumb),
+            ("scrollbar_arrows", t.scrollbar_arrows),
+        ];
+
+        for (name, style) in styles {
+            assert!(
+                style.bg.is_some(),
+                "Dark theme style '{name}' is missing a background color"
+            );
+        }
     }
 
     #[test]
@@ -338,7 +475,7 @@ mod tests {
         let original_bg = with_current(|t| t.desktop_char);
 
         // Set a modified theme
-        let mut custom = Theme::borland_classic();
+        let mut custom = Theme::dark();
         custom.desktop_char = '▓';
         set(custom);
 
@@ -346,14 +483,14 @@ mod tests {
         assert_eq!(new_bg, '▓');
 
         // Restore
-        set(Theme::borland_classic());
+        set(Theme::dark());
         let restored = with_current(|t| t.desktop_char);
         assert_eq!(restored, original_bg);
     }
 
     #[test]
     fn test_theme_clone() {
-        let t1 = Theme::borland_classic();
+        let t1 = Theme::dark();
         let t2 = t1.clone();
         assert_eq!(t1.desktop_bg, t2.desktop_bg);
         assert_eq!(t1.window_frame_active, t2.window_frame_active);

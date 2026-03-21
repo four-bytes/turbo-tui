@@ -122,6 +122,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Position: col 4, row 2 (inside desktop); size 44×12
     let mut win1 = Window::new(Rect::new(4, 2, 44, 12), "Editor");
     win1.set_resizable(true);
+    win1.set_drag_limits(desktop_rect);
 
     // Interior starts at (5, 3) for a window at (4, 2)
     let int1 = win1.interior_rect();
@@ -149,6 +150,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // ── Window 2: Controls ─────────────────────────────────────────────────
     // Overlapping: col 20, row 7; size 36×10
     let mut win2 = Window::new(Rect::new(20, 7, 36, 10), "Controls");
+    win2.set_drag_limits(desktop_rect);
 
     let int2 = win2.interior_rect();
     win2.add(Box::new(StaticText::new(

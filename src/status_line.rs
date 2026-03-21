@@ -172,6 +172,12 @@ impl StatusLine {
 
     /// Draw the status line to the buffer.
     fn draw_status(&self, buf: &mut Buffer, area: Rect) {
+        let buf_area = buf.area();
+        // Early return if status line row is outside the buffer
+        if area.y >= buf_area.y + buf_area.height || area.y < buf_area.y {
+            return;
+        }
+
         // Get theme styles
         let (style, hotkey_style, selected_style) = theme::with_current(|t| {
             (t.status_normal, t.status_hotkey, t.status_selected)
@@ -179,7 +185,9 @@ impl StatusLine {
 
         // Clear the line
         for x in area.left()..area.right() {
-            buf[(x, area.y)].set_style(style);
+            if let Some(cell) = buf.cell_mut((x, area.y)) {
+                cell.set_style(style);
+            }
         }
 
         let mut x = area.x;

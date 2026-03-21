@@ -56,7 +56,7 @@ pub struct Frame {
     /// Border character set and palette.
     #[allow(clippy::struct_field_names)]
     frame_type: FrameType,
-    /// Show a resize handle `⋱` in the bottom-right corner.
+    /// Show a resize handle `◢` in the bottom-right corner.
     resizable: bool,
     /// Show a close button `[■]` near the top-left corner.
     closeable: bool,
@@ -134,10 +134,10 @@ impl Frame {
 
     /// Return `true` if `(x, y)` is over the close button `[■]`.
     ///
-    /// The close button occupies columns `x+1 ..= x+3` of the top row.
+    /// The close button occupies columns `x+2 ..= x+4` of the top row.
     pub fn is_close_button(&self, x: u16, y: u16) -> bool {
         let b = self.base.bounds();
-        self.closeable && y == b.y && x > b.x && x <= b.x + 3
+        self.closeable && y == b.y && x >= b.x + 2 && x <= b.x + 4
     }
 
     /// Return `true` if `(x, y)` is over the resize handle (bottom-right).
@@ -214,6 +214,32 @@ impl Frame {
 }
 
 // ============================================================================
+// Buffer clipping helper
+// ============================================================================
+
+/// Write a string to the buffer, clipping to the buffer's area.
+///
+/// Any characters that would fall outside the buffer are silently skipped.
+/// This prevents panics when views are partially off-screen.
+fn clip_string(buf: &mut Buffer, x: u16, y: u16, s: &str, style: Style) {
+    // Copy the area so the immutable borrow ends before the mutable cell_mut call.
+    let buf_area = *buf.area();
+    if y < buf_area.y || y >= buf_area.y + buf_area.height {
+        return;
+    }
+    for (i, ch) in s.chars().enumerate() {
+        #[allow(clippy::cast_possible_truncation)]
+        let cx = x.saturating_add(i as u16);
+        if cx >= buf_area.x && cx < buf_area.x + buf_area.width {
+            if let Some(cell) = buf.cell_mut((cx, y)) {
+                cell.set_char(ch);
+                cell.set_style(style);
+            }
+        }
+    }
+}
+
+// ============================================================================
 // View implementation
 // ============================================================================
 
@@ -240,17 +266,27 @@ impl View for Frame {
         let title_style = self.title_style();
 
         // Border characters for the selected frame type.
-        let (tl, tr, bl, br, h, v) = match self.frame_type {
-            FrameType::Window | FrameType::Dialog => ('╔', '╗', '╚', '╝', '═', '║'),
-            FrameType::Single => ('┌', '┐', '└', '┘', '─', '│'),
+        // Resizable windows use single-line bottom corners (└┘) per Borland TV.
+        let (tl, tr, h, v) = match self.frame_type {
+            FrameType::Window | FrameType::Dialog => ('╔', '╗', '═', '║'),
+            FrameType::Single => ('┌', '┐', '─', '│'),
+        };
+        let (bl, br) = if self.resizable {
+            // Resizable windows: single-line bottom corners (Borland TV pattern)
+            ('└', '┘')
+        } else {
+            match self.frame_type {
+                FrameType::Window | FrameType::Dialog => ('╚', '╝'),
+                FrameType::Single => ('└', '┘'),
+            }
         };
 
         // --- Top border ---
-        buf.set_string(area.x, area.y, tl.to_string(), style);
+        clip_string(buf, area.x, area.y, &tl.to_string(), style);
         for x in (area.x + 1)..(area.x + area.width - 1) {
-            buf.set_string(x, area.y, h.to_string(), style);
+            clip_string(buf, x, area.y, &h.to_string(), style);
         }
-        buf.set_string(area.x + area.width - 1, area.y, tr.to_string(), style);
+        clip_string(buf, area.x + area.width - 1, area.y, &tr.to_string(), style);
 
         // Title — centered on the top border.
         if !self.title.is_empty() {
@@ -258,38 +294,40 @@ impl View for Frame {
             #[allow(clippy::cast_possible_truncation)]
             let title_len = title_display.len() as u16;
             let title_x = area.x + (area.width.saturating_sub(title_len)) / 2;
-            buf.set_string(title_x, area.y, &title_display, title_style);
+            clip_string(buf, title_x, area.y, &title_display, title_style);
         }
 
-        // Close button — overwrites part of the top border (left side).
+        // Close button — position 2,3,4 on top row (gap after corner).
         if self.closeable {
-            buf.set_string(area.x + 1, area.y, "[■]", self.close_button_style());
+            clip_string(buf, area.x + 2, area.y, "[■]", self.close_button_style());
         }
 
         // --- Left and right borders ---
         for y in (area.y + 1)..(area.y + area.height - 1) {
-            buf.set_string(area.x, y, v.to_string(), style);
-            buf.set_string(area.x + area.width - 1, y, v.to_string(), style);
+            clip_string(buf, area.x, y, &v.to_string(), style);
+            clip_string(buf, area.x + area.width - 1, y, &v.to_string(), style);
         }
 
         // --- Bottom border ---
-        buf.set_string(area.x, area.y + area.height - 1, bl.to_string(), style);
+        clip_string(buf, area.x, area.y + area.height - 1, &bl.to_string(), style);
         for x in (area.x + 1)..(area.x + area.width - 1) {
-            buf.set_string(x, area.y + area.height - 1, h.to_string(), style);
+            clip_string(buf, x, area.y + area.height - 1, &h.to_string(), style);
         }
-        buf.set_string(
+        clip_string(
+            buf,
             area.x + area.width - 1,
             area.y + area.height - 1,
-            br.to_string(),
+            &br.to_string(),
             style,
         );
 
-        // Resize handle — overwrites the bottom-right corner character.
-        if self.resizable {
-            buf.set_string(
+        // Resize handle — only when resizable AND active (Borland TV pattern).
+        if self.resizable && (self.base.state() & SF_ACTIVE != 0 || self.base.state() & SF_FOCUSED != 0) {
+            clip_string(
+                buf,
                 area.x + area.width - 2,
                 area.y + area.height - 1,
-                "⋱",
+                "◢",
                 self.resize_handle_style(),
             );
         }
@@ -311,8 +349,8 @@ impl View for Frame {
                 let col = mouse.column;
                 let row = mouse.row;
 
-                // Close button: columns x+1 ..= x+3 on the top row.
-                if self.closeable && row == area.y && col > area.x && col <= area.x + 3 {
+                // Close button: columns x+2 ..= x+4 on the top row.
+                if self.closeable && row == area.y && col >= area.x + 2 && col <= area.x + 4 {
                     event.kind = EventKind::Command(CM_CLOSE);
                     return;
                 }
@@ -423,12 +461,14 @@ mod tests {
     #[test]
     fn test_frame_close_button_hit() {
         let f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        assert!(f.is_close_button(1, 0));
+        // Close button at columns 2, 3, 4
         assert!(f.is_close_button(2, 0));
         assert!(f.is_close_button(3, 0));
-        // Column 0 and 4 are NOT the close button
+        assert!(f.is_close_button(4, 0));
+        // Columns 0, 1, and 5 are NOT the close button
         assert!(!f.is_close_button(0, 0));
-        assert!(!f.is_close_button(4, 0));
+        assert!(!f.is_close_button(1, 0));
+        assert!(!f.is_close_button(5, 0));
         // Wrong row
         assert!(!f.is_close_button(2, 1));
     }
@@ -524,10 +564,10 @@ mod tests {
         let mut buf = Buffer::empty(area);
         f.draw(&mut buf, area);
 
-        // Close button "[■]" starts at column 1
-        assert_eq!(buf[(1, 0)].symbol(), "[");
-        assert_eq!(buf[(2, 0)].symbol(), "■");
-        assert_eq!(buf[(3, 0)].symbol(), "]");
+        // Close button "[■]" starts at column 2 (gap after corner)
+        assert_eq!(buf[(2, 0)].symbol(), "[");
+        assert_eq!(buf[(3, 0)].symbol(), "■");
+        assert_eq!(buf[(4, 0)].symbol(), "]");
     }
 
     #[test]
@@ -535,11 +575,14 @@ mod tests {
         let area = Rect::new(0, 0, 20, 5);
         let mut f = Frame::new(area, "");
         f.set_resizable(true);
+        // Set active state so resize handle is visible
+        let state = f.base.state();
+        f.base.set_state(state | SF_ACTIVE);
         let mut buf = Buffer::empty(area);
         f.draw(&mut buf, area);
 
-        // Resize handle "⋱" at (width-2, height-1) = (18, 4)
-        assert_eq!(buf[(18, 4)].symbol(), "⋱");
+        // Resize handle "◢" at (width-2, height-1) = (18, 4)
+        assert_eq!(buf[(18, 4)].symbol(), "◢");
     }
 
     #[test]
@@ -556,7 +599,7 @@ mod tests {
     #[test]
     fn test_frame_close_click_generates_command() {
         let mut f = Frame::new(Rect::new(0, 0, 20, 10), "T");
-        let mut event = make_mouse_down(2, 0); // column 2 = close button
+        let mut event = make_mouse_down(3, 0); // column 3 = close button icon
         f.handle_event(&mut event);
 
         // Event must be converted to CM_CLOSE, NOT cleared
@@ -611,5 +654,27 @@ mod tests {
         // Frame state must remain unchanged
         assert!(!f.is_dragging());
         assert!(!f.is_resizing());
+    }
+
+    #[test]
+    fn test_frame_resizable_single_bottom_corners() {
+        let area = Rect::new(0, 0, 10, 6);
+        let mut f = Frame::new(area, "");
+        f.set_resizable(true);
+        let mut buf = Buffer::empty(area);
+        f.draw(&mut buf, area);
+
+        // Resizable windows have single-line bottom corners
+        assert_eq!(buf[(0, 5)].symbol(), "└");
+        assert_eq!(buf[(9, 5)].symbol(), "┘");
+    }
+
+    #[test]
+    fn test_frame_draw_clipped_no_panic() {
+        // Frame extends beyond buffer — must not panic
+        let frame = Frame::new(Rect::new(5, 3, 20, 10), "Clipped");
+        let buf_area = Rect::new(0, 0, 15, 8); // Smaller than frame
+        let mut buf = Buffer::empty(buf_area);
+        frame.draw(&mut buf, Rect::new(5, 3, 20, 10)); // must not panic
     }
 }

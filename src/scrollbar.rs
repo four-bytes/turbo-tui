@@ -457,7 +457,9 @@ impl View for ScrollBar {
                         && buf_col >= area.x
                         && buf_col < area.x + area.width
                     {
-                        let cell = &mut buf[(buf_col, buf_row)];
+                        let Some(cell) = buf.cell_mut((buf_col, buf_row)) else {
+                            continue;
+                        };
 
                         let (ch, style) = if row == 0 {
                             // Up arrow
@@ -493,7 +495,9 @@ impl View for ScrollBar {
                         && row >= area.y
                         && row < area.y + area.height
                     {
-                        let cell = &mut buf[(buf_col, row)];
+                        let Some(cell) = buf.cell_mut((buf_col, row)) else {
+                            continue;
+                        };
 
                         let (ch, style) = if col == 0 {
                             // Left arrow

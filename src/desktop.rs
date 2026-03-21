@@ -191,16 +191,21 @@ impl Desktop {
         self.group.children().iter().position(|c| c.id() == id)
     }
 
-    /// Draw background pattern.
+    /// Draw background pattern (clipped to buffer bounds).
     fn draw_background(&self, buf: &mut Buffer, area: Rect) {
+        let (buf_x, buf_y, buf_w, buf_h) = {
+            let a = *buf.area();
+            (a.x, a.y, a.width, a.height)
+        };
+        let ch = self.background_char.to_string();
         for y in area.y..area.y.saturating_add(area.height) {
+            if y < buf_y || y >= buf_y + buf_h {
+                continue;
+            }
             for x in area.x..area.x.saturating_add(area.width) {
-                buf.set_string(
-                    x,
-                    y,
-                    self.background_char.to_string(),
-                    self.background_style,
-                );
+                if x >= buf_x && x < buf_x + buf_w {
+                    buf.set_string(x, y, &ch, self.background_style);
+                }
             }
         }
     }

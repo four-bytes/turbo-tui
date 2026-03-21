@@ -19,6 +19,7 @@
 
 pub mod button;
 pub mod command;
+pub mod theme;
 pub mod desktop;
 pub mod dialog;
 pub mod frame;
@@ -35,6 +36,7 @@ pub mod window;
 pub mod prelude {
     pub use crate::button::Button;
     pub use crate::command::{CommandId, CommandSet, CM_SCROLL_CHANGED};
+    pub use crate::theme::Theme;
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
     pub use crate::frame::{Frame, FrameType};

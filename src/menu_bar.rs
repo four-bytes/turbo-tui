@@ -9,10 +9,10 @@
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use std::any::Any;
 
 use crate::command::CommandId;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_PRE_PROCESS};
 
 // ============================================================================
@@ -417,19 +417,15 @@ impl MenuBar {
 
     /// Draw the menu bar row.
     fn draw_bar(&self, buf: &mut Buffer, area: Rect) {
-        let bar_style = Style::default().fg(Color::Black).bg(Color::White);
-        let active_style = Style::default()
-            .fg(Color::White)
-            .bg(Color::Black)
-            .add_modifier(Modifier::BOLD);
-        let hotkey_style = Style::default()
-            .fg(Color::Black)
-            .bg(Color::White)
-            .add_modifier(Modifier::UNDERLINED);
-        let active_hotkey_style = Style::default()
-            .fg(Color::White)
-            .bg(Color::Black)
-            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        let (bar_style, active_style, hotkey_style, active_hotkey_style) =
+            theme::with_current(|t| {
+                (
+                    t.menu_bar_normal,
+                    t.menu_bar_selected,
+                    t.menu_bar_hotkey,
+                    t.menu_bar_hotkey_selected,
+                )
+            });
 
         // Fill background
         for x in area.x..area.x + area.width {
@@ -492,17 +488,18 @@ impl MenuBar {
         #[allow(clippy::cast_possible_truncation)]
         let drop_height = menu.items.len() as u16 + 2;
 
-        let box_style = Style::default().fg(Color::Black).bg(Color::White);
-        let border_style = Style::default().fg(Color::Black).bg(Color::White);
-        let selected_style = Style::default()
-            .fg(Color::White)
-            .bg(Color::Black)
-            .add_modifier(Modifier::BOLD);
-        let disabled_style = Style::default()
-            .fg(Color::DarkGray)
-            .bg(Color::White)
-            .add_modifier(Modifier::DIM);
-        let sep_style = Style::default().fg(Color::DarkGray).bg(Color::White);
+        let (box_style, border_style, selected_style, disabled_style, sep_style, hotkey_style, hotkey_selected_style) =
+            theme::with_current(|t| {
+                (
+                    t.menu_box_normal,
+                    t.menu_box_normal,
+                    t.menu_box_selected,
+                    t.menu_box_disabled,
+                    t.menu_box_separator,
+                    t.menu_box_hotkey,
+                    t.menu_box_hotkey_selected,
+                )
+            });
 
         // Top border
         buf.set_string(drop_x, drop_y, "┌", border_style);
@@ -527,14 +524,11 @@ impl MenuBar {
             } else {
                 // Normal item row
                 let (row_style, hk_style) = if is_selected {
-                    (
-                        selected_style,
-                        selected_style.add_modifier(Modifier::UNDERLINED),
-                    )
+                    (selected_style, hotkey_selected_style)
                 } else if !item.enabled {
                     (disabled_style, disabled_style)
                 } else {
-                    (box_style, box_style.add_modifier(Modifier::UNDERLINED))
+                    (box_style, hotkey_style)
                 };
 
                 // Left border

@@ -6,11 +6,12 @@
 //! - Manages windows with Z-order, click-to-focus, tiling, and cascading
 
 use crate::group::Group;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewId};
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use std::any::Any;
 
 /// Desktop container that manages overlapping windows.
@@ -45,15 +46,14 @@ pub struct Desktop {
 impl Desktop {
     /// Create a new desktop with the given bounds.
     ///
-    /// Defaults:
-    /// - Background character: `' '` (space with blue background — Borland classic)
-    /// - Background style: `Style::default().bg(Color::Blue)`
+    /// Defaults are read from the current theme (see [`crate::theme`]).
     #[must_use]
     pub fn new(bounds: Rect) -> Self {
+        let (bg_char, bg_style) = theme::with_current(|t| (t.desktop_char, t.desktop_bg));
         Self {
             group: Group::new(bounds),
-            background_char: ' ',
-            background_style: Style::default().bg(Color::Blue),
+            background_char: bg_char,
+            background_style: bg_style,
         }
     }
 

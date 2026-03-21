@@ -25,11 +25,11 @@
 //! ```
 
 use crate::command::CommandId;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use std::any::Any;
 
 /// Clickable button that emits a command when activated.
@@ -120,22 +120,16 @@ impl Button {
         let x = area.x + area.width.saturating_sub(text_len) / 2;
         let y = area.y;
 
-        // Choose style based on state
-        let style = if focused {
-            // Focused: inverse colors
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else if self.is_default {
-            // Default (not focused): bold white
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            // Normal: cyan
-            Style::default().fg(Color::Cyan)
-        };
+        // Choose style based on state (from theme)
+        let style = theme::with_current(|t| {
+            if focused {
+                t.button_focused
+            } else if self.is_default {
+                t.button_default
+            } else {
+                t.button_normal
+            }
+        });
 
         buf.set_string(x, y, &button_text, style);
     }

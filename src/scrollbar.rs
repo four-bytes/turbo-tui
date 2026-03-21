@@ -11,6 +11,7 @@ use ratatui::layout::Rect;
 use std::any::Any;
 
 use crate::command::CM_SCROLL_CHANGED;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase};
 
 // ============================================================================
@@ -435,6 +436,11 @@ impl View for ScrollBar {
             return;
         }
 
+        // Get theme styles
+        let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
+            (t.scrollbar_track, t.scrollbar_thumb, t.scrollbar_arrows)
+        });
+
         // Calculate track size
         let (thumb_pos, _thumb_len) = self.thumb_range();
 
@@ -453,23 +459,24 @@ impl View for ScrollBar {
                     {
                         let cell = &mut buf[(buf_col, buf_row)];
 
-                        let ch = if row == 0 {
+                        let (ch, style) = if row == 0 {
                             // Up arrow
-                            V_UP
+                            (V_UP, arrow_style)
                         } else if row >= height.saturating_sub(1) {
                             // Down arrow
-                            V_DOWN
+                            (V_DOWN, arrow_style)
                         } else {
                             // Track area
                             let track_pos = row - 1;
                             if track_pos == thumb_pos {
-                                V_THUMB
+                                (V_THUMB, thumb_style)
                             } else {
-                                V_TRACK
+                                (V_TRACK, track_style)
                             }
                         };
 
                         cell.set_char(ch);
+                        cell.set_style(style);
                     }
                 }
             }
@@ -488,23 +495,24 @@ impl View for ScrollBar {
                     {
                         let cell = &mut buf[(buf_col, row)];
 
-                        let ch = if col == 0 {
+                        let (ch, style) = if col == 0 {
                             // Left arrow
-                            H_LEFT
+                            (H_LEFT, arrow_style)
                         } else if col >= width.saturating_sub(1) {
                             // Right arrow
-                            H_RIGHT
+                            (H_RIGHT, arrow_style)
                         } else {
                             // Track area
                             let track_pos = col - 1;
                             if track_pos == thumb_pos {
-                                H_THUMB
+                                (H_THUMB, thumb_style)
                             } else {
-                                H_TRACK
+                                (H_TRACK, track_style)
                             }
                         };
 
                         cell.set_char(ch);
+                        cell.set_style(style);
                     }
                 }
             }

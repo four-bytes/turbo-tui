@@ -15,10 +15,10 @@
 //! let title = StaticText::centered(Rect::new(0, 0, 40, 1), "Welcome!");
 //! ```
 
+use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
 use std::any::Any;
 
 /// Non-interactive text label.
@@ -105,7 +105,7 @@ impl StaticText {
             area.x
         };
 
-        let style = Style::default().fg(Color::White);
+        let style = theme::with_current(|t| t.static_text);
         buf.set_string(x, area.y, &self.text, style);
     }
 }

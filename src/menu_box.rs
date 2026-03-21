@@ -8,11 +8,11 @@
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
 use std::any::Any;
 
 use crate::command::CommandId;
 use crate::menu_bar::MenuItem;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
 
 // ============================================================================
@@ -186,17 +186,18 @@ impl View for MenuBox {
             return;
         }
 
-        let box_style = Style::default().fg(Color::Black).bg(Color::White);
-        let border_style = Style::default().fg(Color::Black).bg(Color::White);
-        let selected_style = Style::default()
-            .fg(Color::White)
-            .bg(Color::Black)
-            .add_modifier(Modifier::BOLD);
-        let disabled_style = Style::default()
-            .fg(Color::DarkGray)
-            .bg(Color::White)
-            .add_modifier(Modifier::DIM);
-        let sep_style = Style::default().fg(Color::DarkGray).bg(Color::White);
+        let (box_style, border_style, selected_style, disabled_style, sep_style, hotkey_style, hotkey_selected_style) =
+            theme::with_current(|t| {
+                (
+                    t.menu_box_normal,
+                    t.menu_box_normal,
+                    t.menu_box_selected,
+                    t.menu_box_disabled,
+                    t.menu_box_separator,
+                    t.menu_box_hotkey,
+                    t.menu_box_hotkey_selected,
+                )
+            });
 
         // Top border
         buf.set_string(area.x, area.y, "┌", border_style);
@@ -222,14 +223,11 @@ impl View for MenuBox {
                 buf.set_string(area.x + area.width - 1, row, "┤", sep_style);
             } else {
                 let (row_style, hk_style) = if is_selected {
-                    (
-                        selected_style,
-                        selected_style.add_modifier(Modifier::UNDERLINED),
-                    )
+                    (selected_style, hotkey_selected_style)
                 } else if !item.enabled {
                     (disabled_style, disabled_style)
                 } else {
-                    (box_style, box_style.add_modifier(Modifier::UNDERLINED))
+                    (box_style, hotkey_style)
                 };
 
                 buf.set_string(area.x, row, "│", border_style);

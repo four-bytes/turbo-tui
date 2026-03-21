@@ -6,10 +6,11 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use std::any::Any;
 
 use crate::command::CM_CLOSE;
+use crate::theme;
 use crate::view::{
     Event, EventKind, View, ViewBase, ViewId, SF_ACTIVE, SF_DRAGGING, SF_FOCUSED, SF_RESIZING,
 };
@@ -169,38 +170,46 @@ impl Frame {
     fn border_style(&self) -> Style {
         let is_active = self.base.state() & SF_ACTIVE != 0;
         let is_focused = self.base.state() & SF_FOCUSED != 0;
-
-        match self.frame_type {
+        theme::with_current(|t| match self.frame_type {
             FrameType::Window => {
                 if is_active || is_focused {
-                    Style::default().fg(Color::Cyan)
+                    t.window_frame_active
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    t.window_frame_inactive
                 }
             }
-            FrameType::Dialog => Style::default().fg(Color::White),
-            FrameType::Single => Style::default().fg(Color::Gray),
-        }
+            FrameType::Dialog => t.dialog_frame,
+            FrameType::Single => t.single_frame,
+        })
     }
 
-    /// Title text style — bold white.
-    #[allow(clippy::unused_self)]
+    /// Title text style — bright when active/focused.
     fn title_style(&self) -> Style {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
+        let is_active = self.base.state() & SF_ACTIVE != 0;
+        let is_focused = self.base.state() & SF_FOCUSED != 0;
+        theme::with_current(|t| match self.frame_type {
+            FrameType::Window => {
+                if is_active || is_focused {
+                    t.window_title_active
+                } else {
+                    t.window_title_inactive
+                }
+            }
+            FrameType::Dialog => t.dialog_title,
+            FrameType::Single => t.single_frame,
+        })
     }
 
-    /// Close button style — red.
+    /// Close button style from theme.
     #[allow(clippy::unused_self)]
     fn close_button_style(&self) -> Style {
-        Style::default().fg(Color::Red)
+        theme::with_current(|t| t.window_close_button)
     }
 
-    /// Resize handle style — cyan.
+    /// Resize handle style from theme.
     #[allow(clippy::unused_self)]
     fn resize_handle_style(&self) -> Style {
-        Style::default().fg(Color::Cyan)
+        theme::with_current(|t| t.window_resize_handle)
     }
 }
 

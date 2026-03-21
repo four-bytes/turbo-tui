@@ -5,12 +5,11 @@
 //! markers to highlight hotkey letters.
 
 use crate::command::CommandId;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, OF_PRE_PROCESS};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::prelude::Stylize;
-use ratatui::style::{Color, Style};
 use std::any::Any;
 use std::cell::RefCell;
 
@@ -173,8 +172,12 @@ impl StatusLine {
 
     /// Draw the status line to the buffer.
     fn draw_status(&self, buf: &mut Buffer, area: Rect) {
+        // Get theme styles
+        let (style, hotkey_style, selected_style) = theme::with_current(|t| {
+            (t.status_normal, t.status_hotkey, t.status_selected)
+        });
+
         // Clear the line
-        let style = Style::default().fg(Color::Black).bg(Color::Cyan);
         for x in area.left()..area.right() {
             buf[(x, area.y)].set_style(style);
         }
@@ -192,9 +195,9 @@ impl StatusLine {
 
             for (text, highlighted) in &segments {
                 let seg_style = if is_hovered {
-                    Style::default().fg(Color::Cyan).bg(Color::Black).bold()
+                    selected_style
                 } else if *highlighted {
-                    Style::default().fg(Color::Yellow).bg(Color::Cyan).bold()
+                    hotkey_style
                 } else {
                     style
                 };

@@ -7,11 +7,11 @@
 use crate::command::CM_CLOSE;
 use crate::frame::{Frame, FrameType};
 use crate::group::Group;
+use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, SF_DRAGGING, SF_RESIZING, SF_VISIBLE};
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
 use std::any::Any;
 
 /// Overlapping window with drag, resize, and interior group.
@@ -293,9 +293,9 @@ impl View for Window {
         // 1. Draw frame
         self.frame.draw(buf, self.base.bounds());
 
-        // 2. Fill interior with background color
+        // 2. Fill interior with background color from theme
         let interior_area = self.frame.interior();
-        let bg_style = Style::default().bg(Color::DarkGray);
+        let bg_style = theme::with_current(|t| t.window_interior);
         for y in interior_area.y..interior_area.y.saturating_add(interior_area.height) {
             for x in interior_area.x..interior_area.x.saturating_add(interior_area.width) {
                 buf.set_string(x, y, " ", bg_style);

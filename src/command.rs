@@ -73,6 +73,7 @@ pub const CM_CLOSE: CommandId = 25;
 pub const CM_RECEIVED_FOCUS: CommandId = 50;
 pub const CM_RELEASED_FOCUS: CommandId = 51;
 pub const CM_COMMAND_SET_CHANGED: CommandId = 52;
+pub const CM_SCROLL_CHANGED: CommandId = 60;
 
 // File commands (100-119)
 pub const CM_NEW: CommandId = 100;

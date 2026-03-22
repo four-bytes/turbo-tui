@@ -1225,23 +1225,53 @@ impl Frame {
             }
         }
 
-        // Draw title centered between button tray boundaries
-        if !self.title.is_empty() && b.width > 6 {
+        // Draw title centered within full frame width, clipped to button tray boundaries
+        if !self.title.is_empty() {
             let title_full = format!(" {} ", self.title);
-            let title_len = u16::try_from(title_full.chars().count()).unwrap_or(0);
+            let title_chars: Vec<char> = title_full.chars().collect();
+            // Use usize for calculations, safely convert to u16 for drawing
+            #[allow(clippy::cast_possible_truncation)]
+            let title_len = title_chars.len() as u16;
             let available = tray.title_end.saturating_sub(tray.title_start);
-            let start_col = if title_len < available {
-                tray.title_start + (available.saturating_sub(title_len)) / 2
-            } else {
-                tray.title_start
-            };
 
-            for (i, ch) in title_full.chars().enumerate() {
-                let col = start_col + u16::try_from(i).unwrap_or(0);
-                if col >= tray.title_end {
-                    break;
+            if available >= 2 {
+                // Center within FULL frame width first
+                let ideal_start = b.x + (b.width.saturating_sub(title_len)) / 2;
+
+                // Clip to button tray boundaries
+                let vis_start = ideal_start.max(tray.title_start);
+                let vis_end = (ideal_start + title_len).min(tray.title_end);
+
+                if vis_end > vis_start {
+                    // Calculate how many characters to skip from the start
+                    #[allow(clippy::cast_possible_truncation)]
+                    let chars_to_skip = (vis_start.saturating_sub(ideal_start)) as usize;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let vis_count = (vis_end - vis_start) as usize;
+
+                    // Determine truncation
+                    let truncated_left = vis_start > ideal_start;
+                    let truncated_right = (ideal_start + title_len) > tray.title_end;
+
+                    // Draw visible characters with ellipsis where needed
+                    for (i, &ch) in title_chars
+                        .iter()
+                        .skip(chars_to_skip)
+                        .take(vis_count)
+                        .enumerate()
+                    {
+                        #[allow(clippy::cast_possible_truncation)]
+                        let col = vis_start + i as u16;
+                        let draw_ch = if (truncated_left && i == 0)
+                            || (truncated_right && i == vis_count - 1)
+                        {
+                            '…'
+                        } else {
+                            ch
+                        };
+                        Self::draw_char(buf, col, b.y, draw_ch, styles.title, clip);
+                    }
                 }
-                Self::draw_char(buf, col, b.y, ch, styles.title, clip);
             }
         }
     }
@@ -1598,11 +1628,12 @@ mod tests {
             })
             .collect();
 
-        // Title " LongTitle " should be truncated but start at col 5+
-        // At minimum, some title chars should be visible
+        // Title " LongTitle " is centered relative to full frame width (ideal position = 0)
+        // Then clipped to button tray area (cols 5-10). Left side truncated, shows "…itle…"
+        // Verify: ellipsis indicates truncation, OR some title chars visible
         assert!(
-            title_area.contains('L') || title_area.contains('o'),
-            "Title should be visible starting after close button, got: {title_area:?}"
+            title_area.contains('…') || title_area.contains('i') || title_area.contains('t'),
+            "Title should show truncation ellipsis or visible chars after close button, got: {title_area:?}"
         );
     }
 
@@ -1920,5 +1951,101 @@ mod tests {
         assert_eq!(frame.frame_type(), FrameType::Dialog);
         assert!(!frame.closeable());
         assert!(!frame.resizable());
+    }
+
+    #[test]
+    fn test_frame_title_centered_within_full_width() {
+        setup_default_theme();
+        // Wide window, short title — title should be centered within full width
+        let bounds = Rect::new(0, 0, 40, 10);
+        let mut buf = Buffer::empty(bounds);
+        // Dialog has no close button, so title can use full top bar
+        let frame = Frame::new(bounds, "Hi", FrameType::Dialog);
+        frame.draw(&mut buf, bounds);
+
+        // " Hi " = 4 chars, width 40 → ideal_start = (40 - 4) / 2 = 18
+        // So 'H' at col 19 (after leading space at 18)
+        let top_row: String = (0..40)
+            .map(|col| {
+                buf.cell(Position::new(col, 0))
+                    .unwrap()
+                    .symbol()
+                    .to_string()
+            })
+            .collect();
+        // Find " Hi " in the row and verify it's roughly centered
+        // Use char_indices to get character position (not byte position, since borders are multi-byte)
+        let h_char_pos = top_row.char_indices().position(|(_, c)| c == 'H');
+        assert!(
+            h_char_pos.is_some(),
+            "Title 'H' should be visible, got: {top_row:?}"
+        );
+        let h_col = h_char_pos.unwrap();
+        // Centered at col 19 (0-indexed within the string)
+        assert!(
+            (17..=21).contains(&h_col),
+            "Title 'H' should be near center (col ~19), got col {h_col}, row: {top_row:?}"
+        );
+    }
+
+    #[test]
+    fn test_frame_title_ellipsis_on_right_truncation() {
+        setup_default_theme();
+        // Narrow dialog (no buttons) with long title
+        let bounds = Rect::new(0, 0, 10, 5);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 10));
+        let frame = Frame::new(bounds, "VeryLongTitle", FrameType::Dialog);
+        frame.draw(&mut buf, Rect::new(0, 0, 20, 10));
+
+        // " VeryLongTitle " = 15 chars, available ~ 8 (cols 2..8 for Dialog with margin)
+        // Right truncation should show ellipsis
+        let top_row: String = (0..10)
+            .map(|col| {
+                buf.cell(Position::new(col, 0))
+                    .unwrap()
+                    .symbol()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            top_row.contains('…'),
+            "Right-truncated title should have ellipsis, got: {top_row:?}"
+        );
+    }
+
+    #[test]
+    fn test_frame_title_no_ellipsis_when_fits() {
+        setup_default_theme();
+        // Wide dialog with short title — no truncation needed
+        let bounds = Rect::new(0, 0, 40, 10);
+        let mut buf = Buffer::empty(bounds);
+        let frame = Frame::new(bounds, "Ok", FrameType::Dialog);
+        frame.draw(&mut buf, bounds);
+
+        let top_row: String = (0..40)
+            .map(|col| {
+                buf.cell(Position::new(col, 0))
+                    .unwrap()
+                    .symbol()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            !top_row.contains('…'),
+            "Title that fits should have no ellipsis, got: {top_row:?}"
+        );
+        assert!(top_row.contains('O'), "Title should be visible");
+        assert!(top_row.contains('k'), "Title should be visible");
+    }
+
+    #[test]
+    fn test_frame_title_very_narrow_no_crash() {
+        setup_default_theme();
+        // Extremely narrow frame — available < 2, should not draw title at all
+        let bounds = Rect::new(0, 0, 4, 3);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
+        let frame = Frame::new(bounds, "X", FrameType::Single);
+        // Should not panic
+        frame.draw(&mut buf, Rect::new(0, 0, 10, 10));
     }
 }

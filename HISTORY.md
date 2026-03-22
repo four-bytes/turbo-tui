@@ -145,3 +145,11 @@
 - **Phase 7: JSON Theme Files** — already complete (inactive scrollbar fields added in previous session)
 - **Demo updated** to use Builder Lite, Window presets, and showcase scrollbar focus styling
 - 313 tests passing, clippy pedantic clean
+
+### Frame Title Centering Fix (2026-03-22)
+- **FIX** Title now centers within full frame width, then clips to button tray boundaries
+  - Previously centered within available tray space only — looked off-center with close/zoom buttons
+  - Adds `'…'` ellipsis character when title is truncated on left or right edge
+  - Handles edge cases: very narrow frames, titles shorter than available space
+- 4 new tests: centered title, right-truncation ellipsis, no-ellipsis-when-fits, very-narrow-no-crash
+- 321 tests passing, clippy pedantic clean

@@ -68,3 +68,80 @@
 - Updated `application.rs` and `examples/demo.rs` to use new API
 - Design doc: `docs/DESIGN-horizontal-bar.md`
 - 255 tests passing, clippy pedantic clean, zero unsafe code
+
+### Theme Loading Report + Resize Grip Fix (2026-03-22)
+- **NEW** `ThemeLoadReport` struct in `theme.rs` — per-file success/error tracking for JSON theme loading
+  - `has_errors()`, `loaded_count()`, `error_summary()` helpers
+  - `Display` impl for formatted output
+- **BREAKING** `load_themes_from_dir()` now returns `Result<ThemeLoadReport, io::Error>` instead of `usize`
+  - Directory read failures are propagated as `Err` (no longer silently swallowed)
+  - Individual file parse errors collected in `ThemeLoadReport::errors`
+  - Theme loading never fails silently anymore
+- **FIX** Resize grip character: changed default from '⋱' (U+22F1) to '◢' (U+25E2) everywhere
+  - Built-in `turbo_vision()` theme
+  - `default_resize_grip_char()` in `theme_json.rs`
+  - Fallback in `to_theme()` conversion
+  - All 6 JSON theme files already used '◢'
+- **NEW** Integration tests: `test_load_dark_json_from_disk`, `test_load_all_theme_files_from_disk`
+- Demo updated: `panic!` on theme load failures instead of silent fallback
+- 280 tests passing, clippy pedantic clean
+
+### Scrollbar Fixes + Reference Analysis (2026-03-22)
+- **Phase 1:** Scrollbar inactive styling
+  - 3 new theme fields: `scrollbar_track_inactive`, `scrollbar_thumb_inactive`, `scrollbar_arrows_inactive`
+  - `ScrollBar::set_active(bool)` / `is_active()` — controls active vs inactive rendering
+  - `Window::set_state()` propagates `SF_FOCUSED` to frame scrollbars via `set_active()`
+  - `theme_json.rs`: `ScrollbarSection` gets 3 `#[serde(default)]` inactive fields + `Default` impl for `StyleValue`
+- **Phase 2:** Scrollbar hover fix
+  - `Frame::update_scrollbar_hover(col, row)` — forwards MouseMoved to scrollbars with correct bounds
+  - `Frame::clear_scrollbar_hover()` — clears hover on all scrollbars
+  - `Frame::handle_scrollbar_click(col, row, event) -> bool` — handles Down/Drag on scrollbars
+  - `Window::handle_event` routes Moved, Down, Drag to frame scrollbars
+- **Reference Analysis:** Reviewed Ratatui Component Architecture, Event Handling, Widgets, Builder Lite, TachyonFX, tui-rs demo, gping
+  - Architecture decision: View trait stays unified (NOT split into Widget + EventHandler)
+  - Adopted: Builder Lite pattern for Window/FrameConfig construction
+  - Saved to `docs/RES-0002-reference-projects-architecture.md`
+- **Documentation:** Created ARCHITECTURE.md, STANDARDS.md, TESTING.md, ROADMAP.md, PLAN-v0.2.1.md
+- 284 tests passing, clippy pedantic clean
+
+### Scrollbar Inactive Fix + Task Bar Shelf (2026-03-22)
+- **Scrollbar Inactive Fix:** JSON theme files were missing `track_inactive`, `thumb_inactive`, `arrows_inactive` fields
+  - Serde defaults hard-coded Turbo Vision colors (Blue background) — broke all non-TV themes
+  - Added proper inactive scrollbar colors to all 6 JSON theme files matching each theme's palette
+  - Fixed color typos: `dark.json` `#3c3c3cOD` → `#3c3c3c`, `matrix.json` `#ff505` → `#ff5050`
+- **Phase 3: Task Bar Shelf** (PLAN-v0.2.1)
+  - Desktop gets `task_shelf_height: u16` — tracks shelf rows for minimized windows
+  - `Desktop::recalculate_shelf()` — positions minimized windows left-to-right at desktop bottom
+  - Shelf wraps to multiple rows if minimized windows overflow one row
+  - `Desktop::effective_area()` — returns desktop bounds minus shelf rows
+  - `Window::minimize()` simplified — no longer self-positions, Desktop manages shelf layout
+  - `Window::minimized_width()` — public helper for shelf layout calculation
+  - `tile()` and `cascade()` skip minimized windows, use `effective_area()`
+  - `recalculate_shelf()` called after add_window, close_window, and all event handling
+  - 8 new tests: shelf empty, one minimized, multiple tiled, restore, close, tile/cascade skip, effective area
+- 292 tests passing, clippy pedantic clean
+
+### Phase 4 + 5: Builder Lite + Lifecycle Hooks (2026-03-22)
+- **Phase 4a: FrameConfig struct** (`src/frame.rs`)
+  - `FrameConfig` struct with `frame_type`, `closeable`, `resizable`, `minimizable`, `maximizable`, `v_scrollbar`, `h_scrollbar`
+  - Named constructors: `FrameConfig::window()`, `FrameConfig::dialog()`, `FrameConfig::panel()`
+  - Builder methods: `with_v_scrollbar()`, `with_h_scrollbar()`, `with_closeable()`, `with_resizable()`, `with_minimizable()`, `with_maximizable()`
+  - `Frame::from_config(bounds, title, config)` — creates Frame from FrameConfig
+  - `Default` impl returns `window()` config
+  - Exported in prelude
+- **Phase 4b: Window Builder Lite** (`src/window.rs`)
+  - `Window::with_config(bounds, title, config)` — constructor from FrameConfig
+  - Self-consuming builder methods: `with_min_size()`, `with_drag_limits()`, `with_scrollbars()`, `with_closeable()`, `with_resizable()`, `with_minimized_max_width()`
+  - Existing `set_*()` mutators retained for runtime changes
+- **Phase 4c: Window Presets** (`src/window.rs`)
+  - `Window::editor(bounds, title)` — vertical scrollbar, min 20×8
+  - `Window::palette(bounds, title)` — not resizable, not closeable
+  - `Window::tool(bounds, title)` — compact min 10×5
+- **Phase 5: View Lifecycle Hooks** (`src/view.rs`, `src/container/mod.rs`)
+  - `on_focus(&mut self)` — called when view receives focus (SF_FOCUSED set)
+  - `on_blur(&mut self)` — called when view loses focus (SF_FOCUSED cleared)
+  - Default implementations are no-ops
+  - `Container::set_focus_to()` calls `on_blur()` on old child, `on_focus()` on new child
+- **Phase 7: JSON Theme Files** — already complete (inactive scrollbar fields added in previous session)
+- **Demo updated** to use Builder Lite, Window presets, and showcase scrollbar focus styling
+- 313 tests passing, clippy pedantic clean

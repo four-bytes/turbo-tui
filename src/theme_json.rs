@@ -46,7 +46,7 @@
 //! }
 //! ```
 
-use crate::theme::Theme;
+use crate::theme::{ButtonSide, Theme};
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -184,6 +184,16 @@ impl StyleValue {
     }
 }
 
+impl Default for StyleValue {
+    fn default() -> Self {
+        Self {
+            fg: ColorValue::Named("White".to_owned()),
+            bg: ColorValue::Named("Black".to_owned()),
+            bold: false,
+        }
+    }
+}
+
 // ============================================================================
 // Border character sets
 // ============================================================================
@@ -283,6 +293,25 @@ fn default_menu_sep_r() -> String {
     "┤".to_owned()
 }
 
+fn default_button_side_left() -> String {
+    "left".to_owned()
+}
+
+fn default_button_side_right() -> String {
+    "right".to_owned()
+}
+
+fn default_button_margin() -> u16 {
+    2
+}
+
+fn parse_button_side(s: &str) -> ButtonSide {
+    match s.to_lowercase().as_str() {
+        "right" => ButtonSide::Right,
+        _ => ButtonSide::Left,
+    }
+}
+
 // ============================================================================
 // Section models
 // ============================================================================
@@ -306,7 +335,7 @@ fn default_close_button_text() -> String {
 }
 
 fn default_resize_grip_char() -> String {
-    "⋱".to_owned()
+    "◢".to_owned()
 }
 
 /// Border configuration for window and menu borders.
@@ -352,12 +381,52 @@ pub struct WindowSection {
     /// Close button text (e.g. "[■]" or " × ").
     #[serde(default = "default_close_button_text")]
     pub close_button_text: String,
-    /// Close button alignment: false = left (Borland), true = right (Windows).
-    #[serde(default)]
-    pub close_button_right: bool,
-    /// Resize grip character (default: '⋱').
+    /// Close button side: "left" or "right". Default: "left".
+    #[serde(default = "default_button_side_left")]
+    pub close_button_side: String,
+    /// Minimize/maximize controls side: "left" or "right". Default: "right".
+    #[serde(default = "default_button_side_right")]
+    pub controls_side: String,
+    /// Margin from left border corner to first button. Default: 2.
+    #[serde(default = "default_button_margin")]
+    pub button_margin_left: u16,
+    /// Margin from right border corner to first button. Default: 2.
+    #[serde(default = "default_button_margin")]
+    pub button_margin_right: u16,
+    /// DEPRECATED: old `close_button_right` field for backward compat.
+    /// If present and true, sets `close_button_side` to "right" during conversion.
+    #[serde(default, skip_serializing)]
+    pub close_button_right: Option<bool>,
+    /// Resize grip character (default: '◢').
     #[serde(default = "default_resize_grip_char")]
     pub resize_grip_char: String,
+    /// Minimize button text (e.g. "🗕", " ─ ", "[▼]"). Empty string = no minimize button.
+    #[serde(default)]
+    pub minimize_button_text: String,
+    /// Maximize/restore button text (e.g. "🗖", " □ ", "[▲]"). Empty string = no maximize button.
+    #[serde(default)]
+    pub maximize_button_text: String,
+    /// Maximize button text when window is zoomed (e.g. "🗗", " ◻ ", "[◻]"). Falls back to `maximize_button_text` if empty.
+    #[serde(default)]
+    pub maximize_restore_text: String,
+    /// Minimize button style (active). Falls back to `close_button` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub minimize_button: Option<StyleValue>,
+    /// Minimize button hover style. Falls back to `close_button_hover` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub minimize_button_hover: Option<StyleValue>,
+    /// Minimize button style when window is inactive. Falls back to `close_button_inactive` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub minimize_button_inactive: Option<StyleValue>,
+    /// Maximize button style (active). Falls back to `close_button` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub maximize_button: Option<StyleValue>,
+    /// Maximize button hover style. Falls back to `close_button_hover` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub maximize_button_hover: Option<StyleValue>,
+    /// Maximize button style when window is inactive. Falls back to `close_button_inactive` if not set.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub maximize_button_inactive: Option<StyleValue>,
 }
 
 /// Dialog styles.
@@ -448,6 +517,27 @@ pub struct ScrollbarSection {
     pub thumb_hover: StyleValue,
     /// Arrow buttons hover style.
     pub arrows_hover: StyleValue,
+    /// Track inactive style (when window not focused).
+    #[serde(default = "default_scrollbar_track_inactive")]
+    pub track_inactive: StyleValue,
+    /// Thumb inactive style.
+    #[serde(default = "default_scrollbar_thumb_inactive")]
+    pub thumb_inactive: StyleValue,
+    /// Arrow buttons inactive style.
+    #[serde(default = "default_scrollbar_arrows_inactive")]
+    pub arrows_inactive: StyleValue,
+}
+
+fn default_scrollbar_track_inactive() -> StyleValue {
+    StyleValue::from_style(Style::default().fg(Color::DarkGray).bg(Color::Blue))
+}
+
+fn default_scrollbar_thumb_inactive() -> StyleValue {
+    StyleValue::from_style(Style::default().fg(Color::Gray).bg(Color::Blue))
+}
+
+fn default_scrollbar_arrows_inactive() -> StyleValue {
+    StyleValue::from_style(Style::default().fg(Color::Gray).bg(Color::Blue))
 }
 
 // ============================================================================
@@ -491,6 +581,7 @@ pub struct ThemeData {
 
 impl ThemeData {
     /// Convert this JSON data model into a `Theme`.
+    #[allow(clippy::too_many_lines)]
     #[must_use]
     pub fn to_theme(&self) -> Theme {
         let (wtl, wtr, wbl, wbr, wh, wv) = self.borders.window.chars();
@@ -516,8 +607,58 @@ impl ThemeData {
             window_resize_handle_inactive: self.window.resize_handle_inactive.to_style(),
             title_bar_bg: self.window.title_bar_bg.as_ref().map(StyleValue::to_style),
             close_button_text: self.window.close_button_text.clone(),
-            close_button_right: self.window.close_button_right,
-            resize_grip_char: self.window.resize_grip_char.chars().next().unwrap_or('⋱'),
+            close_button_side: {
+                // Backward compat: if old close_button_right field is present, use it
+                if self.window.close_button_right == Some(true) {
+                    ButtonSide::Right
+                } else {
+                    parse_button_side(&self.window.close_button_side)
+                }
+            },
+            controls_side: parse_button_side(&self.window.controls_side),
+            button_margin_left: self.window.button_margin_left,
+            button_margin_right: self.window.button_margin_right,
+            resize_grip_char: self.window.resize_grip_char.chars().next().unwrap_or('◢'),
+
+            minimize_button_text: self.window.minimize_button_text.clone(),
+            maximize_button_text: self.window.maximize_button_text.clone(),
+            maximize_restore_text: self.window.maximize_restore_text.clone(),
+            window_minimize_button: self
+                .window
+                .minimize_button
+                .as_ref()
+                .unwrap_or(&self.window.close_button)
+                .to_style(),
+            window_minimize_button_hover: self
+                .window
+                .minimize_button_hover
+                .as_ref()
+                .unwrap_or(&self.window.close_button_hover)
+                .to_style(),
+            window_minimize_button_inactive: self
+                .window
+                .minimize_button_inactive
+                .as_ref()
+                .unwrap_or(&self.window.close_button_inactive)
+                .to_style(),
+            window_maximize_button: self
+                .window
+                .maximize_button
+                .as_ref()
+                .unwrap_or(&self.window.close_button)
+                .to_style(),
+            window_maximize_button_hover: self
+                .window
+                .maximize_button_hover
+                .as_ref()
+                .unwrap_or(&self.window.close_button_hover)
+                .to_style(),
+            window_maximize_button_inactive: self
+                .window
+                .maximize_button_inactive
+                .as_ref()
+                .unwrap_or(&self.window.close_button_inactive)
+                .to_style(),
 
             border_tl: wtl,
             border_tr: wtr,
@@ -569,10 +710,14 @@ impl ThemeData {
             scrollbar_arrows: self.scrollbar.arrows.to_style(),
             scrollbar_thumb_hover: self.scrollbar.thumb_hover.to_style(),
             scrollbar_arrows_hover: self.scrollbar.arrows_hover.to_style(),
+            scrollbar_track_inactive: self.scrollbar.track_inactive.to_style(),
+            scrollbar_thumb_inactive: self.scrollbar.thumb_inactive.to_style(),
+            scrollbar_arrows_inactive: self.scrollbar.arrows_inactive.to_style(),
         }
     }
 
     /// Create a `ThemeData` from an existing `Theme`.
+    #[allow(clippy::too_many_lines)]
     #[must_use]
     pub fn from_theme(theme: &Theme, name: &str) -> Self {
         let window_preset = detect_border_preset(
@@ -621,8 +766,35 @@ impl ThemeData {
                 resize_handle_inactive: StyleValue::from_style(theme.window_resize_handle_inactive),
                 title_bar_bg: theme.title_bar_bg.map(StyleValue::from_style),
                 close_button_text: theme.close_button_text.clone(),
-                close_button_right: theme.close_button_right,
+                close_button_side: match theme.close_button_side {
+                    ButtonSide::Right => "right".to_owned(),
+                    ButtonSide::Left => "left".to_owned(),
+                },
+                controls_side: match theme.controls_side {
+                    ButtonSide::Right => "right".to_owned(),
+                    ButtonSide::Left => "left".to_owned(),
+                },
+                button_margin_left: theme.button_margin_left,
+                button_margin_right: theme.button_margin_right,
+                close_button_right: None,
                 resize_grip_char: theme.resize_grip_char.to_string(),
+                minimize_button_text: theme.minimize_button_text.clone(),
+                maximize_button_text: theme.maximize_button_text.clone(),
+                maximize_restore_text: theme.maximize_restore_text.clone(),
+                minimize_button: Some(StyleValue::from_style(theme.window_minimize_button)),
+                minimize_button_hover: Some(StyleValue::from_style(
+                    theme.window_minimize_button_hover,
+                )),
+                minimize_button_inactive: Some(StyleValue::from_style(
+                    theme.window_minimize_button_inactive,
+                )),
+                maximize_button: Some(StyleValue::from_style(theme.window_maximize_button)),
+                maximize_button_hover: Some(StyleValue::from_style(
+                    theme.window_maximize_button_hover,
+                )),
+                maximize_button_inactive: Some(StyleValue::from_style(
+                    theme.window_maximize_button_inactive,
+                )),
             },
             dialog: DialogSection {
                 frame: StyleValue::from_style(theme.dialog_frame),
@@ -665,6 +837,9 @@ impl ThemeData {
                 arrows: StyleValue::from_style(theme.scrollbar_arrows),
                 thumb_hover: StyleValue::from_style(theme.scrollbar_thumb_hover),
                 arrows_hover: StyleValue::from_style(theme.scrollbar_arrows_hover),
+                track_inactive: StyleValue::from_style(theme.scrollbar_track_inactive),
+                thumb_inactive: StyleValue::from_style(theme.scrollbar_thumb_inactive),
+                arrows_inactive: StyleValue::from_style(theme.scrollbar_arrows_inactive),
             },
         }
     }
@@ -963,5 +1138,57 @@ mod tests {
         };
         let json = serde_json::to_string(&sv).expect("serialize");
         assert!(json.contains("bold"), "bold:true should be included");
+    }
+
+    #[test]
+    fn test_load_dark_json_from_disk() {
+        let path = std::path::Path::new("themes/dark.json");
+        if !path.exists() {
+            // Skip in CI environments where themes/ may not exist
+            return;
+        }
+        let data = ThemeData::load_from_file(path)
+            .unwrap_or_else(|e| panic!("Failed to load dark.json: {e}"));
+        assert_eq!(data.name, "Dark");
+        let theme = data.to_theme();
+        // Verify the resize grip char from JSON is '◢'
+        assert_eq!(theme.resize_grip_char, '◢');
+    }
+
+    #[test]
+    fn test_load_all_theme_files_from_disk() {
+        let themes_dir = std::path::Path::new("themes");
+        if !themes_dir.exists() {
+            return;
+        }
+        let mut loaded = 0;
+        let mut errors = Vec::new();
+        for entry in std::fs::read_dir(themes_dir)
+            .expect("Should read themes dir")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                match ThemeData::load_from_file(&path) {
+                    Ok(data) => {
+                        // Verify to_theme() doesn't panic
+                        let _theme = data.to_theme();
+                        loaded += 1;
+                    }
+                    Err(e) => {
+                        errors.push(format!("{}: {e}", path.display()));
+                    }
+                }
+            }
+        }
+        assert!(
+            errors.is_empty(),
+            "Theme loading errors:\n{}",
+            errors.join("\n")
+        );
+        assert!(
+            loaded >= 1,
+            "Expected at least 1 theme file, found {loaded}"
+        );
     }
 }

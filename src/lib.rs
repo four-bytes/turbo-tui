@@ -54,14 +54,14 @@ pub mod prelude {
     pub use crate::container::Container;
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
-    pub use crate::frame::{Frame, FrameType};
+    pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
-    pub use crate::theme;
+    pub use crate::theme::{self, ButtonSide};
     pub use crate::view::{
         Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS,
         OF_SELECTABLE, OF_TILEABLE, OF_TOP_SELECT, SF_ACTIVE, SF_DISABLED, SF_DRAGGING, SF_FOCUSED,
-        SF_MODAL, SF_RESIZING, SF_SHADOW, SF_VISIBLE,
+        SF_MINIMIZED, SF_MODAL, SF_RESIZING, SF_SHADOW, SF_VISIBLE,
     };
     pub use crate::window::Window;
 }

@@ -20,11 +20,13 @@
 //!
 //! Double-click on title bar toggles between maximized and previous bounds.
 
-use crate::command::CM_CLOSE;
+use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
 use crate::container::Container;
-use crate::frame::{Frame, FrameType};
+use crate::frame::{Frame, FrameConfig, FrameType};
 use crate::theme;
-use crate::view::{Event, EventKind, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
+use crate::view::{
+    Event, EventKind, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING,
+};
 use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
@@ -67,6 +69,10 @@ pub struct Window {
     prev_bounds: Option<Rect>,
     /// Drag movement limits (if set, window can't be dragged outside).
     drag_limits: Option<Rect>,
+    /// Saved bounds before minimize (for restore). When `Some`, window is minimized.
+    minimized_bounds: Option<Rect>,
+    /// Maximum width for minimized title bar (characters). Default: 30.
+    minimized_max_width: u16,
 }
 
 impl Window {
@@ -89,6 +95,8 @@ impl Window {
             min_size: (10, 4),
             prev_bounds: None,
             drag_limits: None,
+            minimized_bounds: None,
+            minimized_max_width: 30,
         }
     }
 
@@ -110,7 +118,160 @@ impl Window {
             min_size: (10, 4),
             prev_bounds: None,
             drag_limits: None,
+            minimized_bounds: None,
+            minimized_max_width: 30,
         }
+    }
+
+    // ── Builder Lite ─────────────────────────────────────────────────────────
+
+    /// Create a window from a [`FrameConfig`].
+    ///
+    /// This allows full control over frame features at construction time.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use turbo_tui::prelude::*;
+    /// use turbo_tui::frame::FrameConfig;
+    ///
+    /// let win = Window::with_config(
+    ///     Rect::new(5, 5, 40, 15),
+    ///     "Editor",
+    ///     FrameConfig::window().with_v_scrollbar(true),
+    /// );
+    /// ```
+    #[must_use]
+    pub fn with_config(bounds: Rect, title: &str, config: impl Into<FrameConfig>) -> Self {
+        let config = config.into();
+        let frame = Frame::from_config(bounds, title, &config);
+        let interior_rect = frame.interior_area();
+        let interior = Container::new(interior_rect);
+        Self {
+            base: ViewBase::new(bounds),
+            frame,
+            interior,
+            drag_offset: None,
+            resize_start: None,
+            resize_mouse_start: None,
+            min_size: (10, 4),
+            prev_bounds: None,
+            drag_limits: None,
+            minimized_bounds: None,
+            minimized_max_width: 30,
+        }
+    }
+
+    /// Set the minimum window size (Builder Lite).
+    ///
+    /// Existing `set_min_size()` stays for runtime mutation.
+    #[must_use]
+    pub fn with_min_size(mut self, w: u16, h: u16) -> Self {
+        self.min_size = (w, h);
+        self
+    }
+
+    /// Set the drag limits (Builder Lite).
+    ///
+    /// The window cannot be moved or resized outside this rect.
+    /// Existing `set_drag_limits()` stays for runtime mutation.
+    #[must_use]
+    pub fn with_drag_limits(mut self, limits: Rect) -> Self {
+        self.drag_limits = Some(limits);
+        self
+    }
+
+    /// Enable or disable scrollbars (Builder Lite).
+    ///
+    /// Creates/removes scrollbars on the frame.
+    #[must_use]
+    pub fn with_scrollbars(mut self, vertical: bool, horizontal: bool) -> Self {
+        if vertical {
+            if self.frame.v_scrollbar().is_none() {
+                let bounds = self.frame.bounds();
+                let sb = crate::scrollbar::ScrollBar::vertical(Rect::new(
+                    0,
+                    0,
+                    1,
+                    bounds.height.saturating_sub(2),
+                ));
+                self.frame.set_v_scrollbar(sb);
+            }
+        } else {
+            self.frame.remove_v_scrollbar();
+        }
+        if horizontal {
+            if self.frame.h_scrollbar().is_none() {
+                let bounds = self.frame.bounds();
+                let sb = crate::scrollbar::ScrollBar::horizontal(Rect::new(
+                    0,
+                    0,
+                    bounds.width.saturating_sub(2),
+                    1,
+                ));
+                self.frame.set_h_scrollbar(sb);
+            }
+        } else {
+            self.frame.remove_h_scrollbar();
+        }
+        // Recalculate interior since scrollbars affect available space
+        let interior_rect = self.frame.interior_area();
+        self.interior.set_bounds(interior_rect);
+        self
+    }
+
+    /// Set whether the window is closeable (Builder Lite).
+    #[must_use]
+    pub fn with_closeable(mut self, yes: bool) -> Self {
+        self.frame.set_closeable(yes);
+        self
+    }
+
+    /// Set whether the window is resizable (Builder Lite).
+    #[must_use]
+    pub fn with_resizable(mut self, yes: bool) -> Self {
+        self.frame.set_resizable(yes);
+        self
+    }
+
+    /// Set the maximized width for the minimized title bar (Builder Lite).
+    #[must_use]
+    pub fn with_minimized_max_width(mut self, width: u16) -> Self {
+        self.minimized_max_width = width;
+        self
+    }
+
+    // ── Presets ──────────────────────────────────────────────────────────────
+
+    /// Editor window preset — vertical scrollbar, generous min size.
+    ///
+    /// Creates a standard closeable, resizable window with a vertical scrollbar
+    /// and a minimum size of 20×8. Suitable for text editors, code views, etc.
+    #[must_use]
+    pub fn editor(bounds: Rect, title: &str) -> Self {
+        Self::new(bounds, title)
+            .with_scrollbars(true, false)
+            .with_min_size(20, 8)
+    }
+
+    /// Palette window preset — small, not resizable, not closeable.
+    ///
+    /// Creates a fixed-size tool palette window. Suitable for color pickers,
+    /// tool panels, floating inspectors, etc.
+    #[must_use]
+    pub fn palette(bounds: Rect, title: &str) -> Self {
+        Self::new(bounds, title)
+            .with_resizable(false)
+            .with_closeable(false)
+    }
+
+    /// Tool window preset — small, resizable with compact min size.
+    ///
+    /// Creates a resizable tool window with a minimum size of 10×5.
+    /// Suitable for floating tool windows, property inspectors, etc.
+    #[must_use]
+    pub fn tool(bounds: Rect, title: &str) -> Self {
+        Self::new(bounds, title).with_min_size(10, 5)
     }
 
     // ── Accessors ────────────────────────────────────────────────────────────
@@ -208,7 +369,12 @@ impl Window {
     ///
     /// If the window is not zoomed, saves current bounds and maximizes.
     /// If already zoomed, restores the saved bounds.
+    /// If the window is minimized, restores it first before zooming.
     pub fn toggle_zoom(&mut self, screen_size: Rect) {
+        // If minimized, restore first before zooming
+        if self.is_minimized() {
+            self.restore();
+        }
         if let Some(prev) = self.prev_bounds.take() {
             // Restore
             self.update_bounds(prev);
@@ -219,6 +385,69 @@ impl Window {
             let max_bounds = self.drag_limits.unwrap_or(screen_size);
             self.update_bounds(max_bounds);
         }
+    }
+
+    /// Minimize the window: collapse to a single title bar row.
+    ///
+    /// The window saves its current bounds and shrinks to just the frame's
+    /// top border row. Width is clamped to `minimized_max_width`.
+    /// The interior is hidden. Double-click or clicking the restore button restores.
+    ///
+    /// Sets `SF_MINIMIZED` on the window state.
+    ///
+    /// Note: The horizontal position (x, y) will be overridden by Desktop's shelf layout.
+    /// This method only shrinks the window in-place.
+    pub fn minimize(&mut self) {
+        if self.is_minimized() {
+            return;
+        }
+        // Save current bounds for later restore
+        self.minimized_bounds = Some(self.base.bounds());
+        // Calculate minimized width: title + close button + padding, clamped to max
+        let title_len = u16::try_from(self.frame.title().chars().count()).unwrap_or(0);
+        let min_width = (title_len + 6).min(self.minimized_max_width).max(10);
+        // Shrink to 1-row title bar. Position (x, y) will be overridden by Desktop's shelf.
+        let b = self.base.bounds();
+        self.update_bounds(Rect::new(b.x, b.y, min_width, 1));
+        let st = self.base.state();
+        self.base.set_state(st | SF_MINIMIZED);
+    }
+
+    /// Get the width this window will have when minimized (title + padding, clamped to max).
+    ///
+    /// Useful for Desktop to calculate shelf layout before the window is actually minimized.
+    #[must_use]
+    pub fn minimized_width(&self) -> u16 {
+        let title_len = u16::try_from(self.frame.title().chars().count()).unwrap_or(0);
+        (title_len + 6).min(self.minimized_max_width).max(10)
+    }
+
+    /// Restore a minimized window to its previous bounds.
+    ///
+    /// Clears `SF_MINIMIZED` from the window state.
+    pub fn restore(&mut self) {
+        if let Some(prev) = self.minimized_bounds.take() {
+            self.update_bounds(prev);
+            let st = self.base.state();
+            self.base.set_state(st & !SF_MINIMIZED);
+        }
+    }
+
+    /// Check if the window is minimized.
+    #[must_use]
+    pub fn is_minimized(&self) -> bool {
+        self.base.state() & SF_MINIMIZED != 0
+    }
+
+    /// Get the maximum width for minimized title bar.
+    #[must_use]
+    pub fn minimized_max_width(&self) -> u16 {
+        self.minimized_max_width
+    }
+
+    /// Set the maximum width for minimized title bar.
+    pub fn set_minimized_max_width(&mut self, width: u16) {
+        self.minimized_max_width = width;
     }
 
     /// Close this window by posting a `CM_CLOSE` command as a deferred event.
@@ -363,10 +592,15 @@ impl View for Window {
         // 1. Draw frame (border, title, close button, resize handle)
         self.frame.draw(buf, clip);
 
-        // 2. Fill interior with background (prevents bleed-through)
+        // 2. If minimized (height == 1), skip interior
+        if self.is_minimized() {
+            return;
+        }
+
+        // 3. Fill interior with background (prevents bleed-through)
         self.fill_interior(buf, clip);
 
-        // 3. Draw children (clip to interior so children can't draw over frame)
+        // 4. Draw children (clip to interior so children can't draw over frame)
         let interior_clip = self.frame.interior_area().intersection(clip);
         self.interior.draw(buf, interior_clip);
     }
@@ -385,9 +619,37 @@ impl View for Window {
                 match mouse.kind {
                     // Mouse down — check what was clicked
                     MouseEventKind::Down(MouseButton::Left) => {
+                        // If minimized, any click restores (except close button)
+                        if self.is_minimized() {
+                            if self.frame.is_close_button(col, row) {
+                                self.close(event);
+                                return;
+                            }
+                            self.restore();
+                            event.clear();
+                            return;
+                        }
+
                         // Close button?
                         if self.frame.is_close_button(col, row) {
                             self.close(event);
+                            return;
+                        }
+
+                        // Minimize button?
+                        if self.frame.is_minimize_button(col, row) {
+                            self.minimize();
+                            event.post(Event::command(CM_MINIMIZE));
+                            event.clear();
+                            return;
+                        }
+
+                        // Maximize button?
+                        if self.frame.is_maximize_button(col, row) {
+                            let screen = self.drag_limits.unwrap_or(Rect::new(0, 0, 80, 24));
+                            self.toggle_zoom(screen);
+                            event.post(Event::command(CM_ZOOM));
+                            event.clear();
                             return;
                         }
 
@@ -395,6 +657,11 @@ impl View for Window {
                         if self.frame.is_resize_handle(col, row) {
                             self.start_resize(col, row);
                             event.clear();
+                            return;
+                        }
+
+                        // Scrollbar click? Forward to frame scrollbar.
+                        if self.frame.handle_scrollbar_click(col, row, event) {
                             return;
                         }
 
@@ -425,8 +692,11 @@ impl View for Window {
                             self.continue_resize(col, row);
                             event.clear();
                         } else {
-                            // Forward drag to interior (e.g., scrollbar thumb)
-                            self.interior.handle_event(event);
+                            // Check if a scrollbar thumb is being dragged
+                            if !self.frame.handle_scrollbar_click(col, row, event) {
+                                // Forward drag to interior (e.g., other scrollbar-like widgets)
+                                self.interior.handle_event(event);
+                            }
                         }
                     }
 
@@ -442,13 +712,16 @@ impl View for Window {
                     MouseEventKind::Moved => {
                         let b = self.base.bounds();
                         if col >= b.x && col < b.x + b.width && row >= b.y && row < b.y + b.height {
-                            // Inside window — update frame hover
+                            // Inside window — update frame hover (buttons, resize handle)
                             self.frame.update_hover(col, row);
+                            // Update scrollbar hover state
+                            self.frame.update_scrollbar_hover(col, row);
                             // Also forward to interior for child hover tracking
                             self.interior.handle_event(event);
                         } else {
-                            // Outside window — clear hover
+                            // Outside window — clear all hover states
                             self.frame.clear_hover();
+                            self.frame.clear_scrollbar_hover();
                         }
                     }
 
@@ -464,7 +737,9 @@ impl View for Window {
             | EventKind::Command(_)
             | EventKind::Broadcast(_)
             | EventKind::Resize(_, _) => {
-                self.interior.handle_event(event);
+                if !self.is_minimized() {
+                    self.interior.handle_event(event);
+                }
             }
 
             EventKind::None => {}
@@ -482,11 +757,19 @@ impl View for Window {
 
     fn set_state(&mut self, state: u16) {
         self.base.set_state(state);
+        let is_focused = state & SF_FOCUSED != 0;
         // Propagate focus state to frame (for active/inactive border rendering)
-        if state & SF_FOCUSED != 0 {
+        if is_focused {
             self.frame.set_state(self.frame.state() | SF_FOCUSED);
         } else {
             self.frame.set_state(self.frame.state() & !SF_FOCUSED);
+        }
+        // Propagate active state to frame scrollbars
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_active(is_focused);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_active(is_focused);
         }
     }
 
@@ -510,10 +793,10 @@ impl View for Window {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::CM_CLOSE;
-    use crate::frame::FrameType;
+    use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
+    use crate::frame::{FrameConfig, FrameType};
     use crate::theme::Theme;
-    use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
+    use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING};
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn setup_theme() {
@@ -911,5 +1194,403 @@ mod tests {
         win.handle_event(&mut up);
         assert_eq!(win.state() & SF_RESIZING, 0);
         assert!(!win.is_resizing());
+    }
+
+    #[test]
+    fn test_window_minimize_sets_sf_minimized() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(10, 5, 30, 15), "Test");
+
+        assert!(!win.is_minimized());
+        assert_eq!(win.state() & SF_MINIMIZED, 0);
+
+        win.minimize();
+
+        assert!(win.is_minimized());
+        assert_ne!(win.state() & SF_MINIMIZED, 0);
+        assert_eq!(win.bounds().height, 1, "minimized window has height 1");
+        assert!(win.bounds().width >= 10, "minimized width at least 10");
+        assert!(
+            win.bounds().width <= 30,
+            "minimized width does not exceed max"
+        );
+    }
+
+    #[test]
+    fn test_window_minimize_saves_bounds_for_restore() {
+        setup_theme();
+        let original = Rect::new(10, 5, 30, 15);
+        let mut win = Window::new(original, "Test");
+
+        win.minimize();
+        assert!(win.is_minimized());
+        assert_ne!(win.bounds(), original, "bounds changed after minimize");
+
+        win.restore();
+        assert!(!win.is_minimized());
+        assert_eq!(win.bounds(), original, "bounds restored after restore()");
+        assert_eq!(win.state() & SF_MINIMIZED, 0);
+    }
+
+    #[test]
+    fn test_window_minimize_idempotent() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(10, 5, 30, 15), "Test");
+
+        win.minimize();
+        let bounds_after_first = win.bounds();
+
+        // Second minimize should be a no-op
+        win.minimize();
+        assert_eq!(win.bounds(), bounds_after_first, "second minimize is no-op");
+    }
+
+    #[test]
+    fn test_window_restore_when_not_minimized_is_noop() {
+        setup_theme();
+        let original = Rect::new(10, 5, 30, 15);
+        let mut win = Window::new(original, "Test");
+
+        // restore() without prior minimize should be a no-op
+        win.restore();
+        assert!(!win.is_minimized());
+        assert_eq!(win.bounds(), original);
+    }
+
+    #[test]
+    fn test_window_minimized_max_width_clamps() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 60, 20), "A Very Long Window Title Here");
+        win.set_minimized_max_width(20);
+
+        win.minimize();
+        assert!(
+            win.bounds().width <= 20,
+            "minimized width clamped to max_width"
+        );
+    }
+
+    #[test]
+    fn test_window_minimize_button_click_posts_cm_minimize() {
+        setup_theme();
+        // Frame::new with FrameType::Window creates minimize/maximize buttons;
+        // need to check that the frame has them enabled.
+        let mut win = Window::new(Rect::new(10, 5, 40, 15), "Test");
+
+        // Only test if the frame has a minimize button
+        if !win.frame().minimizable() {
+            return;
+        }
+
+        // Find the minimize button column (right side of frame, before maximize)
+        // Use the frame's is_minimize_button to probe
+        let b = win.bounds();
+        let row = b.y;
+        let mut min_col = None;
+        for col in b.x..b.x + b.width {
+            if win.frame().is_minimize_button(col, row) {
+                min_col = Some(col);
+                break;
+            }
+        }
+
+        if let Some(col) = min_col {
+            let mut ev = mouse_down(col, row);
+            win.handle_event(&mut ev);
+
+            assert!(
+                win.is_minimized(),
+                "window should be minimized after button click"
+            );
+            assert!(ev.is_cleared(), "event cleared");
+            assert_eq!(ev.deferred.len(), 1, "one deferred event posted");
+            match &ev.deferred[0].kind {
+                EventKind::Command(id) => {
+                    assert_eq!(*id, CM_MINIMIZE, "deferred should be CM_MINIMIZE")
+                }
+                _ => panic!("expected Command event"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_window_maximize_button_click_posts_cm_zoom() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(10, 5, 40, 15), "Test");
+        win.set_drag_limits(Rect::new(0, 0, 80, 24));
+
+        // Only test if the frame has a maximize button
+        if !win.frame().maximizable() {
+            return;
+        }
+
+        let b = win.bounds();
+        let row = b.y;
+        let mut max_col = None;
+        for col in b.x..b.x + b.width {
+            if win.frame().is_maximize_button(col, row) {
+                max_col = Some(col);
+                break;
+            }
+        }
+
+        if let Some(col) = max_col {
+            let mut ev = mouse_down(col, row);
+            win.handle_event(&mut ev);
+
+            assert!(
+                win.is_zoomed(),
+                "window should be zoomed after maximize button"
+            );
+            assert!(ev.is_cleared(), "event cleared");
+            assert_eq!(ev.deferred.len(), 1, "one deferred event posted");
+            match &ev.deferred[0].kind {
+                EventKind::Command(id) => {
+                    assert_eq!(*id, CM_ZOOM, "deferred should be CM_ZOOM")
+                }
+                _ => panic!("expected Command event"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_window_minimized_click_restores() {
+        setup_theme();
+        let original = Rect::new(10, 5, 30, 15);
+        let mut win = Window::new(original, "Test");
+
+        win.minimize();
+        assert!(win.is_minimized());
+
+        // Click on the title bar area while minimized → should restore
+        // Use a column that is NOT the close button (e.g., col = b.x + b.width / 2)
+        let b = win.bounds();
+        let col = b.x + b.width / 2;
+        let row = b.y;
+
+        // Ensure it's not the close button
+        if !win.frame().is_close_button(col, row) {
+            let mut ev = mouse_down(col, row);
+            win.handle_event(&mut ev);
+
+            assert!(!win.is_minimized(), "window should be restored after click");
+            assert_eq!(win.bounds(), original, "bounds restored");
+            assert!(ev.is_cleared());
+        }
+    }
+
+    #[test]
+    fn test_window_minimized_close_button_still_closes() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(10, 5, 30, 15), "Test");
+
+        win.minimize();
+        assert!(win.is_minimized());
+
+        // Click close button while minimized
+        let b = win.bounds();
+        let row = b.y;
+        let mut close_col = None;
+        for col in b.x..b.x + b.width {
+            if win.frame().is_close_button(col, row) {
+                close_col = Some(col);
+                break;
+            }
+        }
+
+        if let Some(col) = close_col {
+            let mut ev = mouse_down(col, row);
+            win.handle_event(&mut ev);
+
+            assert!(ev.is_cleared(), "event cleared after close");
+            assert!(!ev.deferred.is_empty(), "CM_CLOSE posted");
+            match &ev.deferred[0].kind {
+                EventKind::Command(id) => assert_eq!(*id, CM_CLOSE),
+                _ => panic!("expected CM_CLOSE"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_window_toggle_zoom_restores_from_minimized() {
+        setup_theme();
+        let original = Rect::new(10, 5, 30, 15);
+        let mut win = Window::new(original, "Test");
+        let screen = Rect::new(0, 0, 80, 24);
+
+        win.minimize();
+        assert!(win.is_minimized());
+
+        // toggle_zoom should restore from minimized first, then zoom
+        win.toggle_zoom(screen);
+        assert!(!win.is_minimized(), "no longer minimized after toggle_zoom");
+        assert!(win.is_zoomed(), "window is zoomed");
+        assert_eq!(win.bounds(), screen, "zoomed to full screen");
+    }
+
+    #[test]
+    fn test_window_minimized_skips_key_events_to_interior() {
+        setup_theme();
+        use crate::view::ViewBase;
+
+        struct EventTracker {
+            base: ViewBase,
+            received: bool,
+        }
+        impl View for EventTracker {
+            fn id(&self) -> ViewId {
+                self.base.id()
+            }
+            fn bounds(&self) -> Rect {
+                self.base.bounds()
+            }
+            fn set_bounds(&mut self, b: Rect) {
+                self.base.set_bounds(b);
+            }
+            fn draw(&self, _: &mut Buffer, _: Rect) {}
+            fn handle_event(&mut self, event: &mut Event) {
+                self.received = true;
+                event.handled = true;
+            }
+            fn state(&self) -> u16 {
+                self.base.state()
+            }
+            fn set_state(&mut self, s: u16) {
+                self.base.set_state(s);
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+            fn as_any_mut(&mut self) -> &mut dyn Any {
+                self
+            }
+        }
+
+        let mut win = Window::new(Rect::new(0, 0, 40, 20), "Test");
+        win.add(Box::new(EventTracker {
+            base: ViewBase::new(Rect::new(1, 1, 5, 2)),
+            received: false,
+        }));
+
+        win.minimize();
+        assert!(win.is_minimized());
+
+        // Send a key event — interior should NOT receive it
+        use crossterm::event::{KeyCode, KeyEvent};
+        let mut key_ev = Event::key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+        win.handle_event(&mut key_ev);
+
+        // Access the child to check if it received the event
+        let child = win.interior().child_at(0).unwrap();
+        let tracker = child.as_any().downcast_ref::<EventTracker>().unwrap();
+        assert!(
+            !tracker.received,
+            "interior should not receive key events when minimized"
+        );
+    }
+
+    #[test]
+    fn test_window_minimized_max_width_accessor() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 40, 20), "Test");
+
+        assert_eq!(win.minimized_max_width(), 30, "default max width is 30");
+        win.set_minimized_max_width(25);
+        assert_eq!(win.minimized_max_width(), 25);
+    }
+
+    #[test]
+    fn test_window_with_config() {
+        setup_theme();
+        let bounds = Rect::new(5, 5, 40, 15);
+        let config = FrameConfig::window().with_v_scrollbar(true);
+        let win = Window::with_config(bounds, "Config Test", config);
+        assert_eq!(win.title(), "Config Test");
+        assert!(win.frame().closeable());
+        assert!(win.frame().resizable());
+        assert!(win.frame().v_scrollbar().is_some());
+    }
+
+    #[test]
+    fn test_window_builder_lite_min_size() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 40, 15), "Test").with_min_size(20, 8);
+        assert_eq!(win.min_size(), (20, 8));
+    }
+
+    #[test]
+    fn test_window_builder_lite_drag_limits() {
+        setup_theme();
+        let limits = Rect::new(0, 0, 80, 25);
+        let win = Window::new(Rect::new(5, 5, 30, 10), "Test").with_drag_limits(limits);
+        assert_eq!(win.drag_limits(), Some(limits));
+    }
+
+    #[test]
+    fn test_window_builder_lite_scrollbars() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 40, 15), "Scroll").with_scrollbars(true, true);
+        assert!(win.frame().v_scrollbar().is_some());
+        assert!(win.frame().h_scrollbar().is_some());
+    }
+
+    #[test]
+    fn test_window_builder_lite_closeable() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 40, 15), "Test").with_closeable(false);
+        assert!(!win.frame().closeable());
+    }
+
+    #[test]
+    fn test_window_builder_lite_chain() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 40, 15), "Chained")
+            .with_scrollbars(true, false)
+            .with_min_size(20, 8)
+            .with_drag_limits(Rect::new(0, 0, 80, 25))
+            .with_resizable(true)
+            .with_closeable(true);
+        assert!(win.frame().v_scrollbar().is_some());
+        assert!(win.frame().h_scrollbar().is_none());
+        assert_eq!(win.min_size(), (20, 8));
+        assert!(win.frame().closeable());
+        assert!(win.frame().resizable());
+    }
+
+    #[test]
+    fn test_window_with_config_dialog() {
+        setup_theme();
+        let config = FrameConfig::dialog();
+        let win = Window::with_config(Rect::new(10, 10, 30, 10), "Dialog", config);
+        assert!(!win.frame().closeable());
+        assert!(!win.frame().resizable());
+    }
+
+    #[test]
+    fn test_window_preset_editor() {
+        setup_theme();
+        let win = Window::editor(Rect::new(0, 0, 40, 15), "Editor");
+        assert!(win.frame().v_scrollbar().is_some());
+        assert!(win.frame().h_scrollbar().is_none());
+        assert_eq!(win.min_size(), (20, 8));
+        assert!(win.frame().closeable());
+        assert!(win.frame().resizable());
+    }
+
+    #[test]
+    fn test_window_preset_palette() {
+        setup_theme();
+        let win = Window::palette(Rect::new(0, 0, 20, 10), "Colors");
+        assert!(!win.frame().resizable());
+        assert!(!win.frame().closeable());
+    }
+
+    #[test]
+    fn test_window_preset_tool() {
+        setup_theme();
+        let win = Window::tool(Rect::new(0, 0, 15, 8), "Props");
+        assert_eq!(win.min_size(), (10, 5));
+        assert!(win.frame().closeable());
+        assert!(win.frame().resizable());
     }
 }

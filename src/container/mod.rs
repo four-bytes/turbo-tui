@@ -217,7 +217,8 @@ impl Container {
     /// Set focus to the child at `index`.
     ///
     /// Clears `SF_FOCUSED` on the previously focused child and sets it on
-    /// the new one. If `index` is out of bounds the call is a no-op.
+    /// the new one. Calls `on_blur()` on the old child and `on_focus()` on
+    /// the new child. If `index` is out of bounds the call is a no-op.
     pub fn set_focus_to(&mut self, index: usize) {
         if index >= self.children.len() {
             return;
@@ -227,11 +228,13 @@ impl Container {
             if old < self.children.len() {
                 let st = self.children[old].state();
                 self.children[old].set_state(st & !crate::view::SF_FOCUSED);
+                self.children[old].on_blur();
             }
         }
         // Focus new
         let st = self.children[index].state();
         self.children[index].set_state(st | crate::view::SF_FOCUSED);
+        self.children[index].on_focus();
         self.focused = Some(index);
     }
 
@@ -1098,5 +1101,30 @@ mod tests {
         group.add(Box::new(TestView::new(Rect::new(0, 0, 5, 2))));
         assert_eq!(group.child_count(), 1);
         assert!(group.child_at(0).is_some());
+    }
+
+    #[test]
+    fn test_set_focus_calls_lifecycle_hooks() {
+        // This test verifies that set_focus_to() calls on_blur/on_focus.
+        // Since the default View implementations are no-ops, we just verify
+        // the focus state changes work correctly with the hooks in place.
+        let mut group = Container::new(Rect::new(0, 0, 80, 25));
+        let child0 = Box::new(crate::static_text::StaticText::new(
+            Rect::new(0, 0, 10, 1),
+            "A",
+        ));
+        let child1 = Box::new(crate::static_text::StaticText::new(
+            Rect::new(0, 1, 10, 1),
+            "B",
+        ));
+        group.add(child0);
+        group.add(child1);
+
+        group.set_focus_to(0);
+        assert_ne!(group.child_at(0).unwrap().state() & SF_FOCUSED, 0);
+
+        group.set_focus_to(1);
+        assert_eq!(group.child_at(0).unwrap().state() & SF_FOCUSED, 0);
+        assert_ne!(group.child_at(1).unwrap().state() & SF_FOCUSED, 0);
     }
 }

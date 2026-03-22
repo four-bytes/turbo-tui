@@ -68,7 +68,39 @@
       "bg": "Black"
     },
     "close_button_text": "[■]",
-    "close_button_right": false,
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "minimize_button_text": " ─ ",
+    "maximize_button_text": " □ ",
+    "maximize_restore_text": " ◻ ",
+    "minimize_button": {
+      "fg": "Cyan",
+      "bg": "Black"
+    },
+    "minimize_button_hover": {
+      "fg": "White",
+      "bg": "Black",
+      "bold": true
+    },
+    "minimize_button_inactive": {
+      "fg": "DarkGray",
+      "bg": "Black"
+    },
+    "maximize_button": {
+      "fg": "Cyan",
+      "bg": "Black"
+    },
+    "maximize_button_hover": {
+      "fg": "White",
+      "bg": "Black",
+      "bold": true
+    },
+    "maximize_button_inactive": {
+      "fg": "DarkGray",
+      "bg": "Black"
+    },
     "resize_grip_char": "◢"
   },
   "dialog": {
@@ -189,7 +221,7 @@
       "bg": "#1e1e1e"
     },
     "thumb": {
-      "fg": "Gray",
+      "fg": "#3c3c3c",
       "bg": "#1e1e1e"
     },
     "arrows": {
@@ -202,6 +234,18 @@
     },
     "arrows_hover": {
       "fg": "White",
+      "bg": "#1e1e1e"
+    },
+    "track_inactive": {
+      "fg": "#2a2a2a",
+      "bg": "#1e1e1e"
+    },
+    "thumb_inactive": {
+      "fg": "#2a2a2a",
+      "bg": "#1e1e1e"
+    },
+    "arrows_inactive": {
+      "fg": "#2a2a2a",
       "bg": "#1e1e1e"
     }
   }

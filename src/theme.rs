@@ -21,6 +21,20 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 // ============================================================================
+// ButtonSide enum
+// ============================================================================
+
+/// Side of the title bar for button placement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonSide {
+    /// Left side (Borland default for close button).
+    #[default]
+    Left,
+    /// Right side (Windows default for close button).
+    Right,
+}
+
+// ============================================================================
 // Theme struct
 // ============================================================================
 
@@ -153,6 +167,12 @@ pub struct Theme {
     pub scrollbar_thumb: Style,
     /// Scrollbar arrow buttons.
     pub scrollbar_arrows: Style,
+    /// Scrollbar track when parent is inactive/unfocused.
+    pub scrollbar_track_inactive: Style,
+    /// Scrollbar thumb when parent is inactive/unfocused.
+    pub scrollbar_thumb_inactive: Style,
+    /// Scrollbar arrows when parent is inactive/unfocused.
+    pub scrollbar_arrows_inactive: Style,
 
     // ── Hover Styles ───────────────────────────────────────────────────
     /// Close button hover style.
@@ -174,11 +194,39 @@ pub struct Theme {
     // ── Close Button Configuration ─────────────────────────────────────
     /// Close button text (default: "[■]").
     pub close_button_text: String,
-    /// Close button alignment: `false` = left (Borland), `true` = right (Windows).
-    pub close_button_right: bool,
+    /// Which side the close button sits on. Default: `Left` (Borland style).
+    pub close_button_side: ButtonSide,
+    /// Which side minimize/maximize controls sit on. Default: `Right`.
+    pub controls_side: ButtonSide,
+    /// Margin (in columns) from the left border corner to the first button. Default: 2 (1 corner + 1 gap).
+    pub button_margin_left: u16,
+    /// Margin (in columns) from the right border corner to the first button. Default: 2 (1 corner + 1 gap).
+    pub button_margin_right: u16,
+
+    // ── Title Button Configuration ─────────────────────────────────────
+    /// Minimize button text (e.g. "🗕", " ─ ", "[▼]"). Empty string = no minimize button.
+    pub minimize_button_text: String,
+    /// Maximize/restore button text (e.g. "🗖", " □ ", "[▲]"). Empty string = no maximize button.
+    pub maximize_button_text: String,
+    /// Maximize button text when window is zoomed (e.g. "🗗", " ◻ ", "[◻]"). Falls back to `maximize_button_text` if empty.
+    pub maximize_restore_text: String,
+
+    // ── Title Button Styles ────────────────────────────────────────────
+    /// Minimize button style (active).
+    pub window_minimize_button: Style,
+    /// Minimize button hover style.
+    pub window_minimize_button_hover: Style,
+    /// Minimize button style when window is inactive.
+    pub window_minimize_button_inactive: Style,
+    /// Maximize button style (active).
+    pub window_maximize_button: Style,
+    /// Maximize button hover style.
+    pub window_maximize_button_hover: Style,
+    /// Maximize button style when window is inactive.
+    pub window_maximize_button_inactive: Style,
 
     // ── Resize Grip Character ──────────────────────────────────────────
-    /// Resize grip character (default: '⋱').
+    /// Resize grip character (default: '◢').
     pub resize_grip_char: char,
 }
 
@@ -190,6 +238,7 @@ impl Theme {
     /// - Blue windows with `LightGreen` icons, Yellow interior text
     /// - `LightGray` menu bar and status line with Green selection
     /// - Green buttons (Black/White/LightCyan text variants)
+    #[allow(clippy::too_many_lines)]
     #[must_use]
     pub fn turbo_vision() -> Self {
         Self {
@@ -320,6 +369,10 @@ impl Theme {
             scrollbar_track: Style::default().fg(Color::Blue).bg(Color::Cyan),
             scrollbar_thumb: Style::default().fg(Color::Blue).bg(Color::Cyan),
             scrollbar_arrows: Style::default().fg(Color::Blue).bg(Color::Cyan),
+            // Inactive scrollbar: muted colors (Gray on Blue matches inactive frame)
+            scrollbar_track_inactive: Style::default().fg(Color::DarkGray).bg(Color::Blue),
+            scrollbar_thumb_inactive: Style::default().fg(Color::Gray).bg(Color::Blue),
+            scrollbar_arrows_inactive: Style::default().fg(Color::Gray).bg(Color::Blue),
 
             // ── Hover ──────────────────────────────────────────────────
             window_close_button_hover: Style::default()
@@ -342,10 +395,31 @@ impl Theme {
 
             // ── Close button config ─────────────────────────────────────
             close_button_text: "[■]".to_owned(),
-            close_button_right: false,
+            close_button_side: ButtonSide::Left,
+            controls_side: ButtonSide::Right,
+            button_margin_left: 2,
+            button_margin_right: 2,
 
+            // ── Title button config ─────────────────────────────────────
+            minimize_button_text: String::new(),
+            maximize_button_text: String::new(),
+            maximize_restore_text: String::new(),
+
+            // ── Title button styles (same as close button by default) ───
+            window_minimize_button: Style::default().fg(Color::LightGreen).bg(Color::Blue),
+            window_minimize_button_hover: Style::default()
+                .fg(Color::White)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+            window_minimize_button_inactive: Style::default().fg(Color::Gray).bg(Color::Blue),
+            window_maximize_button: Style::default().fg(Color::LightGreen).bg(Color::Blue),
+            window_maximize_button_hover: Style::default()
+                .fg(Color::White)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
+            window_maximize_button_inactive: Style::default().fg(Color::Gray).bg(Color::Blue),
             // ── Resize grip ─────────────────────────────────────────────
-            resize_grip_char: '⋱',
+            resize_grip_char: '◢',
         }
     }
 }
@@ -477,38 +551,109 @@ pub fn init_builtin() {
     register("Turbo Vision", Theme::turbo_vision());
 }
 
+/// Report from loading themes from a directory.
+///
+/// Contains the list of successfully loaded theme names and any errors
+/// encountered per file. This ensures theme loading failures are never silent.
+#[cfg(feature = "json-themes")]
+#[derive(Debug)]
+pub struct ThemeLoadReport {
+    /// Names of themes that were successfully loaded and registered.
+    pub loaded: Vec<String>,
+    /// Errors encountered, with the file path that caused each error.
+    pub errors: Vec<(std::path::PathBuf, crate::theme_json::ThemeLoadError)>,
+}
+
+#[cfg(feature = "json-themes")]
+impl ThemeLoadReport {
+    /// Returns `true` if any theme files failed to load.
+    #[must_use]
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    /// Returns the number of successfully loaded themes.
+    #[must_use]
+    pub fn loaded_count(&self) -> usize {
+        self.loaded.len()
+    }
+
+    /// Format all errors into a single multi-line string for logging/display.
+    ///
+    /// Returns `None` if there are no errors.
+    #[must_use]
+    pub fn error_summary(&self) -> Option<String> {
+        if self.errors.is_empty() {
+            return None;
+        }
+        let lines: Vec<String> = self
+            .errors
+            .iter()
+            .map(|(path, err)| format!("  {}: {err}", path.display()))
+            .collect();
+        Some(format!(
+            "Failed to load {} theme file(s):\n{}",
+            self.errors.len(),
+            lines.join("\n")
+        ))
+    }
+}
+
+#[cfg(feature = "json-themes")]
+impl std::fmt::Display for ThemeLoadReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Loaded {} theme(s), {} error(s)",
+            self.loaded.len(),
+            self.errors.len()
+        )?;
+        for name in &self.loaded {
+            write!(f, "\n  ✓ {name}")?;
+        }
+        for (path, err) in &self.errors {
+            write!(f, "\n  ✗ {}: {err}", path.display())?;
+        }
+        Ok(())
+    }
+}
+
 /// Load all `.json` theme files from the given directory and register them.
 ///
 /// Each file's `"name"` field is used as the registry key.
-/// Returns the number of themes successfully loaded.
-/// Invalid files are silently skipped.
+/// Returns a [`ThemeLoadReport`] with details about which themes loaded
+/// and which files had errors. **Check `report.has_errors()`** — theme
+/// loading should never fail silently.
 ///
 /// Only available when the `json-themes` feature is enabled.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns an `io::Error` if the directory itself cannot be read.
+/// Individual file errors are collected in `ThemeLoadReport::errors`.
 #[cfg(feature = "json-themes")]
-pub fn load_themes_from_dir(dir: &std::path::Path) -> usize {
-    let mut count = 0;
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "json") {
-                match crate::theme_json::ThemeData::load_from_file(&path) {
-                    Ok(theme_data) => {
-                        let name = theme_data.name.clone();
-                        register(&name, theme_data.to_theme());
-                        count += 1;
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "turbo-tui: failed to load theme {path}: {e}",
-                            path = path.display()
-                        );
-                    }
+pub fn load_themes_from_dir(dir: &std::path::Path) -> Result<ThemeLoadReport, std::io::Error> {
+    let mut report = ThemeLoadReport {
+        loaded: Vec::new(),
+        errors: Vec::new(),
+    };
+    let entries = std::fs::read_dir(dir)?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            match crate::theme_json::ThemeData::load_from_file(&path) {
+                Ok(theme_data) => {
+                    let name = theme_data.name.clone();
+                    register(&name, theme_data.to_theme());
+                    report.loaded.push(name);
+                }
+                Err(e) => {
+                    report.errors.push((path, e));
                 }
             }
         }
     }
-    count
+    Ok(report)
 }
 
 // ============================================================================
@@ -543,6 +688,16 @@ mod tests {
                 "window_resize_handle_inactive",
                 t.window_resize_handle_inactive,
             ),
+            ("window_minimize_button", t.window_minimize_button),
+            ("window_maximize_button", t.window_maximize_button),
+            (
+                "window_minimize_button_inactive",
+                t.window_minimize_button_inactive,
+            ),
+            (
+                "window_maximize_button_inactive",
+                t.window_maximize_button_inactive,
+            ),
             ("window_frame_dragging", t.window_frame_dragging),
             ("dialog_frame", t.dialog_frame),
             ("dialog_title", t.dialog_title),
@@ -569,6 +724,9 @@ mod tests {
             ("scrollbar_track", t.scrollbar_track),
             ("scrollbar_thumb", t.scrollbar_thumb),
             ("scrollbar_arrows", t.scrollbar_arrows),
+            ("scrollbar_track_inactive", t.scrollbar_track_inactive),
+            ("scrollbar_thumb_inactive", t.scrollbar_thumb_inactive),
+            ("scrollbar_arrows_inactive", t.scrollbar_arrows_inactive),
         ];
 
         for (name, style) in styles {

@@ -57,6 +57,8 @@ pub const SF_RESIZING: u16 = 0x0020;
 pub const SF_SHADOW: u16 = 0x0040;
 /// View is the active window.
 pub const SF_ACTIVE: u16 = 0x0080;
+/// View is minimized (collapsed to title bar).
+pub const SF_MINIMIZED: u16 = 0x0100;
 
 // ============================================================================
 // Option Flags (bitfield)
@@ -369,6 +371,18 @@ pub trait View {
     /// `new_size` is the new terminal dimensions `(width, height)`.
     /// Default implementation does nothing.
     fn on_resize(&mut self, _new_size: (u16, u16)) {}
+
+    /// Called when this view receives focus (`SF_FOCUSED` set).
+    ///
+    /// Default implementation does nothing. Override to react to focus
+    /// changes, e.g., showing a cursor or updating visual state.
+    fn on_focus(&mut self) {}
+
+    /// Called when this view loses focus (`SF_FOCUSED` cleared).
+    ///
+    /// Default implementation does nothing. Override to react to blur,
+    /// e.g., hiding a cursor or updating visual state.
+    fn on_blur(&mut self) {}
 }
 
 // ============================================================================
@@ -801,5 +815,19 @@ mod tests {
         // Deferred events survive even when the event is cleared
         assert!(event.is_cleared());
         assert_eq!(event.deferred.len(), 1);
+    }
+
+    #[test]
+    fn test_on_focus_default_is_noop() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
+        // Should compile and not panic
+        base.on_focus();
+    }
+
+    #[test]
+    fn test_on_blur_default_is_noop() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
+        // Should compile and not panic
+        base.on_blur();
     }
 }

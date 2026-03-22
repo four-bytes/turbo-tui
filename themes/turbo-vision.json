@@ -69,8 +69,40 @@
       "bg": "Blue"
     },
     "close_button_text": "[■]",
-    "close_button_right": false,
-    "resize_grip_char": "◢"
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "resize_grip_char": "◢",
+    "minimize_button_text": "",
+    "maximize_button_text": "",
+    "maximize_restore_text": "",
+    "minimize_button": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "minimize_button_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "minimize_button_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "maximize_button": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "maximize_button_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "maximize_button_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    }
   },
   "dialog": {
     "frame": {
@@ -204,6 +236,18 @@
     "arrows_hover": {
       "fg": "White",
       "bg": "Cyan"
+    },
+    "track_inactive": {
+      "fg": "DarkGray",
+      "bg": "Blue"
+    },
+    "thumb_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "arrows_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
     }
   }
 }

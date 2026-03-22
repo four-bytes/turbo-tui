@@ -5,7 +5,7 @@
 **turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.2.0-dev — Rebuild in progress (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
+- **Status:** v0.2.1-dev — Window handling + composability improvements (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui
@@ -14,7 +14,7 @@
 
 ## Architecture
 
-Single crate, 21 source files (~10,000+ lines total):
+Single crate, 21 source files (~14,600 lines total):
 
 ```
 src/
@@ -50,7 +50,7 @@ examples/
 
 ```bash
 cargo check                     # Quick syntax check (fastest)
-cargo test                      # Run all 255 tests
+cargo test                      # Run all 284 tests
 cargo clippy -- -D warnings     # Lint (pedantic enabled)
 cargo fmt                       # Format
 cargo run --example demo        # Run the interactive demo
@@ -83,6 +83,8 @@ No Makefile — use cargo directly.
 - Pattern source: [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT) — study patterns, don't copy code
 - Architecture decision: [ADR-002](~/four-code/docs/ADR-002-turbo-tui-windowing.md) in four-code
 - **v0.2 Architecture Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md) — Detailed build plan with 10 steps, architecture decisions, new concepts (Deferred Event Queue, Lifecycle Hooks, Overlay System, Event Coalescing)
+- **v0.2.1 Progression Plan:** [`docs/PLAN-v0.2.1.md`](docs/PLAN-v0.2.1.md) — Window handling, scrollbar fixes, Builder Lite, task shelf, lifecycle hooks
+- **Reference Research:** [`docs/RES-0002-reference-projects-architecture.md`](docs/RES-0002-reference-projects-architecture.md) — Ratatui patterns, TachyonFX, tui-rs demo analysis
 
 ## Key Design Decisions
 
@@ -90,6 +92,24 @@ No Makefile — use cargo directly.
 2. **Crate name `turbo-tui`** is reserved on crates.io.
 3. **Three-phase dispatch** is critical: StatusLine uses `OF_PRE_PROCESS` to intercept F-keys before they reach focused windows. Without this, F1/F5/F10 would go to the focused window first.
 4. **Mouse events** route front-to-back (reverse Z-order) with hit-testing. Keyboard/command events use three-phase dispatch through the focused child.
+
+## Architecture Principles (from Reference Analysis — 2026-03-22)
+
+These principles were established after reviewing Ratatui's official patterns and should guide ALL future development:
+
+1. **View trait stays unified** — Do NOT split into separate Widget + EventHandler traits. turbo-tui's `View` (state + events + render) IS the component architecture. Ratatui widgets are stateless renderers for data-display apps; turbo-tui components are stateful interactive views. Reviewed: [Component Architecture](https://ratatui.rs/concepts/application-patterns/component-architecture/), [Widgets](https://ratatui.rs/concepts/widgets/).
+
+2. **Builder Lite pattern for construction** — Self-consuming methods returning `Self`, NOT a separate Builder struct. Example: `Window::new(bounds, "Title").scrollbars(true, false).min_size(20, 8)`. Source: [Builder Lite](https://ratatui.rs/concepts/builder-lite-pattern/).
+
+3. **Deferred events over Action returns** — Keep the deferred event queue. The `Action` enum return pattern doesn't support three-phase dispatch where multiple views process the same event.
+
+4. **Frame owns scrollbars** — Scrollbars are `Option<ScrollBar>` on Frame, sitting on the border. They are NOT Container children. This prevents scrollbars from consuming interior space.
+
+5. **Post-render effects = future** — TachyonFX-style buffer transforms for animations. Not in v0.2.x, but design must not prevent it. Integration point: `Application::draw()` + optional `EffectManager`. Source: [TachyonFX](https://github.com/junkdog/tachyonfx).
+
+6. **Scrollbar inactive styling** — Scrollbars have active/inactive appearance based on owning window's `SF_FOCUSED` state. 3 theme fields: `scrollbar_track_inactive`, `scrollbar_thumb_inactive`, `scrollbar_arrows_inactive`. Propagated via `Window::set_state()`.
+
+7. **Scrollbar hover via Frame** — Frame has `update_scrollbar_hover()`, `handle_scrollbar_click()`, `clear_scrollbar_hover()`. Window routes Moved/Down/Drag to these. Scrollbars on the border receive mouse events through Frame, not directly.
 
 ## Key Files for Common Tasks
 
@@ -104,7 +124,7 @@ No Makefile — use cargo directly.
 | Add commands | `src/command.rs` (CM_* constants) |
 | Demo changes | `examples/demo.rs` |
 
-## v0.2 Rebuild — Current State
+## v0.2 Rebuild — Current State (v0.2.0 complete, v0.2.1 in progress)
 
 **Branch:** `v0.2-rebuild` | **Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md)
 
@@ -123,9 +143,32 @@ No Makefile — use cargo directly.
 - Level 5c: theme_json.rs — JSON theme serialization, border presets, color roundtrip (12 tests)
 - Demo: examples/demo.rs — Interactive demo, event-driven redraw, theme switching
 
-### Remaining (Deferred to v0.2.1)
+### v0.2.1 Completed
+- Scrollbar inactive styling: 3 theme fields + `ScrollBar::set_active()` + Window focus propagation
+- Scrollbar hover fix: `Frame::update_scrollbar_hover()`, `handle_scrollbar_click()`, `clear_scrollbar_hover()`
+- Window routes Moved/Down/Drag events to frame scrollbars
+- JSON theme schema: `ScrollbarSection` gets 3 `#[serde(default)]` inactive fields
+- Scrollbar inactive fix: All 6 JSON themes get proper inactive scrollbar colors (was using hard-coded TV colors)
+- Color typos fixed: dark.json `#3c3c3cOD`, matrix.json `#ff505`
+- Phase 3: Task bar shelf — `Desktop::recalculate_shelf()`, `effective_area()`, `task_shelf_height()`
+- `Window::minimize()` simplified — Desktop manages shelf positioning
+- `Window::minimized_width()` public helper
+- `tile()` and `cascade()` skip minimized windows, use `effective_area()`
+- Phase 4a: FrameConfig struct — `FrameConfig::window()`, `dialog()`, `panel()`, `Frame::from_config()`
+- Phase 4b: Window Builder Lite — `with_config()`, `with_min_size()`, `with_drag_limits()`, `with_scrollbars()`, `with_closeable()`, `with_resizable()`
+- Phase 4c: Window Presets — `Window::editor()`, `Window::palette()`, `Window::tool()`
+- Phase 5: View lifecycle hooks — `on_focus()`, `on_blur()` on View trait, called from Container
+- Phase 7: JSON theme inactive scrollbar fields — already done (verified)
+- Phase 6: Demo updated — Builder Lite, presets, scrollbar focus showcase
+- 313 tests passing, clippy pedantic clean
+
+### v0.2.1 In Progress (see `docs/PLAN-v0.2.1.md`)
+- All phases (1-7) complete — ready for release tagging
+
+### Remaining (Deferred tov0.2.2+)
 - Step 9b: MenuBar→Overlay dropdown refactor (MenuBar currently self-draws dropdown — works but can't extend beyond clip area)
 - Step 9a/c/d: Widget adaptations (minor — existing widgets work but don't use v0.2 patterns fully)
+- Future: Gauge/ProgressBar, ListView, TachyonFX integration, channel-based events (see PLAN-v0.2.1.md Future Phases)
 
 ### Build Order (10 Steps)
 1. Container submodules (rename Group→Container, split mod/dispatch/draw)
@@ -151,7 +194,7 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | #4 Drag lag (50ms poll) | Slow poll interval | Changed to 16ms + event-driven redraw (only redraws on events) |
 | #5 Escape quits | Wrong quit key | Alt+X quits (Borland convention) |
 | #6 Alt+letter inactive menu | Events not routed | HorizontalBar handles Alt+letter directly via OF_PRE_PROCESS dispatch |
-| #7 Resize grip invisible | `"◘"` in DarkGray | Changed to `'⋱'` (U+22F1), theme-configurable via `resize_grip_char` |
+| #7 Resize grip invisible | `"◘"` in DarkGray | Changed to `'◢'` (U+25E2), theme-configurable via `resize_grip_char` |
 
 ## Known Issues (v0.2.0)
 
@@ -166,11 +209,50 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 ### Issue 3: FrameStyles clones close_button_text every draw (FIXED)
 - Replaced `String` heap allocation with stack-allocated `[char; 8]` array in `FrameStyles`. Zero heap allocations during frame drawing now.
 
+### Issue 4: Minimized windows invisible (v0.2.1 — Phase 3)
+- **File:** `src/window.rs` (`minimize()`), `src/desktop.rs`
+- **Issue:** Minimized windows collapse to height=1 but position under status line, overlapping each other. Essentially invisible and unclickable.
+- **Plan:** Desktop task bar shelf — minimized windows tile at bottom of desktop area. See `docs/PLAN-v0.2.1.md` Phase 3.
+
+### Issue 5: Window creation verbose (v0.2.1 — Phase 4)
+- **Files:** `src/window.rs`, `src/frame.rs`
+- **Issue:** Creating a configured window requires 5-8 separate setter calls. No fluent API.
+- **Plan:** Builder Lite pattern + FrameConfig struct + widget presets. See `docs/PLAN-v0.2.1.md` Phase 4a-4c.
+
+## Reference URLs (for Architecture Decisions)
+
+| Reference | URL | Relevance |
+|-----------|-----|-----------|
+| Ratatui Component Architecture | https://ratatui.rs/concepts/application-patterns/component-architecture/ | Component trait pattern — turbo-tui's View is equivalent |
+| Ratatui Event Handling | https://ratatui.rs/concepts/event-handling/ | 3 event patterns — we use approach 2 |
+| Ratatui Widgets | https://ratatui.rs/concepts/widgets/ | Widget/StatefulWidget/WidgetRef traits |
+| Ratatui Builder Lite | https://ratatui.rs/concepts/builder-lite-pattern/ | Self-consuming fluent API pattern |
+| TachyonFX | https://github.com/junkdog/tachyonfx | Post-render effects, future animation integration |
+| tui-rs demo | https://github.com/fdehau/tui-rs/tree/master/examples/demo | Dense dashboard layout, gauge/chart patterns |
+| gping | https://github.com/orf/gping | Real-time gauge, ring-buffer data |
+| Ratatui Scrollbar | https://ratatui.rs/examples/widgets/scrollbar/ | Scrollbar widget reference |
+
 ## Agent Strategy
 
 - **~70% developer-mid** (Kimi K2): Logic, state machines, widget implementations
 - **~30% developer** (Sonnet): Ratatui rendering, complex mouse/integration code, debugging
 - **developer-mini** (free): Config changes, small mechanical edits, boilerplate
+
+## Project Documentation Map
+
+| File | Purpose | When to Read |
+|------|---------|-------------|
+| `CLAUDE.md` | Agent config, conventions, current state | Every session (auto-loaded) |
+| `ARCHITECTURE.md` | System diagram, module deps, event dispatch, rendering pipeline | When changing event routing, adding widgets, understanding data flow |
+| `STANDARDS.md` | Coding standards, patterns, widget template, commit conventions | When writing new code, reviewing PRs |
+| `TESTING.md` | Test architecture, patterns, naming, what to test | When writing or debugging tests |
+| `ROADMAP.md` | Version roadmap, future phases, reference projects | When planning next steps |
+| `HISTORY.md` | Change log (append-only) | Before committing changes |
+| `docs/PLAN-v0.2.1.md` | Current sprint plan with detailed phase specs | When implementing v0.2.1 features |
+| `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) | For historical architecture decisions |
+| `docs/RES-0002-reference-projects-architecture.md` | Reference analysis: Ratatui, TachyonFX, tui-rs, gping | When making architecture decisions |
+| `docs/RES-0001-performance-research.md` | Performance research (16ms poll, dirty flags, etc.) | When optimizing |
+| `docs/DESIGN-horizontal-bar.md` | HorizontalBar unification design | When changing menu/status bar |
 
 ## Related Projects
 
@@ -179,3 +261,5 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | four-code | `~/four-code` | Consumer — terminal IDE that will use turbo-tui for windowing |
 | ADR-002 | `~/four-code/docs/ADR-002-turbo-tui-windowing.md` | Architecture decision record |
 | v0.2 Plan | `docs/PLAN-v0.2.md` | Detailed architecture plan for v0.2 rebuild |
+| v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | Progression plan with reference analysis findings |
+| Research | `docs/RES-0002-reference-projects-architecture.md` | Reference projects analysis |

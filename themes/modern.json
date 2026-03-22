@@ -68,7 +68,39 @@
       "bg": "#141419"
     },
     "close_button_text": "[■]",
-    "close_button_right": false,
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "minimize_button_text": " ─ ",
+    "maximize_button_text": " □ ",
+    "maximize_restore_text": " ◻ ",
+    "minimize_button": {
+      "fg": "#6495ed",
+      "bg": "#141419"
+    },
+    "minimize_button_hover": {
+      "fg": "White",
+      "bg": "#141419",
+      "bold": true
+    },
+    "minimize_button_inactive": {
+      "fg": "#464650",
+      "bg": "#141419"
+    },
+    "maximize_button": {
+      "fg": "#6495ed",
+      "bg": "#141419"
+    },
+    "maximize_button_hover": {
+      "fg": "White",
+      "bg": "#141419",
+      "bold": true
+    },
+    "maximize_button_inactive": {
+      "fg": "#464650",
+      "bg": "#141419"
+    },
     "resize_grip_char": "◢"
   },
   "dialog": {
@@ -202,6 +234,18 @@
     },
     "arrows_hover": {
       "fg": "White",
+      "bg": "#1e1e26"
+    },
+    "track_inactive": {
+      "fg": "#28282e",
+      "bg": "#1e1e26"
+    },
+    "thumb_inactive": {
+      "fg": "#3c3c46",
+      "bg": "#1e1e26"
+    },
+    "arrows_inactive": {
+      "fg": "#3c3c46",
       "bg": "#1e1e26"
     }
   }

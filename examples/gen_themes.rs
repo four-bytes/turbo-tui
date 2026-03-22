@@ -5,11 +5,11 @@
 //! This only generates the built-in Turbo Vision theme.
 //! Other themes (Dark, Modern, Matrix, Windows) are hand-maintained JSON files.
 
-use std::path::Path;
 use turbo_tui::theme::Theme;
 
 fn main() {
-    let themes_dir = Path::new("themes");
+    let themes_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("themes");
+    let themes_dir = themes_dir.as_path();
     std::fs::create_dir_all(themes_dir).expect("Failed to create themes directory");
 
     // Generate only the built-in Turbo Vision theme

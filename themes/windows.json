@@ -7,7 +7,7 @@
     },
     "char": " "
   },
-"borders": {
+  "borders": {
     "window": "none",
     "menu": {
       "chars": "none",
@@ -56,7 +56,7 @@
     },
     "resize_handle_hover": {
       "fg": "White",
-      "bg": "#c0c0c0"
+      "bg": "#000080"
     },
     "close_button_inactive": {
       "fg": "Gray",
@@ -71,7 +71,37 @@
       "bg": "#000080"
     },
     "close_button_text": " × ",
-    "close_button_right": true,
+    "close_button_side": "right",
+    "controls_side": "right",
+    "button_margin_left": 0,
+    "button_margin_right": 0,
+    "minimize_button_text": " ─ ",
+    "maximize_button_text": " □ ",
+    "maximize_restore_text": " ◻ ",
+    "minimize_button": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "minimize_button_hover": {
+      "fg": "White",
+      "bg": "#404040"
+    },
+    "minimize_button_inactive": {
+      "fg": "Gray",
+      "bg": "#808080"
+    },
+    "maximize_button": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "maximize_button_hover": {
+      "fg": "White",
+      "bg": "#404040"
+    },
+    "maximize_button_inactive": {
+      "fg": "Gray",
+      "bg": "#808080"
+    },
     "resize_grip_char": "◢"
   },
   "dialog": {
@@ -188,23 +218,35 @@
   },
   "scrollbar": {
     "track": {
-      "fg": "#808080",
-      "bg": "#c0c0c0"
+      "fg": "DarkGrey",
+      "bg": "#000080"
     },
     "thumb": {
       "fg": "#000080",
       "bg": "#c0c0c0"
     },
     "arrows": {
-      "fg": "Black",
-      "bg": "#c0c0c0"
+      "fg": "DarkGrey",
+      "bg": "#000080"
     },
     "thumb_hover": {
       "fg": "White",
-      "bg": "#c0c0c0"
+      "bg": "#000080"
     },
     "arrows_hover": {
       "fg": "White",
+      "bg": "#000080"
+    },
+    "track_inactive": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "thumb_inactive": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "arrows_inactive": {
+      "fg": "#808080",
       "bg": "#c0c0c0"
     }
   }

@@ -104,6 +104,8 @@ pub struct ScrollBar {
     drag_start_value: i32,
     /// Currently hovered element.
     hovered: ScrollBarHover,
+    /// Active state (true if owning window is focused).
+    active: bool,
 }
 
 impl ScrollBar {
@@ -131,6 +133,7 @@ impl ScrollBar {
             dragging_thumb: false,
             drag_start_value: 0,
             hovered: ScrollBarHover::None,
+            active: true,
         }
     }
 
@@ -158,6 +161,7 @@ impl ScrollBar {
             dragging_thumb: false,
             drag_start_value: 0,
             hovered: ScrollBarHover::None,
+            active: true,
         }
     }
 
@@ -205,6 +209,20 @@ impl ScrollBar {
     #[must_use]
     pub fn orientation(&self) -> Orientation {
         self.orientation
+    }
+
+    /// Check if the scrollbar is in active (focused window) state.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Set the active state (affects rendering style: active vs inactive).
+    pub fn set_active(&mut self, active: bool) {
+        if self.active != active {
+            self.active = active;
+            self.base.mark_dirty();
+        }
     }
 
     /// Calculate thumb position (pixel/cell coordinate).
@@ -494,6 +512,13 @@ impl View for ScrollBar {
 
         // Get theme styles
         let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
+            if !self.active {
+                return (
+                    t.scrollbar_track_inactive,
+                    t.scrollbar_thumb_inactive,
+                    t.scrollbar_arrows_inactive,
+                );
+            }
             let thumb = if self.hovered == ScrollBarHover::Thumb {
                 t.scrollbar_thumb_hover
             } else {

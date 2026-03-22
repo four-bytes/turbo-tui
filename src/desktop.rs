@@ -31,6 +31,8 @@ use std::any::Any;
 pub struct Desktop {
     base: ViewBase,
     windows: Container,
+    /// Height of the task shelf in rows (0 = no minimized windows).
+    task_shelf_height: u16,
 }
 
 impl Desktop {
@@ -43,6 +45,7 @@ impl Desktop {
         Self {
             base: ViewBase::new(bounds),
             windows: Container::new(bounds),
+            task_shelf_height: 0,
         }
     }
 
@@ -57,6 +60,7 @@ impl Desktop {
         self.windows.bring_to_front(count - 1);
         self.windows.set_focus_to(count - 1);
         self.base.mark_dirty();
+        self.recalculate_shelf();
         id
     }
 
@@ -70,8 +74,91 @@ impl Desktop {
             if count > 0 {
                 self.windows.set_focus_to(count - 1);
             }
+            // Recalculate shelf after window removal
+            self.recalculate_shelf();
         }
         removed
+    }
+
+    /// Get the current task shelf height in rows.
+    #[must_use]
+    pub fn task_shelf_height(&self) -> u16 {
+        self.task_shelf_height
+    }
+
+    /// Recalculate the task shelf: position minimized windows at the bottom of the desktop.
+    ///
+    /// Minimized windows tile left-to-right in the shelf area. If they overflow
+    /// one row, the shelf grows to 2 rows (and so on). Non-minimized windows are
+    /// not affected.
+    pub fn recalculate_shelf(&mut self) {
+        let desktop_bounds = self.base.bounds();
+
+        // Collect indices of minimized windows
+        let count = self.windows.child_count();
+        let mut minimized_indices: Vec<usize> = Vec::new();
+        for i in 0..count {
+            if let Some(child) = self.windows.child_at(i) {
+                if let Some(win) = child.as_any().downcast_ref::<Window>() {
+                    if win.is_minimized() {
+                        minimized_indices.push(i);
+                    }
+                }
+            }
+        }
+
+        if minimized_indices.is_empty() {
+            self.task_shelf_height = 0;
+            return;
+        }
+
+        // Calculate shelf layout: tile left-to-right
+        let mut shelf_x = desktop_bounds.x;
+        let mut shelf_row: u16 = 0; // 0 = first row from bottom
+
+        for &idx in &minimized_indices {
+            if let Some(child) = self.windows.child_at(idx) {
+                let min_w = if let Some(win) = child.as_any().downcast_ref::<Window>() {
+                    win.minimized_width()
+                } else {
+                    20 // fallback
+                };
+
+                // Wrap to next row if this window would exceed desktop width
+                if shelf_x + min_w > desktop_bounds.x + desktop_bounds.width
+                    && shelf_x > desktop_bounds.x
+                {
+                    shelf_row += 1;
+                    shelf_x = desktop_bounds.x;
+                }
+
+                let shelf_y =
+                    desktop_bounds.y + desktop_bounds.height.saturating_sub(1 + shelf_row);
+
+                if let Some(child_mut) = self.windows.child_at_mut(idx) {
+                    child_mut.set_bounds(Rect::new(shelf_x, shelf_y, min_w, 1));
+                }
+
+                shelf_x += min_w;
+            }
+        }
+
+        self.task_shelf_height = shelf_row + 1;
+        self.base.mark_dirty();
+    }
+
+    /// Get the effective window area (desktop bounds minus task shelf).
+    ///
+    /// Non-minimized windows should be constrained to this area during tile/cascade.
+    #[must_use]
+    pub fn effective_area(&self) -> Rect {
+        let b = self.base.bounds();
+        Rect::new(
+            b.x,
+            b.y,
+            b.width,
+            b.height.saturating_sub(self.task_shelf_height),
+        )
     }
 
     /// Return the number of windows.
@@ -133,36 +220,50 @@ impl Desktop {
     ///
     /// Arranges windows in a grid that fits the desktop area.
     /// Windows are resized equally to fill the available space.
+    /// Minimized windows are skipped and remain in the task shelf.
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
     pub fn tile(&mut self) {
-        let count = self.windows.child_count();
+        let area = self.effective_area();
+
+        // Collect non-minimized window indices
+        let total = self.windows.child_count();
+        let mut active_indices: Vec<usize> = Vec::new();
+        for i in 0..total {
+            if let Some(child) = self.windows.child_at(i) {
+                if let Some(win) = child.as_any().downcast_ref::<Window>() {
+                    if !win.is_minimized() {
+                        active_indices.push(i);
+                    }
+                } else {
+                    active_indices.push(i);
+                }
+            }
+        }
+
+        let count = active_indices.len();
         if count == 0 {
             return;
         }
 
-        let area = self.base.bounds();
-
-        // Calculate grid dimensions
         let cols = (count as f64).sqrt().ceil() as u16;
         let rows = ((count as f64) / f64::from(cols)).ceil() as u16;
 
         let w = area.width / cols;
         let h = area.height / rows;
 
-        for i in 0..count {
+        for (seq, &idx) in active_indices.iter().enumerate() {
             #[allow(clippy::cast_possible_truncation)]
-            let col = (i as u16) % cols;
+            let col = (seq as u16) % cols;
             #[allow(clippy::cast_possible_truncation)]
-            let row = (i as u16) / cols;
+            let row = (seq as u16) / cols;
 
             let x = area.x + col * w;
             let y = area.y + row * h;
 
-            // Last column/row gets remaining space
             let actual_w = if col == cols - 1 {
                 area.x + area.width - x
             } else {
@@ -174,7 +275,7 @@ impl Desktop {
                 h
             };
 
-            if let Some(child) = self.windows.child_at_mut(i) {
+            if let Some(child) = self.windows.child_at_mut(idx) {
                 child.set_bounds(Rect::new(x, y, actual_w, actual_h));
             }
         }
@@ -185,30 +286,46 @@ impl Desktop {
     ///
     /// Each window gets a 2-column, 1-row offset from the previous one.
     /// Windows are resized to approximately 60% of the desktop area.
+    /// Minimized windows are skipped and remain in the task shelf.
     pub fn cascade(&mut self) {
-        let count = self.windows.child_count();
+        let area = self.effective_area();
+
+        // Collect non-minimized window indices
+        let total = self.windows.child_count();
+        let mut active_indices: Vec<usize> = Vec::new();
+        for i in 0..total {
+            if let Some(child) = self.windows.child_at(i) {
+                if let Some(win) = child.as_any().downcast_ref::<Window>() {
+                    if !win.is_minimized() {
+                        active_indices.push(i);
+                    }
+                } else {
+                    active_indices.push(i);
+                }
+            }
+        }
+
+        let count = active_indices.len();
         if count == 0 {
             return;
         }
 
-        let area = self.base.bounds();
-        let w = (area.width * 3) / 5; // 60% width
-        let h = (area.height * 3) / 5; // 60% height
+        let w = (area.width * 3) / 5;
+        let h = (area.height * 3) / 5;
 
-        for i in 0..count {
+        for (seq, &idx) in active_indices.iter().enumerate() {
             #[allow(clippy::cast_possible_truncation)]
-            let offset_x = (i as u16) * 2;
+            let offset_x = (seq as u16) * 2;
             #[allow(clippy::cast_possible_truncation)]
-            let offset_y = i as u16;
+            let offset_y = seq as u16;
 
             let x = area.x + offset_x;
             let y = area.y + offset_y;
 
-            // Clamp to area
             let actual_w = w.min(area.x + area.width - x);
             let actual_h = h.min(area.y + area.height - y);
 
-            if let Some(child) = self.windows.child_at_mut(i) {
+            if let Some(child) = self.windows.child_at_mut(idx) {
                 child.set_bounds(Rect::new(x, y, actual_w, actual_h));
             }
         }
@@ -262,36 +379,35 @@ impl View for Desktop {
             return;
         }
 
-        match &event.kind.clone() {
-            EventKind::Mouse(mouse) => {
-                let col = mouse.column;
-                let row = mouse.row;
+        if let EventKind::Mouse(mouse) = &event.kind.clone() {
+            let col = mouse.column;
+            let row = mouse.row;
 
-                // Click-to-front: on MouseDown, find hit window and bring to front
-                if matches!(mouse.kind, MouseEventKind::Down(_)) {
-                    if let Some(hit_index) = self.windows.child_at_point(col, row) {
-                        let focused = self.windows.focused_index();
-                        let count = self.windows.child_count();
-                        // Bring clicked window to front if:
-                        // - It's not already the front window, OR
-                        // - The focused window is not the front window
-                        if hit_index != count - 1 || focused != Some(count - 1) {
-                            // Bring clicked window to front if not already
-                            if hit_index != count - 1 || focused != Some(hit_index) {
-                                self.click_to_front(hit_index);
-                            }
+            // Click-to-front: on MouseDown, find hit window and bring to front
+            if matches!(mouse.kind, MouseEventKind::Down(_)) {
+                if let Some(hit_index) = self.windows.child_at_point(col, row) {
+                    let focused = self.windows.focused_index();
+                    let count = self.windows.child_count();
+                    // Bring clicked window to front if:
+                    // - It's not already the front window, OR
+                    // - The focused window is not the front window
+                    if hit_index != count - 1 || focused != Some(count - 1) {
+                        // Bring clicked window to front if not already
+                        if hit_index != count - 1 || focused != Some(hit_index) {
+                            self.click_to_front(hit_index);
                         }
                     }
                 }
-
-                // Delegate all mouse events to container (which handles capture + hit-test)
-                self.windows.handle_event(event);
             }
 
+            // Delegate all mouse events to container (which handles capture + hit-test)
+            self.windows.handle_event(event);
+            // Recalculate shelf after any mouse event that might have triggered minimize/restore
+            self.recalculate_shelf();
+        } else {
             // Key/Command events → delegate to container (three-phase dispatch)
-            _ => {
-                self.windows.handle_event(event);
-            }
+            self.windows.handle_event(event);
+            self.recalculate_shelf();
         }
     }
 
@@ -636,5 +752,226 @@ mod tests {
         // Set focused
         desktop.set_state(SF_VISIBLE | SF_FOCUSED);
         assert_ne!(desktop.state() & SF_FOCUSED, 0);
+    }
+
+    #[test]
+    fn test_desktop_shelf_empty_when_no_minimized() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+
+        assert_eq!(
+            desktop.task_shelf_height(),
+            0,
+            "no minimized windows = no shelf"
+        );
+        assert_eq!(desktop.effective_area(), Rect::new(0, 0, 80, 24));
+    }
+
+    #[test]
+    fn test_desktop_shelf_one_minimized_window() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "Window 1"));
+
+        // Minimize the window
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+
+        assert_eq!(
+            desktop.task_shelf_height(),
+            1,
+            "one minimized window = 1 row shelf"
+        );
+
+        // Check the minimized window is positioned at the bottom of desktop
+        let db = desktop.bounds();
+        if let Some(child) = desktop.windows().child_at(0) {
+            let b = child.bounds();
+            assert_eq!(b.y, db.y + db.height - 1, "minimized window at bottom");
+            assert_eq!(b.height, 1, "minimized window is 1 row tall");
+        }
+    }
+
+    #[test]
+    fn test_desktop_shelf_multiple_minimized_tile_left_to_right() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+        desktop.add_window(Window::new(Rect::new(15, 15, 30, 10), "W3"));
+
+        // Minimize all
+        for i in 0..3 {
+            if let Some(child) = desktop.windows_mut().child_at_mut(i) {
+                if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                    win.minimize();
+                }
+            }
+        }
+        desktop.recalculate_shelf();
+
+        // All should be on the bottom row, left-to-right
+        let db = desktop.bounds();
+        let b0 = desktop.windows().child_at(0).unwrap().bounds();
+        let b1 = desktop.windows().child_at(1).unwrap().bounds();
+        let b2 = desktop.windows().child_at(2).unwrap().bounds();
+
+        assert_eq!(b0.y, db.y + db.height - 1);
+        assert_eq!(b1.y, db.y + db.height - 1);
+        assert_eq!(b2.y, db.y + db.height - 1);
+        assert_eq!(b0.x, 0, "first minimized starts at x=0");
+        assert!(b1.x > b0.x, "second starts after first");
+        assert!(b2.x > b1.x, "third starts after second");
+    }
+
+    #[test]
+    fn test_desktop_shelf_restore_recalculates() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        let original_bounds = Rect::new(5, 5, 30, 10);
+        desktop.add_window(Window::new(original_bounds, "W1"));
+
+        // Minimize
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+        assert_eq!(desktop.task_shelf_height(), 1);
+
+        // Restore
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.restore();
+            }
+        }
+        desktop.recalculate_shelf();
+        assert_eq!(desktop.task_shelf_height(), 0, "shelf clears after restore");
+
+        // Bounds should be restored
+        let b = desktop.windows().child_at(0).unwrap().bounds();
+        assert_eq!(b, original_bounds, "window restored to original bounds");
+    }
+
+    #[test]
+    fn test_desktop_shelf_close_minimized_recalculates() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        let id2 = desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+
+        // Minimize both
+        for i in 0..2 {
+            if let Some(child) = desktop.windows_mut().child_at_mut(i) {
+                if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                    win.minimize();
+                }
+            }
+        }
+        desktop.recalculate_shelf();
+        assert_eq!(desktop.task_shelf_height(), 1);
+
+        // Close one
+        desktop.close_window(id2);
+        // close_window already calls recalculate_shelf
+        assert_eq!(desktop.task_shelf_height(), 1, "still 1 minimized window");
+    }
+
+    #[test]
+    fn test_desktop_tile_skips_minimized() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+        desktop.add_window(Window::new(Rect::new(15, 15, 30, 10), "W3"));
+
+        // Minimize W3 (index 2)
+        if let Some(child) = desktop.windows_mut().child_at_mut(2) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+
+        // Tile — should only arrange W1 and W2
+        desktop.tile();
+
+        // W1 and W2 should fill the effective area (24 - 1 shelf = 23 rows)
+        let c0 = desktop.windows().child_at(0).unwrap().bounds();
+        let c1 = desktop.windows().child_at(1).unwrap().bounds();
+        let eff = desktop.effective_area();
+
+        // With 2 windows: 1x2 or 2x1 grid in the effective area
+        assert!(c0.height > 1, "tiled window should have height > 1");
+        assert!(c1.height > 1, "tiled window should have height > 1");
+        // The tiled windows should fit within effective_area
+        assert!(
+            c0.y + c0.height <= eff.y + eff.height,
+            "W1 within effective area"
+        );
+        assert!(
+            c1.y + c1.height <= eff.y + eff.height,
+            "W2 within effective area"
+        );
+    }
+
+    #[test]
+    fn test_desktop_cascade_skips_minimized() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+        desktop.add_window(Window::new(Rect::new(15, 15, 30, 10), "W3"));
+
+        // Minimize W1 (index 0)
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+
+        // Cascade — should only arrange W2 and W3
+        desktop.cascade();
+
+        // W2 and W3 should start at (0,0) and (2,1) in the effective area
+        let c1 = desktop.windows().child_at(1).unwrap().bounds();
+        let c2 = desktop.windows().child_at(2).unwrap().bounds();
+
+        assert_eq!(c1.x, 0, "first cascaded window at x=0");
+        assert_eq!(c1.y, 0, "first cascaded window at y=0");
+        assert_eq!(c2.x, 2, "second cascaded window at x=2");
+        assert_eq!(c2.y, 1, "second cascaded window at y=1");
+    }
+
+    #[test]
+    fn test_desktop_effective_area_with_shelf() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 1, 80, 22));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+
+        // No shelf initially
+        assert_eq!(desktop.effective_area(), Rect::new(0, 1, 80, 22));
+
+        // Minimize
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+
+        assert_eq!(
+            desktop.effective_area(),
+            Rect::new(0, 1, 80, 21),
+            "effective area shrinks by shelf height"
+        );
     }
 }

@@ -13,8 +13,9 @@
 //! Use [`Window`] for a complete window with Frame + interior Container.
 
 use crate::scrollbar::ScrollBar;
-use crate::theme;
+use crate::theme::{self, ButtonSide};
 use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
+use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Style};
@@ -42,8 +43,285 @@ pub enum FrameHover {
     None,
     /// Close button is hovered.
     CloseButton,
+    /// Minimize button is hovered.
+    MinimizeButton,
+    /// Maximize button is hovered.
+    MaximizeButton,
     /// Resize handle is hovered.
     ResizeHandle,
+}
+
+// ============================================================================
+// FrameConfig — Configuration presets for Frame construction
+// ============================================================================
+
+/// Configuration for creating a [`Frame`] with a specific set of features.
+///
+/// Use the named constructors for common configurations:
+/// - [`FrameConfig::window()`] — closeable, resizable, min/max buttons
+/// - [`FrameConfig::dialog()`] — no close, no resize, no buttons
+/// - [`FrameConfig::panel()`] — single-line frame, no close, no resize
+///
+/// # Example
+///
+/// ```
+/// use turbo_tui::frame::{FrameConfig, FrameType};
+///
+/// let config = FrameConfig::window().with_v_scrollbar(true);
+/// assert!(config.closeable);
+/// assert!(config.v_scrollbar);
+/// ```
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameConfig {
+    /// Frame type (Window, Dialog, Single).
+    pub frame_type: FrameType,
+    /// Whether the frame has a close button.
+    pub closeable: bool,
+    /// Whether the frame has a resize handle.
+    pub resizable: bool,
+    /// Whether the frame has a minimize button.
+    pub minimizable: bool,
+    /// Whether the frame has a maximize button.
+    pub maximizable: bool,
+    /// Whether to create a vertical scrollbar.
+    pub v_scrollbar: bool,
+    /// Whether to create a horizontal scrollbar.
+    pub h_scrollbar: bool,
+}
+
+impl Default for FrameConfig {
+    /// Default is a Window config (closeable, resizable).
+    fn default() -> Self {
+        Self::window()
+    }
+}
+
+impl FrameConfig {
+    /// Window defaults: closeable, resizable, min/max from theme.
+    #[must_use]
+    pub fn window() -> Self {
+        Self {
+            frame_type: FrameType::Window,
+            closeable: true,
+            resizable: true,
+            minimizable: true,
+            maximizable: true,
+            v_scrollbar: false,
+            h_scrollbar: false,
+        }
+    }
+
+    /// Dialog defaults: dialog frame, no close, no resize, no min/max.
+    #[must_use]
+    pub fn dialog() -> Self {
+        Self {
+            frame_type: FrameType::Dialog,
+            closeable: false,
+            resizable: false,
+            minimizable: false,
+            maximizable: false,
+            v_scrollbar: false,
+            h_scrollbar: false,
+        }
+    }
+
+    /// Panel defaults: single-line frame, no close, no resize, no min/max.
+    #[must_use]
+    pub fn panel() -> Self {
+        Self {
+            frame_type: FrameType::Single,
+            closeable: false,
+            resizable: false,
+            minimizable: false,
+            maximizable: false,
+            v_scrollbar: false,
+            h_scrollbar: false,
+        }
+    }
+
+    /// Set whether to create a vertical scrollbar.
+    #[must_use]
+    pub fn with_v_scrollbar(mut self, yes: bool) -> Self {
+        self.v_scrollbar = yes;
+        self
+    }
+
+    /// Set whether to create a horizontal scrollbar.
+    #[must_use]
+    pub fn with_h_scrollbar(mut self, yes: bool) -> Self {
+        self.h_scrollbar = yes;
+        self
+    }
+
+    /// Set whether the frame is closeable.
+    #[must_use]
+    pub fn with_closeable(mut self, yes: bool) -> Self {
+        self.closeable = yes;
+        self
+    }
+
+    /// Set whether the frame is resizable.
+    #[must_use]
+    pub fn with_resizable(mut self, yes: bool) -> Self {
+        self.resizable = yes;
+        self
+    }
+
+    /// Set whether the frame has a minimize button.
+    #[must_use]
+    pub fn with_minimizable(mut self, yes: bool) -> Self {
+        self.minimizable = yes;
+        self
+    }
+
+    /// Set whether the frame has a maximize button.
+    #[must_use]
+    pub fn with_maximizable(mut self, yes: bool) -> Self {
+        self.maximizable = yes;
+        self
+    }
+}
+
+// ============================================================================
+// ButtonTray — single source of truth for title-bar button positions
+// ============================================================================
+
+/// Computed button layout for the title bar.
+///
+/// Built once from theme config + frame state, then used for hit-testing,
+/// drawing, and title clamping. All positions are absolute screen coordinates.
+struct ButtonTray {
+    /// Close button position: `(start_col, char_count)`. `None` if not closeable.
+    close: Option<(u16, u16)>,
+    /// Minimize button position. `None` if not minimizable or no text.
+    minimize: Option<(u16, u16)>,
+    /// Maximize button position. `None` if not maximizable or no text.
+    maximize: Option<(u16, u16)>,
+    /// First column available for the title (after all left-side buttons).
+    title_start: u16,
+    /// First column occupied by right-side buttons (title must stop before this).
+    title_end: u16,
+}
+
+impl ButtonTray {
+    /// Build the button tray from frame config and theme.
+    ///
+    /// Layout rules:
+    /// - Each side (left/right) has buttons stacked from the edge inward
+    /// - Left side: buttons go left-to-right starting at `x + margin_left`
+    /// - Right side: buttons go right-to-left starting at `x + width - margin_right`
+    /// - Close button is placed closest to its configured corner
+    /// - Controls (minimize, maximize) stack after close on their side
+    #[allow(clippy::cast_possible_truncation)]
+    fn build(
+        b: Rect,
+        closeable: bool,
+        minimizable: bool,
+        maximizable: bool,
+        t: &crate::theme::Theme,
+    ) -> Self {
+        let close_len: u16 = if closeable {
+            t.close_button_text.chars().count() as u16
+        } else {
+            0
+        };
+        let min_len: u16 = if minimizable && !t.minimize_button_text.is_empty() {
+            t.minimize_button_text.chars().count() as u16
+        } else {
+            0
+        };
+        let max_len: u16 = if maximizable && !t.maximize_button_text.is_empty() {
+            t.maximize_button_text.chars().count() as u16
+        } else {
+            0
+        };
+
+        // Left cursor starts after left corner + margin
+        let mut left_cursor = b.x + t.button_margin_left;
+        // Right cursor starts before right corner - margin (points to first usable col from right)
+        let mut right_cursor = b.x + b.width.saturating_sub(t.button_margin_right);
+
+        let mut close_pos: Option<(u16, u16)> = None;
+        let mut min_pos: Option<(u16, u16)> = None;
+        let mut max_pos: Option<(u16, u16)> = None;
+
+        // Place close button (it goes on close_button_side, closest to corner)
+        if closeable && close_len > 0 {
+            match t.close_button_side {
+                ButtonSide::Left => {
+                    close_pos = Some((left_cursor, close_len));
+                    left_cursor += close_len;
+                }
+                ButtonSide::Right => {
+                    right_cursor = right_cursor.saturating_sub(close_len);
+                    close_pos = Some((right_cursor, close_len));
+                }
+            }
+        }
+
+        // Place controls (minimize, then maximize) on controls_side.
+        // Right side order (rightmost = closest to corner):
+        //   ... [minimize][maximize] [close] margin ║
+        //   cursor moves leftward: close first, then max, then min
+        //
+        // Left side order (leftmost = closest to corner):
+        //   ║ margin [close] [minimize][maximize] ...
+        //   cursor moves rightward: close first, then min, then max
+        match t.controls_side {
+            ButtonSide::Left => {
+                if min_len > 0 {
+                    min_pos = Some((left_cursor, min_len));
+                    left_cursor += min_len;
+                }
+                if max_len > 0 {
+                    max_pos = Some((left_cursor, max_len));
+                    left_cursor += max_len;
+                }
+            }
+            ButtonSide::Right => {
+                // Place maximize first (closer to corner), then minimize
+                if max_len > 0 {
+                    right_cursor = right_cursor.saturating_sub(max_len);
+                    max_pos = Some((right_cursor, max_len));
+                }
+                if min_len > 0 {
+                    right_cursor = right_cursor.saturating_sub(min_len);
+                    min_pos = Some((right_cursor, min_len));
+                }
+            }
+        }
+
+        Self {
+            close: close_pos,
+            minimize: min_pos,
+            maximize: max_pos,
+            title_start: left_cursor,
+            title_end: right_cursor,
+        }
+    }
+
+    /// Hit-test: which button (if any) is at the given column?
+    ///
+    /// Only checks column — caller must verify row == title bar row.
+    fn hit_test(&self, col: u16) -> FrameHover {
+        if let Some((start, len)) = self.close {
+            if col >= start && col < start + len {
+                return FrameHover::CloseButton;
+            }
+        }
+        if let Some((start, len)) = self.minimize {
+            if col >= start && col < start + len {
+                return FrameHover::MinimizeButton;
+            }
+        }
+        if let Some((start, len)) = self.maximize {
+            if col >= start && col < start + len {
+                return FrameHover::MaximizeButton;
+            }
+        }
+        FrameHover::None
+    }
 }
 
 // ============================================================================
@@ -74,6 +352,7 @@ pub enum FrameHover {
 /// assert!(frame.resizable());
 /// ```
 #[allow(clippy::struct_field_names)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Frame {
     /// Base view functionality.
     base: ViewBase,
@@ -85,6 +364,10 @@ pub struct Frame {
     closeable: bool,
     /// Whether the frame has a resize handle.
     resizable: bool,
+    /// Whether the frame has a minimize button.
+    minimizable: bool,
+    /// Whether the frame has a maximize button.
+    maximizable: bool,
     /// Optional vertical scrollbar (occupies right border).
     v_scrollbar: Option<ScrollBar>,
     /// Optional horizontal scrollbar (occupies bottom border).
@@ -110,16 +393,61 @@ impl Frame {
             FrameType::Window => (true, true),
             FrameType::Dialog | FrameType::Single => (false, false),
         };
+        let minimizable = match frame_type {
+            FrameType::Window => crate::theme::with_current(|t| !t.minimize_button_text.is_empty()),
+            FrameType::Dialog | FrameType::Single => false,
+        };
+        let maximizable = match frame_type {
+            FrameType::Window => crate::theme::with_current(|t| !t.maximize_button_text.is_empty()),
+            FrameType::Dialog | FrameType::Single => false,
+        };
         Self {
             base: ViewBase::new(bounds),
             title: title.to_owned(),
             frame_type,
             closeable,
             resizable,
+            minimizable,
+            maximizable,
             v_scrollbar: None,
             h_scrollbar: None,
             hovered: FrameHover::None,
         }
+    }
+
+    /// Create a frame from a [`FrameConfig`].
+    ///
+    /// This applies all configuration from the config struct, including
+    /// creating scrollbars if requested.
+    ///
+    /// # Arguments
+    ///
+    /// * `bounds` - The bounding rectangle for the frame.
+    /// * `title` - The title text displayed on the top border.
+    /// * `config` - The frame configuration.
+    #[must_use]
+    pub fn from_config(bounds: Rect, title: &str, config: &FrameConfig) -> Self {
+        let mut frame = Self {
+            base: ViewBase::new(bounds),
+            title: title.to_owned(),
+            frame_type: config.frame_type,
+            closeable: config.closeable,
+            resizable: config.resizable,
+            minimizable: config.minimizable,
+            maximizable: config.maximizable,
+            v_scrollbar: None,
+            h_scrollbar: None,
+            hovered: FrameHover::None,
+        };
+        if config.v_scrollbar {
+            let sb = ScrollBar::vertical(Rect::new(0, 0, 1, bounds.height.saturating_sub(2)));
+            frame.v_scrollbar = Some(sb);
+        }
+        if config.h_scrollbar {
+            let sb = ScrollBar::horizontal(Rect::new(0, 0, bounds.width.saturating_sub(2), 1));
+            frame.h_scrollbar = Some(sb);
+        }
+        frame
     }
 
     /// Get the frame title.
@@ -166,6 +494,34 @@ impl Frame {
     pub fn set_resizable(&mut self, resizable: bool) {
         if self.resizable != resizable {
             self.resizable = resizable;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Check if the frame has a minimize button.
+    #[must_use]
+    pub fn minimizable(&self) -> bool {
+        self.minimizable
+    }
+
+    /// Set whether the frame has a minimize button.
+    pub fn set_minimizable(&mut self, minimizable: bool) {
+        if self.minimizable != minimizable {
+            self.minimizable = minimizable;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Check if the frame has a maximize button.
+    #[must_use]
+    pub fn maximizable(&self) -> bool {
+        self.maximizable
+    }
+
+    /// Set whether the frame has a maximize button.
+    pub fn set_maximizable(&mut self, maximizable: bool) {
+        if self.maximizable != maximizable {
+            self.maximizable = maximizable;
             self.base.mark_dirty();
         }
     }
@@ -256,12 +612,25 @@ impl Frame {
         Rect::new(b.x + 1, b.y + 1, w, h)
     }
 
+    /// Build the button tray for the current frame using the current theme.
+    fn build_button_tray(&self) -> ButtonTray {
+        theme::with_current(|t| {
+            ButtonTray::build(
+                self.base.bounds(),
+                self.closeable,
+                self.minimizable,
+                self.maximizable,
+                t,
+            )
+        })
+    }
+
     /// Check if the given position is on the close button `[■]`.
     ///
     /// Returns `true` if closeable and point is at the close button area.
     /// The close button position depends on theme configuration:
-    /// - Left-aligned (Borland): positions (x+1, y) through (`x+close_len`, y)
-    /// - Right-aligned (Windows): positions (x+width-close_len-1, y) through (x+width-2, y)
+    /// - Left-aligned (Borland): positions (`x+margin_left`, y) through end
+    /// - Right-aligned (Windows): positions from right edge inward
     #[must_use]
     pub fn is_close_button(&self, col: u16, row: u16) -> bool {
         if !self.closeable {
@@ -271,20 +640,42 @@ impl Frame {
         if row != b.y || col < b.x || col >= b.x + b.width {
             return false;
         }
+        let tray = self.build_button_tray();
+        matches!(tray.hit_test(col), FrameHover::CloseButton)
+    }
 
-        theme::with_current(|t| {
-            #[allow(clippy::cast_possible_truncation)]
-            let close_len = t.close_button_text.chars().count() as u16;
-            if t.close_button_right {
-                // Right-aligned: close button at (b.x + b.width - 1 - close_len) .. (b.x + b.width - 2)
-                let close_start = b.x + b.width - 1 - close_len;
-                col >= close_start && col < close_start + close_len
-            } else {
-                // Left-aligned: close button at (b.x + 2) .. (b.x + 2 + close_len - 1)
-                // 1-cell gap between corner and close button
-                col >= b.x + 2 && col < b.x + 2 + close_len
-            }
-        })
+    /// Check if the given position is on the minimize button.
+    ///
+    /// Returns `true` if minimizable and point is at the minimize button area.
+    /// Position depends on theme and other button placements.
+    #[must_use]
+    pub fn is_minimize_button(&self, col: u16, row: u16) -> bool {
+        if !self.minimizable {
+            return false;
+        }
+        let b = self.base.bounds();
+        if row != b.y || col < b.x || col >= b.x + b.width {
+            return false;
+        }
+        let tray = self.build_button_tray();
+        matches!(tray.hit_test(col), FrameHover::MinimizeButton)
+    }
+
+    /// Check if the given position is on the maximize button.
+    ///
+    /// Returns `true` if maximizable and point is at the maximize button area.
+    /// Position depends on theme and other button placements.
+    #[must_use]
+    pub fn is_maximize_button(&self, col: u16, row: u16) -> bool {
+        if !self.maximizable {
+            return false;
+        }
+        let b = self.base.bounds();
+        if row != b.y || col < b.x || col >= b.x + b.width {
+            return false;
+        }
+        let tray = self.build_button_tray();
+        matches!(tray.hit_test(col), FrameHover::MaximizeButton)
     }
 
     /// Check if the given position is on the resize handle `⋱`.
@@ -303,7 +694,7 @@ impl Frame {
 
     /// Check if the given position is on the title bar.
     ///
-    /// The title bar is the top border row, excluding the close button area.
+    /// The title bar is the top border row, excluding any button areas.
     #[must_use]
     pub fn is_title_bar(&self, col: u16, row: u16) -> bool {
         let b = self.base.bounds();
@@ -313,19 +704,20 @@ impl Frame {
         if col < b.x || col >= b.x + b.width {
             return false;
         }
-        // Exclude close button area
-        if self.closeable && self.is_close_button(col, row) {
-            return false;
-        }
-        true
+        let tray = self.build_button_tray();
+        // Title bar = top row, not on any button
+        matches!(tray.hit_test(col), FrameHover::None)
     }
 
     /// Update the hover state based on mouse position.
     ///
     /// Returns the new hover state.
     pub fn update_hover(&mut self, col: u16, row: u16) -> FrameHover {
-        let new_hover = if self.is_close_button(col, row) {
-            FrameHover::CloseButton
+        let b = self.base.bounds();
+        let new_hover = if row == b.y && col >= b.x && col < b.x + b.width {
+            // On title bar row — use button tray for hit-testing
+            let tray = self.build_button_tray();
+            tray.hit_test(col)
         } else if self.is_resize_handle(col, row) {
             FrameHover::ResizeHandle
         } else {
@@ -345,6 +737,200 @@ impl Frame {
             self.hovered = FrameHover::None;
             self.base.mark_dirty();
         }
+    }
+
+    /// Forward a mouse move event to the frame's scrollbars for hover tracking.
+    ///
+    /// This should be called by Window when `MouseEventKind::Moved` is received
+    /// within the window bounds. The scrollbars will update their hover state
+    /// (Arrow, Thumb, or None) based on the mouse position.
+    pub fn update_scrollbar_hover(&mut self, col: u16, row: u16) {
+        let b = self.base.bounds();
+
+        // Vertical scrollbar: right border column, rows between top and bottom border
+        if let Some(ref mut sb) = self.v_scrollbar {
+            let sb_x = b.x + b.width.saturating_sub(1);
+            let sb_y = b.y + 1;
+            let sb_height = b.height.saturating_sub(2);
+            let sb_bounds = Rect::new(sb_x, sb_y, 1, sb_height);
+
+            if col >= sb_bounds.x
+                && col < sb_bounds.x + sb_bounds.width
+                && row >= sb_bounds.y
+                && row < sb_bounds.y + sb_bounds.height
+            {
+                // Mouse is on vertical scrollbar - forward event
+                let mouse = MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: col,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                };
+                let mut ev = Event::mouse(mouse);
+                // Temporarily set bounds so the scrollbar's hit-test works
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(sb_bounds);
+                sb.handle_event(&mut ev);
+                sb.set_bounds(saved_bounds);
+            } else {
+                // Mouse not on vertical scrollbar - clear its hover
+                // Send a mouse moved event outside bounds to clear hover
+                let mouse = MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: 0,
+                    row: 0,
+                    modifiers: KeyModifiers::NONE,
+                };
+                let mut ev = Event::mouse(mouse);
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(sb_bounds);
+                sb.handle_event(&mut ev);
+                sb.set_bounds(saved_bounds);
+            }
+        }
+
+        // Horizontal scrollbar: bottom row, cols between left and right border
+        if let Some(ref mut sb) = self.h_scrollbar {
+            let h_sb_bounds = Rect::new(
+                b.x + 1,
+                b.y + b.height.saturating_sub(1),
+                b.width.saturating_sub(2),
+                1,
+            );
+
+            if col >= h_sb_bounds.x
+                && col < h_sb_bounds.x + h_sb_bounds.width
+                && row >= h_sb_bounds.y
+                && row < h_sb_bounds.y + h_sb_bounds.height
+            {
+                // Mouse is on horizontal scrollbar - forward event
+                let mouse = MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: col,
+                    row,
+                    modifiers: KeyModifiers::NONE,
+                };
+                let mut ev = Event::mouse(mouse);
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(h_sb_bounds);
+                sb.handle_event(&mut ev);
+                sb.set_bounds(saved_bounds);
+            } else {
+                // Mouse not on horizontal scrollbar - clear its hover
+                // But only if there's no vertical scrollbar that might have handled it
+                let mouse = MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: 0,
+                    row: 0,
+                    modifiers: KeyModifiers::NONE,
+                };
+                let mut ev = Event::mouse(mouse);
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(h_sb_bounds);
+                sb.handle_event(&mut ev);
+                sb.set_bounds(saved_bounds);
+            }
+        }
+    }
+
+    /// Clear hover state on all scrollbars.
+    ///
+    /// Call this when the mouse leaves the window bounds entirely.
+    pub fn clear_scrollbar_hover(&mut self) {
+        let b = self.base.bounds();
+
+        // Clear vertical scrollbar hover
+        if let Some(ref mut sb) = self.v_scrollbar {
+            let sb_x = b.x + b.width.saturating_sub(1);
+            let sb_y = b.y + 1;
+            let sb_height = b.height.saturating_sub(2);
+            let sb_bounds = Rect::new(sb_x, sb_y, 1, sb_height);
+
+            let mouse = MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            };
+            let mut ev = Event::mouse(mouse);
+            let saved_bounds = sb.bounds();
+            sb.set_bounds(sb_bounds);
+            sb.handle_event(&mut ev);
+            sb.set_bounds(saved_bounds);
+        }
+
+        // Clear horizontal scrollbar hover
+        if let Some(ref mut sb) = self.h_scrollbar {
+            let h_sb_bounds = Rect::new(
+                b.x + 1,
+                b.y + b.height.saturating_sub(1),
+                b.width.saturating_sub(2),
+                1,
+            );
+
+            let mouse = MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 0,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            };
+            let mut ev = Event::mouse(mouse);
+            let saved_bounds = sb.bounds();
+            sb.set_bounds(h_sb_bounds);
+            sb.handle_event(&mut ev);
+            sb.set_bounds(saved_bounds);
+        }
+    }
+
+    /// Handle a mouse click on a scrollbar, if any.
+    ///
+    /// Returns `true` if the click was on a scrollbar and was handled.
+    pub fn handle_scrollbar_click(&mut self, col: u16, row: u16, event: &mut Event) -> bool {
+        let b = self.base.bounds();
+
+        // Check vertical scrollbar
+        if let Some(ref mut sb) = self.v_scrollbar {
+            let sb_x = b.x + b.width.saturating_sub(1);
+            let sb_y = b.y + 1;
+            let sb_height = b.height.saturating_sub(2);
+            let sb_bounds = Rect::new(sb_x, sb_y, 1, sb_height);
+
+            if col >= sb_bounds.x
+                && col < sb_bounds.x + sb_bounds.width
+                && row >= sb_bounds.y
+                && row < sb_bounds.y + sb_bounds.height
+            {
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(sb_bounds);
+                sb.handle_event(event);
+                sb.set_bounds(saved_bounds);
+                return true;
+            }
+        }
+
+        // Check horizontal scrollbar
+        if let Some(ref mut sb) = self.h_scrollbar {
+            let h_sb_bounds = Rect::new(
+                b.x + 1,
+                b.y + b.height.saturating_sub(1),
+                b.width.saturating_sub(2),
+                1,
+            );
+
+            if col >= h_sb_bounds.x
+                && col < h_sb_bounds.x + h_sb_bounds.width
+                && row >= h_sb_bounds.y
+                && row < h_sb_bounds.y + h_sb_bounds.height
+            {
+                let saved_bounds = sb.bounds();
+                sb.set_bounds(h_sb_bounds);
+                sb.handle_event(event);
+                sb.set_bounds(saved_bounds);
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Get the current hover state.
@@ -402,8 +988,8 @@ impl View for Frame {
             return;
         }
 
-        // Get theme styles and border characters
-        let styles = theme::with_current(|t| {
+        // Build styles and button tray in a single theme access
+        let (styles, tray) = theme::with_current(|t| {
             let state = self.base.state();
             let is_dragging = (state & SF_DRAGGING) != 0 || (state & SF_RESIZING) != 0;
             let is_active = (state & SF_FOCUSED) != 0;
@@ -426,7 +1012,6 @@ impl View for Frame {
                 FrameType::Single => (t.single_frame, t.single_frame),
             };
             let close_style = if is_dragging {
-                // During drag/resize, close button should match dragging frame bg
                 Style::default()
                     .fg(t.window_close_button.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
@@ -438,7 +1023,6 @@ impl View for Frame {
                 t.window_close_button_inactive
             };
             let resize_style = if is_dragging {
-                // During resize, grip should match dragging frame bg
                 Style::default()
                     .fg(t.window_resize_handle.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
@@ -449,11 +1033,59 @@ impl View for Frame {
             } else {
                 t.window_resize_handle_inactive
             };
-            FrameStyles {
+            let minimize_style = if is_dragging {
+                Style::default()
+                    .fg(t.window_minimize_button.fg.unwrap_or(Color::White))
+                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
+            } else if self.hovered == FrameHover::MinimizeButton {
+                t.window_minimize_button_hover
+            } else if is_active {
+                t.window_minimize_button
+            } else {
+                t.window_minimize_button_inactive
+            };
+            let maximize_style = if is_dragging {
+                Style::default()
+                    .fg(t.window_maximize_button.fg.unwrap_or(Color::White))
+                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
+            } else if self.hovered == FrameHover::MaximizeButton {
+                t.window_maximize_button_hover
+            } else if is_active {
+                t.window_maximize_button
+            } else {
+                t.window_maximize_button_inactive
+            };
+            let styles = FrameStyles {
                 frame: frame_style,
                 title: title_style,
                 close: close_style,
                 resize: resize_style,
+                minimize_style,
+                minimize_text: {
+                    let mut arr = ['\0'; 8];
+                    for (i, ch) in t.minimize_button_text.chars().take(8).enumerate() {
+                        arr[i] = ch;
+                    }
+                    arr
+                },
+                minimize_text_len: {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let len = t.minimize_button_text.chars().count().min(8) as u8;
+                    len
+                },
+                maximize_style,
+                maximize_text: {
+                    let mut arr = ['\0'; 8];
+                    for (i, ch) in t.maximize_button_text.chars().take(8).enumerate() {
+                        arr[i] = ch;
+                    }
+                    arr
+                },
+                maximize_text_len: {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let len = t.maximize_button_text.chars().count().min(8) as u8;
+                    len
+                },
                 tl: t.border_tl,
                 tr: t.border_tr,
                 bl: t.border_bl,
@@ -473,13 +1105,14 @@ impl View for Frame {
                     let len = t.close_button_text.chars().count().min(8) as u8;
                     len
                 },
-                close_right: t.close_button_right,
                 resize_char: t.resize_grip_char,
                 title_bar_bg: t.title_bar_bg,
-            }
+            };
+            let tray = ButtonTray::build(b, self.closeable, self.minimizable, self.maximizable, t);
+            (styles, tray)
         });
 
-        self.draw_top_border(buf, clip, &styles);
+        self.draw_top_border(buf, clip, &styles, &tray);
         self.draw_side_borders(buf, clip, &styles);
         self.draw_scrollbars(buf, clip);
         self.draw_bottom_border(buf, clip, &styles);
@@ -520,6 +1153,12 @@ struct FrameStyles {
     title: ratatui::style::Style,
     close: ratatui::style::Style,
     resize: ratatui::style::Style,
+    minimize_style: ratatui::style::Style,
+    minimize_text: [char; 8],
+    minimize_text_len: u8,
+    maximize_style: ratatui::style::Style,
+    maximize_text: [char; 8],
+    maximize_text_len: u8,
     tl: char,
     tr: char,
     bl: char,
@@ -528,14 +1167,19 @@ struct FrameStyles {
     v: char,
     close_text: [char; 8],
     close_text_len: u8,
-    close_right: bool,
     resize_char: char,
     title_bar_bg: Option<ratatui::style::Style>,
 }
 
 impl Frame {
     /// Draw the top border including corners, horizontal line, close button, and title.
-    fn draw_top_border(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+    fn draw_top_border(
+        &self,
+        buf: &mut Buffer,
+        clip: Rect,
+        styles: &FrameStyles,
+        tray: &ButtonTray,
+    ) {
         let b = self.base.bounds();
 
         // Optional title bar background (fills entire top row)
@@ -554,69 +1198,47 @@ impl Frame {
             Self::draw_char(buf, col, b.y, styles.h, styles.frame, clip);
         }
 
-        // Close button
-        if self.closeable {
+        // Draw close button using tray position
+        if let Some((start, len)) = tray.close {
             let close_chars = &styles.close_text[..styles.close_text_len as usize];
-            #[allow(clippy::cast_possible_truncation)]
-            let close_len = close_chars.len() as u16;
-
-            if styles.close_right {
-                // Right-aligned close button
-                let close_start = b.x + b.width - 1 - close_len;
-                for (i, &ch) in close_chars.iter().enumerate() {
-                    let col = close_start + u16::try_from(i).unwrap_or(0);
-                    Self::draw_char(buf, col, b.y, ch, styles.close, clip);
-                }
-            } else {
-                // Left-aligned close button (Borland default)
-                // 1-cell gap between corner and close button
-                for (i, &ch) in close_chars.iter().enumerate() {
-                    let col = b.x + 2 + u16::try_from(i).unwrap_or(0);
-                    Self::draw_char(buf, col, b.y, ch, styles.close, clip);
-                }
+            for (i, &ch) in close_chars.iter().take(len as usize).enumerate() {
+                let col = start + u16::try_from(i).unwrap_or(0);
+                Self::draw_char(buf, col, b.y, ch, styles.close, clip);
             }
         }
 
-        // Title
+        // Draw minimize button using tray position
+        if let Some((start, len)) = tray.minimize {
+            let min_chars = &styles.minimize_text[..styles.minimize_text_len as usize];
+            for (i, &ch) in min_chars.iter().take(len as usize).enumerate() {
+                let col = start + u16::try_from(i).unwrap_or(0);
+                Self::draw_char(buf, col, b.y, ch, styles.minimize_style, clip);
+            }
+        }
+
+        // Draw maximize button using tray position
+        if let Some((start, len)) = tray.maximize {
+            let max_chars = &styles.maximize_text[..styles.maximize_text_len as usize];
+            for (i, &ch) in max_chars.iter().take(len as usize).enumerate() {
+                let col = start + u16::try_from(i).unwrap_or(0);
+                Self::draw_char(buf, col, b.y, ch, styles.maximize_style, clip);
+            }
+        }
+
+        // Draw title centered between button tray boundaries
         if !self.title.is_empty() && b.width > 6 {
             let title_full = format!(" {} ", self.title);
             let title_len = u16::try_from(title_full.chars().count()).unwrap_or(0);
-            let available_width = b.width.saturating_sub(2);
-
-            #[allow(clippy::cast_possible_truncation)]
-            let close_len = if self.closeable {
-                u16::from(styles.close_text_len)
+            let available = tray.title_end.saturating_sub(tray.title_start);
+            let start_col = if title_len < available {
+                tray.title_start + (available.saturating_sub(title_len)) / 2
             } else {
-                0
-            };
-
-            let mut start_col = if title_len < available_width {
-                b.x + 1 + (available_width.saturating_sub(title_len)) / 2
-            } else {
-                b.x + 1
-            };
-
-            // Clamp: title must not overlap close button
-            if self.closeable {
-                if styles.close_right {
-                    // Close on right: handled in loop break condition below
-                } else {
-                    // Close on left: title must start after close button
-                    // Close button is at b.x + 2 with 1-cell gap
-                    start_col = start_col.max(b.x + 2 + close_len);
-                }
-            }
-
-            // Right boundary: don't overlap right-aligned close button or right border
-            let right_limit = if self.closeable && styles.close_right {
-                b.x + b.width - 1 - close_len
-            } else {
-                b.x + b.width - 1
+                tray.title_start
             };
 
             for (i, ch) in title_full.chars().enumerate() {
                 let col = start_col + u16::try_from(i).unwrap_or(0);
-                if col >= right_limit {
+                if col >= tray.title_end {
                     break;
                 }
                 Self::draw_char(buf, col, b.y, ch, styles.title, clip);
@@ -926,7 +1548,7 @@ mod tests {
         assert_eq!(tr.symbol(), "╗");
         assert_eq!(bl.symbol(), "╚");
         // Resize handle in corner for Window type
-        assert_eq!(br.symbol(), "⋱");
+        assert_eq!(br.symbol(), "◢");
     }
 
     #[test]
@@ -1144,5 +1766,159 @@ mod tests {
         // Dialog is not resizable, so resize handle returns None
         let hover = frame.update_hover(39, 19);
         assert_eq!(hover, FrameHover::None);
+    }
+
+    // ============================================================================
+    // ButtonTray-specific tests
+    // ============================================================================
+
+    #[test]
+    fn test_button_tray_close_left_no_controls() {
+        // Turbo Vision theme: close on Left (margin 2), controls on Right, no min/max text
+        setup_default_theme();
+        let b = Rect::new(10, 5, 40, 20);
+        let tray = theme::with_current(|t| ButtonTray::build(b, true, false, false, t));
+
+        // close_button_text = "[■]" (3 chars), margin_left = 2
+        // close starts at x + margin_left = 10 + 2 = 12, len = 3
+        assert_eq!(tray.close, Some((12, 3)));
+        assert_eq!(tray.minimize, None);
+        assert_eq!(tray.maximize, None);
+        // title_start = left_cursor after close = 12 + 3 = 15
+        assert_eq!(tray.title_start, 15);
+        // title_end = right_cursor = x + width - margin_right = 10 + 40 - 2 = 48
+        assert_eq!(tray.title_end, 48);
+    }
+
+    #[test]
+    fn test_button_tray_hit_test_close() {
+        setup_default_theme();
+        let b = Rect::new(10, 5, 40, 20);
+        let tray = theme::with_current(|t| ButtonTray::build(b, true, false, false, t));
+
+        // Hit inside close button
+        assert!(matches!(tray.hit_test(12), FrameHover::CloseButton));
+        assert!(matches!(tray.hit_test(13), FrameHover::CloseButton));
+        assert!(matches!(tray.hit_test(14), FrameHover::CloseButton));
+
+        // Not on close button
+        assert!(matches!(tray.hit_test(11), FrameHover::None));
+        assert!(matches!(tray.hit_test(15), FrameHover::None));
+    }
+
+    #[test]
+    fn test_button_tray_no_close_no_controls() {
+        setup_default_theme();
+        let b = Rect::new(0, 0, 30, 10);
+        let tray = theme::with_current(|t| ButtonTray::build(b, false, false, false, t));
+
+        assert_eq!(tray.close, None);
+        assert_eq!(tray.minimize, None);
+        assert_eq!(tray.maximize, None);
+        // title_start = x + margin_left = 0 + 2 = 2
+        assert_eq!(tray.title_start, 2);
+        // title_end = x + width - margin_right = 0 + 30 - 2 = 28
+        assert_eq!(tray.title_end, 28);
+    }
+
+    #[test]
+    fn test_button_tray_hit_test_none_on_gap() {
+        setup_default_theme();
+        let b = Rect::new(10, 5, 40, 20);
+        let tray = theme::with_current(|t| ButtonTray::build(b, true, false, false, t));
+
+        // The gap column (x + margin_left - 1 = 11) before close button
+        assert!(matches!(tray.hit_test(10), FrameHover::None));
+        assert!(matches!(tray.hit_test(11), FrameHover::None));
+        // Well past buttons
+        assert!(matches!(tray.hit_test(20), FrameHover::None));
+    }
+
+    // ============================================================================
+    // FrameConfig tests
+    // ============================================================================
+
+    #[test]
+    fn test_frame_config_window_defaults() {
+        let config = FrameConfig::window();
+        assert_eq!(config.frame_type, FrameType::Window);
+        assert!(config.closeable);
+        assert!(config.resizable);
+        assert!(config.minimizable);
+        assert!(config.maximizable);
+        assert!(!config.v_scrollbar);
+        assert!(!config.h_scrollbar);
+    }
+
+    #[test]
+    fn test_frame_config_dialog_defaults() {
+        let config = FrameConfig::dialog();
+        assert_eq!(config.frame_type, FrameType::Dialog);
+        assert!(!config.closeable);
+        assert!(!config.resizable);
+        assert!(!config.minimizable);
+        assert!(!config.maximizable);
+    }
+
+    #[test]
+    fn test_frame_config_panel_defaults() {
+        let config = FrameConfig::panel();
+        assert_eq!(config.frame_type, FrameType::Single);
+        assert!(!config.closeable);
+        assert!(!config.resizable);
+    }
+
+    #[test]
+    fn test_frame_config_builder_methods() {
+        let config = FrameConfig::window()
+            .with_v_scrollbar(true)
+            .with_h_scrollbar(true)
+            .with_closeable(false);
+        assert!(!config.closeable);
+        assert!(config.v_scrollbar);
+        assert!(config.h_scrollbar);
+    }
+
+    #[test]
+    fn test_frame_config_default_is_window() {
+        let config = FrameConfig::default();
+        assert_eq!(config, FrameConfig::window());
+    }
+
+    #[test]
+    fn test_frame_from_config_basic() {
+        setup_default_theme();
+        let bounds = Rect::new(5, 5, 40, 15);
+        let config = FrameConfig::window();
+        let frame = Frame::from_config(bounds, "Test", &config);
+        assert_eq!(frame.frame_type(), FrameType::Window);
+        assert!(frame.closeable());
+        assert!(frame.resizable());
+        assert_eq!(frame.title(), "Test");
+        assert!(frame.v_scrollbar().is_none());
+        assert!(frame.h_scrollbar().is_none());
+    }
+
+    #[test]
+    fn test_frame_from_config_with_scrollbars() {
+        setup_default_theme();
+        let bounds = Rect::new(0, 0, 30, 10);
+        let config = FrameConfig::window()
+            .with_v_scrollbar(true)
+            .with_h_scrollbar(true);
+        let frame = Frame::from_config(bounds, "Scroll", &config);
+        assert!(frame.v_scrollbar().is_some());
+        assert!(frame.h_scrollbar().is_some());
+    }
+
+    #[test]
+    fn test_frame_from_config_dialog() {
+        setup_default_theme();
+        let bounds = Rect::new(10, 10, 30, 10);
+        let config = FrameConfig::dialog();
+        let frame = Frame::from_config(bounds, "Dialog", &config);
+        assert_eq!(frame.frame_type(), FrameType::Dialog);
+        assert!(!frame.closeable());
+        assert!(!frame.resizable());
     }
 }

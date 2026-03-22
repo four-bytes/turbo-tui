@@ -39,7 +39,7 @@
 //!   "single_frame": { ... },
 //!   "menu_bar": { ... },
 //!   "menu_box": { ... },
-//!   "status_line": { ... },
+//!   "status_bar": { ... },
 //!   "button": { ... },
 //!   "static_text": { "fg": "Yellow", "bg": "Blue" },
 //!   "scrollbar": { ... }
@@ -477,9 +477,9 @@ pub struct MenuBoxSection {
     pub hotkey_selected: StyleValue,
 }
 
-/// Status line styles.
+/// Status bar styles.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusLineSection {
+pub struct StatusBarSection {
     /// Normal text.
     pub normal: StyleValue,
     /// Hotkey character.
@@ -565,8 +565,9 @@ pub struct ThemeData {
     pub menu_bar: MenuBarSection,
     /// Menu dropdown styles.
     pub menu_box: MenuBoxSection,
-    /// Status line styles.
-    pub status_line: StatusLineSection,
+    /// Status bar styles.
+    #[serde(alias = "status_line")]
+    pub status_bar: StatusBarSection,
     /// Button styles.
     pub button: ButtonSection,
     /// Static text style.
@@ -693,9 +694,9 @@ impl ThemeData {
             menu_box_hotkey: self.menu_box.hotkey.to_style(),
             menu_box_hotkey_selected: self.menu_box.hotkey_selected.to_style(),
 
-            status_normal: self.status_line.normal.to_style(),
-            status_hotkey: self.status_line.hotkey.to_style(),
-            status_selected: self.status_line.selected.to_style(),
+            status_normal: self.status_bar.normal.to_style(),
+            status_hotkey: self.status_bar.hotkey.to_style(),
+            status_selected: self.status_bar.selected.to_style(),
 
             button_normal: self.button.normal.to_style(),
             button_default: self.button.default_btn.to_style(),
@@ -818,7 +819,7 @@ impl ThemeData {
                 hotkey: StyleValue::from_style(theme.menu_box_hotkey),
                 hotkey_selected: StyleValue::from_style(theme.menu_box_hotkey_selected),
             },
-            status_line: StatusLineSection {
+            status_bar: StatusBarSection {
                 normal: StyleValue::from_style(theme.status_normal),
                 hotkey: StyleValue::from_style(theme.status_hotkey),
                 selected: StyleValue::from_style(theme.status_selected),

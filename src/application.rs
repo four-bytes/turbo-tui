@@ -17,7 +17,7 @@
 //! │   └── ...                                │
 //! │                                          │
 //! ├─────────────────────────────────────────┤
-//! │ StatusLine (last row)                    │
+//! │ StatusBar (last row)                    │
 //! └─────────────────────────────────────────┘
 //! │ OverlayManager (above everything)        │
 //! ```
@@ -26,7 +26,7 @@
 //!
 //! 1. Overlay (topmost overlay first)
 //! 2. `MenuBar` (F10, Alt+letter)
-//! 3. `StatusLine` (`PreProcess` — F-keys)
+//! 3. `StatusBar` (`PreProcess` — F-keys)
 //! 4. Desktop → focused Window → three-phase dispatch
 //! 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 //! 6. Process deferred event queue
@@ -38,7 +38,7 @@ use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
 use crate::menu_box::MenuBox;
 use crate::overlay::{calculate_overlay_bounds, Overlay, OverlayManager};
-use crate::status_line::StatusLine;
+use crate::status_bar::StatusBar;
 use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
 use ratatui::layout::Rect;
@@ -58,7 +58,7 @@ use ratatui::layout::Rect;
 /// │   └── ...                                │
 /// │                                          │
 /// ├─────────────────────────────────────────┤
-/// │ StatusLine (last row)                    │
+/// │ StatusBar (last row)                    │
 /// └─────────────────────────────────────────┘
 /// │ OverlayManager (above everything)        │
 /// ```
@@ -67,7 +67,7 @@ use ratatui::layout::Rect;
 ///
 /// 1. Overlay (topmost overlay first)
 /// 2. `MenuBar` (F10, Alt+letter)
-/// 3. `StatusLine` (`PreProcess` — F-keys)
+/// 3. `StatusBar` (`PreProcess` — F-keys)
 /// 4. Desktop → focused Window → three-phase dispatch
 /// 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 /// 6. Process deferred event queue
@@ -93,8 +93,8 @@ pub struct Application {
     desktop: Desktop,
     /// Optional menu bar (top row).
     menu_bar: Option<MenuBar>,
-    /// Optional status line (bottom row).
-    status_line: Option<StatusLine>,
+    /// Optional status bar (bottom row).
+    status_bar: Option<StatusBar>,
     /// Overlay manager (menus, tooltips above everything).
     overlay_manager: OverlayManager,
     /// Whether the application is still running.
@@ -107,18 +107,18 @@ impl Application {
     /// Create a new application with the given screen size.
     ///
     /// The desktop occupies the full screen initially. Call [`set_menu_bar`] and
-    /// [`set_status_line`] to install those components; the desktop area will be
+    /// [`set_status_bar`] to install those components; the desktop area will be
     /// recalculated automatically.
     ///
     /// [`set_menu_bar`]: Application::set_menu_bar
-    /// [`set_status_line`]: Application::set_status_line
+    /// [`set_status_bar`]: Application::set_status_bar
     #[must_use]
     pub fn new(screen_size: Rect) -> Self {
         Self {
             screen_size,
             desktop: Desktop::new(screen_size),
             menu_bar: None,
-            status_line: None,
+            status_bar: None,
             overlay_manager: OverlayManager::new(screen_size.width, screen_size.height),
             running: true,
             last_unhandled_command: None,
@@ -194,15 +194,15 @@ impl Application {
         self.menu_bar.as_mut()
     }
 
-    /// Get an immutable reference to the status line, if installed.
+    /// Get an immutable reference to the status bar, if installed.
     #[must_use]
-    pub fn status_line(&self) -> Option<&StatusLine> {
-        self.status_line.as_ref()
+    pub fn status_bar(&self) -> Option<&StatusBar> {
+        self.status_bar.as_ref()
     }
 
-    /// Get a mutable reference to the status line, if installed.
-    pub fn status_line_mut(&mut self) -> Option<&mut StatusLine> {
-        self.status_line.as_mut()
+    /// Get a mutable reference to the status bar, if installed.
+    pub fn status_bar_mut(&mut self) -> Option<&mut StatusBar> {
+        self.status_bar.as_mut()
     }
 
     /// Get an immutable reference to the overlay manager.
@@ -228,11 +228,11 @@ impl Application {
         self.recalculate_layout();
     }
 
-    /// Install a status line.
+    /// Install a status bar.
     ///
     /// Recalculates the desktop area so the desktop ends above the last row.
-    pub fn set_status_line(&mut self, status_line: StatusLine) {
-        self.status_line = Some(status_line);
+    pub fn set_status_bar(&mut self, status_bar: StatusBar) {
+        self.status_bar = Some(status_bar);
         self.recalculate_layout();
     }
 
@@ -270,7 +270,7 @@ impl Application {
     /// Rendering order (back to front):
     /// 1. Desktop (background + windows)
     /// 2. `MenuBar`
-    /// 3. `StatusLine`
+    /// 3. `StatusBar`
     /// 4. Overlays
     pub fn draw(&self, frame: &mut ratatui::Frame) {
         let area = frame.area();
@@ -284,8 +284,8 @@ impl Application {
             mb.draw(buf, area);
         }
 
-        // 3. Status line (bottom row)
-        if let Some(ref sl) = self.status_line {
+        // 3. Status bar (bottom row)
+        if let Some(ref sl) = self.status_bar {
             sl.draw(buf, area);
         }
 
@@ -338,7 +338,7 @@ impl Application {
     /// Dispatch order:
     /// 1. Overlay layer (topmost first)
     /// 2. `MenuBar`
-    /// 3. `StatusLine` (`OF_PRE_PROCESS` — intercepts F-keys)
+    /// 3. `StatusBar` (`OF_PRE_PROCESS` — intercepts F-keys)
     /// 4. Desktop → focused Window → three-phase dispatch
     /// 5. Application-level command handling (`CM_QUIT`, `CM_CLOSE`)
     /// 6. Deferred event queue processing
@@ -358,7 +358,7 @@ impl Application {
 
         // 3. Status line (OF_PRE_PROCESS — intercepts F-keys before desktop)
         if !event.is_cleared() {
-            if let Some(ref mut sl) = self.status_line {
+            if let Some(ref mut sl) = self.status_bar {
                 sl.handle_event(event);
             }
         }
@@ -427,7 +427,7 @@ impl Application {
         };
 
         let bar_data = if bar_data.is_none() {
-            if let Some(ref mut sl) = self.status_line {
+            if let Some(ref mut sl) = self.status_bar {
                 if let Some(idx) = sl.take_pending_dropdown() {
                     if let (Some(items), Some(anchor)) =
                         (sl.dropdown_items_for(idx), sl.dropdown_anchor(idx))
@@ -484,8 +484,8 @@ impl Application {
             let id = mb.id();
             self.overlay_manager.pop_by_owner(id);
         }
-        // Close overlays owned by status line
-        if let Some(ref sl) = self.status_line {
+        // Close overlays owned by status bar
+        if let Some(ref sl) = self.status_bar {
             let id = sl.id();
             self.overlay_manager.pop_by_owner(id);
         }
@@ -493,7 +493,7 @@ impl Application {
         if let Some(ref mut mb) = self.menu_bar {
             mb.close();
         }
-        if let Some(ref mut sl) = self.status_line {
+        if let Some(ref mut sl) = self.status_bar {
             sl.close();
         }
         event.clear();
@@ -518,17 +518,17 @@ impl Application {
                 mb.navigate_dropdown(delta, event);
             }
         } else {
-            let status_line_owner = self.status_line.as_ref().and_then(|sl| {
+            let status_bar_owner = self.status_bar.as_ref().and_then(|sl| {
                 if self.overlay_manager.has_overlay_for(sl.id()) {
                     Some(sl.id())
                 } else {
                     None
                 }
             });
-            if let Some(owner_id) = status_line_owner {
+            if let Some(owner_id) = status_bar_owner {
                 let delta = self.read_navigate_direction_from_overlay(owner_id);
                 self.overlay_manager.pop_by_owner(owner_id);
-                if let Some(ref mut sl) = self.status_line {
+                if let Some(ref mut sl) = self.status_bar {
                     sl.navigate_dropdown(delta, event);
                 }
             }
@@ -622,9 +622,9 @@ impl Application {
             }
         }
 
-        // 3. Status line
+        // 2. Status line
         if !event.is_cleared() {
-            if let Some(ref mut sl) = self.status_line {
+            if let Some(ref mut sl) = self.status_bar {
                 sl.handle_event(event);
             }
         }
@@ -644,7 +644,7 @@ impl Application {
     /// presence of a menu bar / status line.
     ///
     /// - `MenuBar`  → row 0, full width
-    /// - `StatusLine` → last row, full width
+    /// - `StatusBar` → last row, full width
     /// - Desktop  → everything in between
     fn recalculate_layout(&mut self) {
         let s = self.screen_size;
@@ -658,8 +658,8 @@ impl Application {
             desktop_h = desktop_h.saturating_sub(1);
         }
 
-        // Status line takes the bottom row
-        if let Some(ref mut sl) = self.status_line {
+        // StatusBar takes the bottom row
+        if let Some(ref mut sl) = self.status_bar {
             desktop_h = desktop_h.saturating_sub(1);
             let status_y = s.y.saturating_add(s.height).saturating_sub(1);
             sl.set_bounds(Rect::new(s.x, status_y, s.width, 1));
@@ -694,7 +694,7 @@ mod tests {
         assert!(app.is_running(), "new application must be running");
         assert_eq!(app.desktop().window_count(), 0, "desktop starts empty");
         assert!(app.menu_bar().is_none(), "no menu bar by default");
-        assert!(app.status_line().is_none(), "no status line by default");
+        assert!(app.status_bar().is_none(), "no status bar by default");
         assert!(app.overlay_manager().is_empty(), "no overlays by default");
     }
 
@@ -781,15 +781,15 @@ mod tests {
     #[test]
     fn test_application_layout_with_menu_and_status() {
         use crate::menu_bar::{menu_bar_from_menus, Menu};
-        use crate::status_line::status_line_from_items;
+        use crate::status_bar::status_bar_from_items;
 
         let mut app = Application::new(screen());
 
         let mb = menu_bar_from_menus(screen(), vec![Menu::new("~F~ile", vec![])]);
         app.set_menu_bar(mb);
 
-        let sl = status_line_from_items(screen(), vec![]);
-        app.set_status_line(sl);
+        let sl = status_bar_from_items(screen(), vec![]);
+        app.set_status_bar(sl);
 
         // Menu bar must be at row 0
         let mb_bounds = app.menu_bar().unwrap().bounds();
@@ -797,7 +797,7 @@ mod tests {
         assert_eq!(mb_bounds.height, 1, "menu bar must be 1 row tall");
 
         // Status line must be at the last row
-        let sl_bounds = app.status_line().unwrap().bounds();
+        let sl_bounds = app.status_bar().unwrap().bounds();
         assert_eq!(
             sl_bounds.y,
             screen().height - 1,

@@ -1,16 +1,16 @@
-//! Horizontal bar — unified menu bar and status line widget.
+//! Horizontal bar — unified menu bar and status bar widget.
 //!
-//! Combines the behaviour of [`MenuBar`] and [`StatusLine`] into a single
+//! Combines the behaviour of [`MenuBar`] and [`StatusBar`] into a single
 //! [`HorizontalBar`] struct that can be used at the top *or* bottom of the
 //! screen.  Entries are either direct actions (fire a command immediately on
 //! click / hotkey) or dropdown triggers (open a bordered menu box).
 //!
 //! Use the [`HorizontalBar::menu_bar`] constructor for a top-of-screen bar
-//! (dropdowns open downward) and [`HorizontalBar::status_line`] for a
+//! (dropdowns open downward) and [`HorizontalBar::status_bar`] for a
 //! bottom-of-screen bar (dropdowns open upward).
 //!
 //! [`MenuBar`]: crate::menu_bar::MenuBar
-//! [`StatusLine`]: crate::status_line::StatusLine
+//! [`StatusBar`]: crate::status_bar::StatusBar
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
@@ -213,11 +213,11 @@ fn label_display_width(label: &str) -> usize {
 /// either a direct action (fires a command on click / hotkey) or a dropdown
 /// trigger (opens a bordered menu box via `OverlayManager`).
 ///
-/// Use [`menu_bar`] and [`status_line`] constructors for common
+/// Use [`menu_bar`] and [`status_bar`] constructors for common
 /// configurations.
 ///
 /// [`menu_bar`]: HorizontalBar::menu_bar
-/// [`status_line`]: HorizontalBar::status_line
+/// [`status_bar`]: HorizontalBar::status_bar
 pub struct HorizontalBar {
     /// Common view state (carries `OF_PRE_PROCESS`).
     base: ViewBase,
@@ -258,7 +258,7 @@ impl HorizontalBar {
     ///
     /// The `bounds` should span the full width of the screen and have height 1.
     #[must_use]
-    pub fn status_line(bounds: Rect, entries: Vec<BarEntry>) -> Self {
+    pub fn status_bar(bounds: Rect, entries: Vec<BarEntry>) -> Self {
         Self::new_with_direction(bounds, entries, DropDirection::Up)
     }
 
@@ -542,7 +542,7 @@ impl HorizontalBar {
             let kc = entry.key_code();
             if kc != 0 {
                 let matches = if let EventKind::Key(ref k) = event.kind {
-                    crate::status_line::key_matches(k, kc)
+                    crate::status_bar::key_matches(k, kc)
                 } else {
                     false
                 };
@@ -570,7 +570,7 @@ impl HorizontalBar {
                 let kc = e.key_code();
                 kc != 0
                     && matches!(e, BarEntry::Dropdown { .. })
-                    && crate::status_line::key_matches(k, kc)
+                    && crate::status_bar::key_matches(k, kc)
             })
         } else {
             None
@@ -781,7 +781,7 @@ impl View for HorizontalBar {
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_NEW, CM_OPEN, CM_QUIT, CM_SAVE};
-    use crate::status_line::{KB_F1, KB_F2};
+    use crate::status_bar::{KB_F1, KB_F2};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     // -----------------------------------------------------------------------
@@ -926,13 +926,13 @@ mod tests {
     }
 
     #[test]
-    fn test_status_line_new() {
+    fn test_status_bar_new() {
         let entries = vec![BarEntry::Action {
             label: "~F1~ Help".into(),
             command: CM_CLOSE,
             key_code: KB_F1,
         }];
-        let bar = HorizontalBar::status_line(Rect::new(0, 23, 80, 1), entries);
+        let bar = HorizontalBar::status_bar(Rect::new(0, 23, 80, 1), entries);
         assert_eq!(bar.drop_direction(), DropDirection::Up);
         assert!(!bar.is_active());
     }
@@ -1133,7 +1133,7 @@ mod tests {
             command: CM_CLOSE,
             key_code: KB_F1,
         }];
-        let mut bar = HorizontalBar::status_line(Rect::new(0, 23, 80, 1), entries);
+        let mut bar = HorizontalBar::status_bar(Rect::new(0, 23, 80, 1), entries);
 
         let mut event = Event::key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
         bar.handle_event(&mut event);

@@ -21,7 +21,6 @@
 ### Completed ✅
 - [x] Scrollbar inactive styling (3 theme fields, `set_active()`, focus propagation)
 - [x] Scrollbar hover fix (Frame routes mouse events to border scrollbars)
-- [x] Reference analysis (Ratatui patterns, TachyonFX, tui-rs demo, gping)
 - [x] **Phase 3:** Task bar shelf for minimized windows
 - [x] **Phase 4a:** FrameConfig struct
 - [x] **Phase 4b:** Window Builder Lite pattern
@@ -80,34 +79,12 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 ## Architecture Principles (PERMANENT — guide all versions)
 
-These were established after reviewing Ratatui's official patterns (2026-03-22). See [`docs/RES-0002-reference-projects-architecture.md`](docs/RES-0002-reference-projects-architecture.md) for full analysis.
-
-1. **View trait stays unified** — state + events + render in one trait. NOT separate Widget + EventHandler. turbo-tui is a component framework, not a widget library. Ref: [Ratatui Component Architecture](https://ratatui.rs/concepts/application-patterns/component-architecture/)
-
-2. **Builder Lite for construction** — `self`-consuming methods returning `Self`. No separate Builder struct. Ref: [Ratatui Builder Lite](https://ratatui.rs/concepts/builder-lite-pattern/)
-
+1. **View trait stays unified** — state + events + render in one trait. NOT separate Widget + EventHandler. turbo-tui is a component framework, not a widget library.
+2. **Builder Lite for construction** — `self`-consuming methods returning `Self`. No separate Builder struct.
 3. **Deferred events over Action returns** — Keep deferred event queue. Action enum doesn't support three-phase dispatch.
-
 4. **Frame owns scrollbars** — `Option<ScrollBar>` on Frame, not Container children. Scrollbars sit on the border.
-
-5. **Post-render effects = future** — TachyonFX-style transforms. Not yet, but design must not prevent it. Ref: [TachyonFX](https://github.com/junkdog/tachyonfx)
-
-6. **Centralized catch + three-phase dispatch** — Approach 2 from Ratatui's event handling docs. Ref: [Event Handling](https://ratatui.rs/concepts/event-handling/)
-
----
-
-## Reference Projects
-
-| Project | URL | Relevance |
-|---------|-----|-----------|
-| Ratatui Component Architecture | https://ratatui.rs/concepts/application-patterns/component-architecture/ | Component trait — turbo-tui's View is equivalent |
-| Ratatui Builder Lite | https://ratatui.rs/concepts/builder-lite-pattern/ | Self-consuming fluent API pattern |
-| Ratatui Event Handling | https://ratatui.rs/concepts/event-handling/ | 3 event patterns — we use approach 2 |
-| Ratatui Widgets | https://ratatui.rs/concepts/widgets/ | Widget/StatefulWidget/WidgetRef traits |
-| TachyonFX | https://github.com/junkdog/tachyonfx | Post-render effects, animation integration |
-| tui-rs demo | https://github.com/fdehau/tui-rs/tree/master/examples/demo | Dense dashboard, gauge/chart patterns |
-| gping | https://github.com/orf/gping | Real-time gauge, ring-buffer data model |
-| turbo-vision-4-rust | https://github.com/aovestdipaperino/turbo-vision-4-rust | Original Borland TV patterns (MIT) |
+5. **Post-render effects = future** — TachyonFX-style transforms. Not yet, but design must not prevent it.
+6. **Centralized catch + three-phase dispatch** — Three-phase: PreProcess → Focused → PostProcess.
 
 ---
 
@@ -118,7 +95,6 @@ These were established after reviewing Ratatui's official patterns (2026-03-22).
 | CLAUDE.md | `CLAUDE.md` | Agent configuration, conventions, current state |
 | HISTORY.md | `HISTORY.md` | Change log (append-only) |
 | v0.2 Plan | `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) |
-| v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | Current progression plan with reference findings |
-| Research | `docs/RES-0002-reference-projects-architecture.md` | Reference projects analysis |
-| HorizontalBar Design | `docs/DESIGN-horizontal-bar.md` | Unified MenuBar+StatusLine design |
+| v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) |
+| HorizontalBar Design | `docs/DESIGN-horizontal-bar.md` | Unified MenuBar+StatusBar design |
 | ADR-002 | `~/four-code/docs/ADR-002-turbo-tui-windowing.md` | Architecture decision record |

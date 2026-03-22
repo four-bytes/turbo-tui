@@ -5,7 +5,7 @@
 //! - Desktop with blue background
 //! - Overlapping windows with drag and resize
 //! - `MenuBar` with dropdown menus (theme list built dynamically)
-//! - `StatusLine` with F-key shortcuts
+//! - `StatusBar` with F-key shortcuts
 //! - Buttons and labels in windows
 //! - Builder Lite pattern for window construction
 //! - Window presets (editor, tool)
@@ -33,7 +33,7 @@ use turbo_tui::{
     horizontal_bar::{BarEntry, HorizontalBar},
     menu_bar::{menu_bar_from_menus, Menu, MenuItem},
     static_text::StaticText,
-    status_line::{KB_ALT_X, KB_F10, KB_F2},
+    status_bar::{KB_ALT_X, KB_F10, KB_F2},
     theme,
     window::Window,
 };
@@ -94,8 +94,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Setup menu bar (needs theme_names for dynamic theme submenu)
     setup_menu_bar(&mut app, &theme_names);
 
-    // Setup status line
-    setup_status_line(&mut app);
+    // Setup status bar
+    setup_status_bar(&mut app);
 
     // Add demo windows
     add_demo_windows(&mut app);
@@ -129,7 +129,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             // Handle commands from menu
             if let Some(cmd) = app.take_unhandled_command() {
                 if cmd == CM_NEXT_THEME {
-                    // StatusLine "F2 Theme" click → cycle theme
+                    // StatusBar "F2 Theme" click → cycle theme
                     let _ = theme::cycle_next_registered();
                 } else if cmd >= CM_THEME_BASE {
                     // Dynamic theme selection from Window menu
@@ -200,7 +200,7 @@ fn setup_menu_bar(app: &mut Application, theme_names: &[String]) {
     app.set_menu_bar(menu_bar);
 }
 
-fn setup_status_line(app: &mut Application) {
+fn setup_status_bar(app: &mut Application) {
     let bounds = Rect::new(0, 23, 80, 1); // Will be resized by Application
 
     let entries = vec![
@@ -230,8 +230,8 @@ fn setup_status_line(app: &mut Application) {
         },
     ];
 
-    let status_line = HorizontalBar::status_line(bounds, entries);
-    app.set_status_line(status_line);
+    let status_bar = HorizontalBar::status_bar(bounds, entries);
+    app.set_status_bar(status_bar);
 }
 
 fn add_demo_windows(app: &mut Application) {

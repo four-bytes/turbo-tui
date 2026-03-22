@@ -248,6 +248,7 @@ impl Window {
         self.drag_offset = Some((mouse_col as i16 - b.x as i16, mouse_row as i16 - b.y as i16));
         let st = self.base.state();
         self.base.set_state(st | SF_DRAGGING);
+        self.frame.set_state(self.frame.state() | SF_DRAGGING);
     }
 
     /// Continue drag: update window position based on current mouse position.
@@ -276,6 +277,7 @@ impl Window {
         self.resize_mouse_start = None;
         let st = self.base.state();
         self.base.set_state(st & !(SF_DRAGGING | SF_RESIZING));
+        self.frame.set_state(self.frame.state() & !(SF_DRAGGING | SF_RESIZING));
     }
 
     /// Start a resize operation from the given mouse position.
@@ -285,6 +287,7 @@ impl Window {
         self.resize_mouse_start = Some((mouse_col, mouse_row));
         let st = self.base.state();
         self.base.set_state(st | SF_RESIZING);
+        self.frame.set_state(self.frame.state() | SF_RESIZING);
     }
 
     /// Continue resize: update window size based on mouse delta.

@@ -31,24 +31,18 @@ use std::any::Any;
 pub struct Desktop {
     base: ViewBase,
     windows: Container,
-    /// Desktop background style.
-    background_style: ratatui::style::Style,
-    /// Desktop background character.
-    background_char: char,
 }
 
 impl Desktop {
     /// Create a new desktop with the given bounds.
     ///
-    /// Uses the current theme's desktop background style and character.
+    /// Background style and character are read from the current theme at draw-time,
+    /// so theme changes via [`theme::set`] are always reflected without rebuilding.
     #[must_use]
     pub fn new(bounds: Rect) -> Self {
-        let (bg_style, bg_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
         Self {
             base: ViewBase::new(bounds),
             windows: Container::new(bounds),
-            background_style: bg_style,
-            background_char: bg_char,
         }
     }
 
@@ -222,17 +216,20 @@ impl Desktop {
     }
 
     /// Draw the desktop background.
+    ///
+    /// Reads the background style and character from the current theme at draw-time
+    /// so that runtime theme changes via [`theme::set`] are always reflected.
     fn draw_background(&self, buf: &mut Buffer, clip: Rect) {
         let b = self.base.bounds();
         let fill_area = b.intersection(clip);
         if fill_area.width == 0 || fill_area.height == 0 {
             return;
         }
+        let (bg_style, bg_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
         for row in fill_area.y..fill_area.y + fill_area.height {
             for col in fill_area.x..fill_area.x + fill_area.width {
                 if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                    cell.set_char(self.background_char)
-                        .set_style(self.background_style);
+                    cell.set_char(bg_char).set_style(bg_style);
                 }
             }
         }
@@ -332,7 +329,6 @@ mod tests {
     use super::*;
     use crate::theme::Theme;
     use crate::view::{SF_FOCUSED, SF_VISIBLE};
-    use ratatui::style::Color;
 
     fn setup_theme() {
         crate::theme::set(Theme::borland_classic());
@@ -346,10 +342,6 @@ mod tests {
 
         assert_eq!(desktop.bounds(), bounds);
         assert_eq!(desktop.window_count(), 0);
-        // Background style from theme
-        let (bg_style, bg_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
-        assert_eq!(desktop.background_style, bg_style);
-        assert_eq!(desktop.background_char, bg_char);
     }
 
     #[test]
@@ -551,19 +543,14 @@ mod tests {
         setup_theme();
         let bounds = Rect::new(0, 0, 10, 5);
         let mut buf = Buffer::empty(bounds);
-        let mut desktop = Desktop::new(bounds);
-
-        // Override with known values
-        desktop.background_char = '░';
-        desktop.background_style = ratatui::style::Style::default()
-            .fg(Color::Cyan)
-            .bg(Color::Blue);
+        let desktop = Desktop::new(bounds);
 
         desktop.draw(&mut buf, bounds);
 
-        // Check a cell has the background char
+        // Verify the buffer has the current theme's background character
+        let bg_char = theme::with_current(|t| t.desktop_char);
         let cell = buf.cell(Position::new(0, 0)).unwrap();
-        assert_eq!(cell.symbol(), "░");
+        assert_eq!(cell.symbol(), bg_char.to_string().as_str());
     }
 
     #[test]
@@ -615,13 +602,21 @@ mod tests {
     #[test]
     fn test_desktop_background_uses_theme() {
         setup_theme();
-        let desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        let bounds = Rect::new(0, 0, 10, 3);
+        let mut buf = Buffer::empty(bounds);
+        let desktop = Desktop::new(bounds);
 
-        let theme_bg = theme::with_current(|t| t.desktop_bg);
-        let theme_char = theme::with_current(|t| t.desktop_char);
+        desktop.draw(&mut buf, bounds);
 
-        assert_eq!(desktop.background_style, theme_bg);
-        assert_eq!(desktop.background_char, theme_char);
+        // The buffer cells should reflect the theme's desktop background.
+        // Compare fg/bg only — Ratatui cells carry an extra underline_color(Reset)
+        // that is not part of the theme style.
+        let (theme_bg, theme_char) =
+            theme::with_current(|t| (t.desktop_bg, t.desktop_char));
+        let cell = buf.cell(Position::new(0, 0)).unwrap();
+        assert_eq!(cell.symbol(), theme_char.to_string().as_str());
+        assert_eq!(cell.fg, theme_bg.fg.unwrap_or(ratatui::style::Color::Reset));
+        assert_eq!(cell.bg, theme_bg.bg.unwrap_or(ratatui::style::Color::Reset));
     }
 
     #[test]

@@ -14,7 +14,7 @@
 
 use crate::scrollbar::ScrollBar;
 use crate::theme;
-use crate::view::{Event, View, ViewBase, ViewId, SF_FOCUSED};
+use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use std::any::Any;
@@ -343,10 +343,14 @@ impl View for Frame {
 
         // Get theme styles and border characters
         let styles = theme::with_current(|t| {
-            let is_active = (self.base.state() & SF_FOCUSED) != 0;
+            let state = self.base.state();
+            let is_dragging = (state & SF_DRAGGING) != 0 || (state & SF_RESIZING) != 0;
+            let is_active = (state & SF_FOCUSED) != 0;
             let (frame_style, title_style) = match self.frame_type {
                 FrameType::Window => {
-                    if is_active {
+                    if is_dragging {
+                        (t.window_frame_dragging, t.window_title_active)
+                    } else if is_active {
                         (t.window_frame_active, t.window_title_active)
                     } else {
                         (t.window_frame_inactive, t.window_title_inactive)

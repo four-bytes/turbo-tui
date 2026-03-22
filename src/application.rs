@@ -28,10 +28,10 @@
 //! 2. `MenuBar` (F10, Alt+letter)
 //! 3. `StatusLine` (`PreProcess` — F-keys)
 //! 4. Desktop → focused Window → three-phase dispatch
-//! 5. Application handles unhandled commands (`CM_QUIT`)
+//! 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 //! 6. Process deferred event queue
 
-use crate::command::CM_QUIT;
+use crate::command::{CM_CLOSE, CM_QUIT};
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
 use crate::overlay::OverlayManager;
@@ -66,7 +66,7 @@ use ratatui::layout::Rect;
 /// 2. `MenuBar` (F10, Alt+letter)
 /// 3. `StatusLine` (`PreProcess` — F-keys)
 /// 4. Desktop → focused Window → three-phase dispatch
-/// 5. Application handles unhandled commands (`CM_QUIT`)
+/// 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 /// 6. Process deferred event queue
 ///
 /// # Usage
@@ -310,7 +310,7 @@ impl Application {
     /// 2. `MenuBar`
     /// 3. `StatusLine` (`OF_PRE_PROCESS` — intercepts F-keys)
     /// 4. Desktop → focused Window → three-phase dispatch
-    /// 5. Application-level command handling (`CM_QUIT`)
+    /// 5. Application-level command handling (`CM_QUIT`, `CM_CLOSE`)
     /// 6. Deferred event queue processing
     pub fn dispatch(&mut self, event: &mut Event) {
         // 1. Overlay layer — if it consumed the event, stop here
@@ -355,10 +355,26 @@ impl Application {
     ///
     /// Currently handles:
     /// - `CM_QUIT` → sets `running = false`
+    /// - `CM_CLOSE` → closes the currently focused window on the desktop
     fn handle_application_commands(&mut self, event: &mut Event) {
-        if let EventKind::Command(CM_QUIT) = event.kind {
-            self.running = false;
-            event.clear();
+        if let EventKind::Command(cmd) = event.kind {
+            match cmd {
+                CM_QUIT => {
+                    self.running = false;
+                    event.clear();
+                }
+                CM_CLOSE => {
+                    // Close the focused window on the desktop
+                    if let Some(focused_idx) = self.desktop.windows().focused_index() {
+                        if let Some(child) = self.desktop.windows().child_at(focused_idx) {
+                            let id = child.id();
+                            self.desktop.close_window(id);
+                            event.clear();
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -456,7 +472,7 @@ impl Application {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::CM_QUIT;
+    use crate::command::{CM_CLOSE, CM_QUIT};
     use crate::view::{Event, EventKind};
     use ratatui::layout::Rect;
 
@@ -601,20 +617,61 @@ mod tests {
 
         // Add a window so that the desktop has something to focus
         let window = Window::new(Rect::new(2, 2, 20, 8), "Win");
-        let id = app.add_window(window);
+        let _id = app.add_window(window);
+        assert_eq!(app.desktop().window_count(), 1);
 
-        // Dispatch CM_CLOSE: the desktop should remove the focused window
-        let mut event = Event::command(crate::command::CM_CLOSE);
+        // Dispatch CM_CLOSE: application-level handler should close the focused window
+        let mut event = Event::command(CM_CLOSE);
         app.dispatch(&mut event);
 
-        // The window should have been removed by the desktop's event handling
-        // (Window handles CM_CLOSE and removes itself).
-        // We verify the desktop received and processed the event by checking
-        // the window count decreased.
-        let _ = id; // id is used above; window may or may not be removed
-                    // depending on whether CM_CLOSE is wired up in Window.
-                    // At minimum the event was dispatched without panic.
+        assert_eq!(
+            app.desktop().window_count(),
+            0,
+            "CM_CLOSE must remove the focused window"
+        );
         assert!(app.is_running(), "app must still be running after CM_CLOSE");
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_cm_close_multiple_windows() {
+        let mut app = Application::new(screen());
+
+        let _id1 = app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W1"));
+        let _id2 = app.add_window(Window::new(Rect::new(5, 5, 20, 8), "W2"));
+        let _id3 = app.add_window(Window::new(Rect::new(10, 10, 20, 8), "W3"));
+        assert_eq!(app.desktop().window_count(), 3);
+
+        // First CM_CLOSE removes front window (W3)
+        app.dispatch(&mut Event::command(CM_CLOSE));
+        assert_eq!(app.desktop().window_count(), 2, "first CM_CLOSE removes W3");
+
+        // Second CM_CLOSE removes new front (W2)
+        app.dispatch(&mut Event::command(CM_CLOSE));
+        assert_eq!(app.desktop().window_count(), 1, "second CM_CLOSE removes W2");
+
+        // Third CM_CLOSE removes last window (W1)
+        app.dispatch(&mut Event::command(CM_CLOSE));
+        assert_eq!(app.desktop().window_count(), 0, "third CM_CLOSE removes W1");
+
+        // Fourth CM_CLOSE with no windows — must not panic, app still running
+        app.dispatch(&mut Event::command(CM_CLOSE));
+        assert!(app.is_running(), "CM_CLOSE with no windows must not crash");
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_cm_close_no_windows() {
+        let mut app = Application::new(screen());
+        assert_eq!(app.desktop().window_count(), 0);
+
+        // Must not panic when there are no windows
+        let mut event = Event::command(CM_CLOSE);
+        app.dispatch(&mut event);
+
+        assert!(app.is_running());
     }
 
     // -------------------------------------------------------------------------

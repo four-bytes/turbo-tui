@@ -186,3 +186,18 @@
 - **New Commands:** `CM_OPEN_DROPDOWN` (1010), `CM_DROPDOWN_CLOSED` (1011), `CM_DROPDOWN_NAVIGATE` (1012)
 - 331 tests passing (was 321), clippy pedantic clean
 - Plan: `docs/PLAN-v0.2.2.md`
+
+### F2: Minimized Window Tray Fix (2026-03-22)
+- **FIX** Frame now draws at `height=1` — minimized windows visible in task shelf
+  - `Frame::draw()` guard changed from `height < 2` to `height < 1`
+  - 1-row frame: draws only top border (corners, horizontal line, close button, title)
+  - Side borders, scrollbars, bottom border skipped at `height < 2`
+- **FIX** `ButtonTray` suppresses minimize/maximize buttons at `height ≤ 1`
+  - Both `draw()` and `build_button_tray()` (hit-testing) consistent
+  - Minimized windows show only: `[■] Title [×]` (close + title)
+- **FIX** Hit-test methods guard against `height ≤ 1`:
+  - `is_minimize_button()`, `is_maximize_button()`, `is_resize_handle()` → return `false`
+  - `is_close_button()` still works (close button valid at any height)
+- Added `has_close_button()` public accessor on Frame
+- 4 new tests: height=1 draw, no min/max buttons, close button works, title visible
+- 335 tests passing, clippy pedantic clean

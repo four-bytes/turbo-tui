@@ -41,20 +41,21 @@ Phase 7 (JSON themes)   ──────────────┤           
 
 ---
 
-## v0.2.2 — MenuBar → Overlay Dropdown Refactor (CURRENT)
+## v0.2.2 — MenuBar → Overlay Dropdown Refactor (COMPLETED)
 
 **Plan:** [`docs/PLAN-v0.2.2.md`](docs/PLAN-v0.2.2.md)
 **Branch:** `v0.2-rebuild`
 
 ### Phases
-- [ ] **Phase 1:** MenuBox enhancement — command emission on confirm, Left/Right navigation
-- [ ] **Phase 2:** HorizontalBar simplification — remove self-draw (~170 lines), post deferred events
-- [ ] **Phase 3:** Application orchestration — intercept CM_OPEN_DROPDOWN, create MenuBox overlays
-- [ ] **Phase 4:** OverlayManager — dismiss callback (on_dismiss command)
-- [ ] **Phase 5:** Demo + integration tests
+- [x] **Phase 1:** MenuBox enhancement — command emission on confirm, Left/Right navigation
+- [x] **Phase 2:** HorizontalBar simplification — remove self-draw (~170 lines), post deferred events
+- [x] **Phase 3:** Application orchestration — intercept CM_OPEN_DROPDOWN, create MenuBox overlays
+- [x] **Phase 4:** OverlayManager — dismiss callback (on_dismiss command)
+- [x] **Phase 5:** Demo + integration tests
+- [x] **F2: Minimized window tray fix** — Frame draws at height=1, task shelf visible + clickable
 
 ### Goal
-Menu dropdowns render via OverlayManager above all windows, eliminating clip-area limitations. Removes ~200 lines of duplicate drawing/event code from HorizontalBar.
+Menu dropdowns render via OverlayManager above all windows, eliminating clip-area limitations. Removes ~200 lines of duplicate drawing/event code from HorizontalBar. Minimized windows visible in task shelf with close button + title, click-to-restore working.
 
 ---
 
@@ -73,6 +74,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - [ ] Drag-and-drop between windows
 - [ ] Multi-document interface (MDI) patterns
 - [ ] Clipboard integration (copy/paste between views)
+- [ ] **Community Controls pattern** — documented extension pattern for community-contributed View implementations (guide + example)
 
 ---
 

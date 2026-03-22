@@ -8,11 +8,12 @@
 |---------|--------|-------|-------------|
 | v0.1.0 | ✅ Released | 172 | Full widget library, 7 known bugs |
 | v0.2.0-dev | ✅ Complete | 280 | Architecture rebuild: Container, Frame, Window, Desktop, Overlay, Application, Dialog, HorizontalBar, MsgBox, JSON themes |
-| v0.2.1-dev | 🔧 In Progress | 313 | Scrollbar fixes, window handling, Builder Lite, task shelf, lifecycle hooks |
+| v0.2.1 | ✅ Released | 321 | Scrollbar fixes, window handling, Builder Lite, task shelf, lifecycle hooks, title centering |
+| v0.2.2-dev | 🔧 In Progress | — | MenuBar → Overlay dropdown refactor |
 
 ---
 
-## v0.2.1 — Window Handling + Composability (CURRENT)
+## v0.2.1 — Window Handling + Composability (RELEASED)
 
 **Plan:** [`docs/PLAN-v0.2.1.md`](docs/PLAN-v0.2.1.md)
 **Branch:** `v0.2-rebuild`
@@ -40,12 +41,20 @@ Phase 7 (JSON themes)   ──────────────┤           
 
 ---
 
-## v0.2.2 — MenuBar Overlay + New Widgets (NEXT)
+## v0.2.2 — MenuBar → Overlay Dropdown Refactor (CURRENT)
 
-- [ ] **F1:** MenuBar → Overlay dropdown refactor (self-draw → OverlayManager)
-- [ ] **F2:** Gauge/ProgressBar widget (reference: gping, tui-rs demo)
-- [ ] **F3:** ListView/ScrollView widget (virtual scrolling)
-- [ ] **F8:** Tab widget (tabbed window content)
+**Plan:** [`docs/PLAN-v0.2.2.md`](docs/PLAN-v0.2.2.md)
+**Branch:** `v0.2-rebuild`
+
+### Phases
+- [ ] **Phase 1:** MenuBox enhancement — command emission on confirm, Left/Right navigation
+- [ ] **Phase 2:** HorizontalBar simplification — remove self-draw (~170 lines), post deferred events
+- [ ] **Phase 3:** Application orchestration — intercept CM_OPEN_DROPDOWN, create MenuBox overlays
+- [ ] **Phase 4:** OverlayManager — dismiss callback (on_dismiss command)
+- [ ] **Phase 5:** Demo + integration tests
+
+### Goal
+Menu dropdowns render via OverlayManager above all windows, eliminating clip-area limitations. Removes ~200 lines of duplicate drawing/event code from HorizontalBar.
 
 ---
 

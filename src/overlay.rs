@@ -9,6 +9,7 @@
 //! overlay receives events first. If it doesn't consume the event, it falls
 //! through to the normal view hierarchy.
 
+use crate::command::CM_DROPDOWN_CLOSED;
 use crate::view::{Event, EventKind, View, ViewId};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::buffer::Buffer;
@@ -106,6 +107,14 @@ impl OverlayManager {
         self.overlays.iter().any(|o| o.owner_id == owner_id)
     }
 
+    /// Iterate over all active overlays (bottom to top).
+    ///
+    /// Used by `Application` to inspect overlay contents (e.g., read
+    /// `MenuBox::navigate_direction()` before dismissing).
+    pub fn overlays_iter(&self) -> impl Iterator<Item = &Overlay> {
+        self.overlays.iter()
+    }
+
     /// Update screen size (for overflow calculations).
     pub fn set_screen_size(&mut self, width: u16, height: u16) {
         self.screen_size = (width, height);
@@ -157,11 +166,13 @@ impl OverlayManager {
 
     /// Handle a keyboard event.
     fn handle_key_event(&mut self, event: &mut Event, key: &KeyEvent) -> bool {
-        // Escape dismisses topmost overlay with dismiss_on_escape
+        // Escape dismisses topmost overlay with dismiss_on_escape.
+        // Posts CM_DROPDOWN_CLOSED so the owning bar can reset its state.
         if key.code == KeyCode::Esc {
             if let Some(top) = self.overlays.last() {
                 if top.dismiss_on_escape {
                     self.overlays.pop();
+                    event.post(Event::command(CM_DROPDOWN_CLOSED));
                     event.clear();
                     return true;
                 }
@@ -196,6 +207,8 @@ impl OverlayManager {
             if let Some(top) = self.overlays.last() {
                 if top.dismiss_on_outside_click {
                     self.overlays.pop();
+                    // Notify owning bar that dropdown was dismissed
+                    event.post(Event::command(CM_DROPDOWN_CLOSED));
                     // Don't clear the event — let it fall through to windows
                     return true; // We handled the dismiss
                 }
@@ -746,5 +759,44 @@ mod tests {
 
         let mut event = Event::command(42);
         assert!(!manager.handle_event(&mut event));
+    }
+
+    #[test]
+    fn test_outside_click_dismiss_posts_dropdown_closed() {
+        let mut mgr = OverlayManager::new(80, 24);
+        let view = TestOverlayView::new(Rect::new(10, 10, 20, 5));
+        let id = view.id();
+        mgr.push(Overlay {
+            view: Box::new(view),
+            owner_id: id,
+            dismiss_on_outside_click: true,
+            dismiss_on_escape: true,
+        });
+        assert_eq!(mgr.count(), 1);
+
+        // Click outside the overlay bounds
+        let mut event = Event::mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        });
+        mgr.handle_event(&mut event);
+
+        // Overlay should be dismissed
+        assert_eq!(mgr.count(), 0, "outside click must dismiss overlay");
+        // Should have posted CM_DROPDOWN_CLOSED
+        assert!(
+            event
+                .deferred
+                .iter()
+                .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_DROPDOWN_CLOSED)),
+            "outside-click dismiss must post CM_DROPDOWN_CLOSED"
+        );
+        // Event should NOT be cleared (falls through to windows)
+        assert!(
+            !event.is_cleared(),
+            "event must not be cleared after outside-click dismiss"
+        );
     }
 }

@@ -153,3 +153,36 @@
   - Handles edge cases: very narrow frames, titles shorter than available space
 - 4 new tests: centered title, right-truncation ellipsis, no-ellipsis-when-fits, very-narrow-no-crash
 - 321 tests passing, clippy pedantic clean
+
+## v0.2.2-dev (2026-03-22)
+
+### F1: MenuBar → Overlay Dropdown Refactor
+- **REFACTOR** Dropdown rendering moved from `HorizontalBar` self-draw to `OverlayManager` + `MenuBox`
+  - Dropdowns now render above all windows (not clipped by bar's clip area)
+  - ~200 lines of duplicate drawing/event code removed from `HorizontalBar`
+  - `MenuBox` used as the actual overlay view (already existed as standalone widget)
+- **Phase 1: MenuBox Enhancement**
+  - Added `owner_bar_id: Option<ViewId>` — when set, MenuBox emits commands via event system
+  - `confirm_selection()` now sets `event.kind = EventKind::Command(cmd)` when owned by a bar
+  - Left/Right arrows post `CM_DROPDOWN_NAVIGATE` deferred event (with direction stored in `navigate_direction`)
+  - Backward compat: standalone `MenuBox::result()` still works for non-overlay usage
+- **Phase 2: HorizontalBar Simplification**
+  - Removed: `draw_dropdown()`, `draw_dropdown_border_row()`, `draw_dropdown_item_row()` (~170 lines)
+  - Removed: `dropdown_width()`, `item_at_position()`, `move_down()`, `move_up()`, `selected_command()`, `first_selectable_item()`
+  - Removed: `selected_item` field (dropdown item selection now handled by MenuBox)
+  - Added: `request_dropdown()` posts `CM_OPEN_DROPDOWN` + stores `pending_dropdown` for Application
+  - Added: `navigate_dropdown()` (public) replaces `move_entry()`, called by Application on `CM_DROPDOWN_NAVIGATE`
+  - Added: `take_pending_dropdown()`, `dropdown_items_for()`, `dropdown_anchor()` public API for Application
+  - F10/Escape/close now post `CM_DROPDOWN_CLOSED` so Application can clean up overlays
+- **Phase 3: Application Orchestration**
+  - Intercepts `CM_OPEN_DROPDOWN`: creates `MenuBox` overlay via `OverlayManager` with `calculate_overlay_bounds()`
+  - Intercepts `CM_DROPDOWN_CLOSED`: pops overlay, resets bar state
+  - Intercepts `CM_DROPDOWN_NAVIGATE`: reads direction from MenuBox, pops current overlay, navigates bar, opens next
+  - Supports both MenuBar (drops down) and StatusLine (drops up)
+- **Phase 4: OverlayManager Dismiss Callback**
+  - Outside-click dismiss now posts `CM_DROPDOWN_CLOSED` so owning bar resets `active_dropdown`
+  - Escape dismiss already posted `CM_DROPDOWN_CLOSED` (added in Phase 3)
+  - Added `overlays_iter()` for Application to inspect overlay contents
+- **New Commands:** `CM_OPEN_DROPDOWN` (1010), `CM_DROPDOWN_CLOSED` (1011), `CM_DROPDOWN_NAVIGATE` (1012)
+- 331 tests passing (was 321), clippy pedantic clean
+- Plan: `docs/PLAN-v0.2.2.md`

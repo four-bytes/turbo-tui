@@ -5,7 +5,7 @@
 **turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.2.1-dev — Window handling + composability improvements (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
+- **Status:** v0.2.2-dev — MenuBar→Overlay dropdown refactor (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui
@@ -160,12 +160,23 @@ These principles were established after reviewing Ratatui's official patterns an
 - Phase 5: View lifecycle hooks — `on_focus()`, `on_blur()` on View trait, called from Container
 - Phase 7: JSON theme inactive scrollbar fields — already done (verified)
 - Phase 6: Demo updated — Builder Lite, presets, scrollbar focus showcase
-- 313 tests passing, clippy pedantic clean
+- Phase (frame): Frame title centering within full width + `'…'` ellipsis truncation
+- 321 tests passing, clippy pedantic clean
+- **v0.2.1 released and tagged**
 
 ### v0.2.1 In Progress (see `docs/PLAN-v0.2.1.md`)
-- All phases (1-7) complete — ready for release tagging
+- All phases complete — **released as v0.2.1**
 
-### Remaining (Deferred tov0.2.2+)
+### v0.2.2 In Progress
+- **F1: MenuBar → Overlay dropdown refactor** — move dropdown rendering from HorizontalBar self-draw to OverlayManager + MenuBox
+  - Phase 1: MenuBox command emission
+  - Phase 2: HorizontalBar simplification (remove ~170 lines self-draw)
+  - Phase 3: Application orchestration (CM_OPEN_DROPDOWN coordination)
+  - Phase 4: OverlayManager dismiss callback
+  - Phase 5: Demo + integration tests
+  - Plan: `docs/PLAN-v0.2.2.md`
+
+### Remaining (Deferred tov0.2.3+)
 - Step 9b: MenuBar→Overlay dropdown refactor (MenuBar currently self-draws dropdown — works but can't extend beyond clip area)
 - Step 9a/c/d: Widget adaptations (minor — existing widgets work but don't use v0.2 patterns fully)
 - Future: Gauge/ProgressBar, ListView, TachyonFX integration, channel-based events (see PLAN-v0.2.1.md Future Phases)
@@ -248,7 +259,8 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | `TESTING.md` | Test architecture, patterns, naming, what to test | When writing or debugging tests |
 | `ROADMAP.md` | Version roadmap, future phases, reference projects | When planning next steps |
 | `HISTORY.md` | Change log (append-only) | Before committing changes |
-| `docs/PLAN-v0.2.1.md` | Current sprint plan with detailed phase specs | When implementing v0.2.1 features |
+| `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) | Historical reference |
+| `docs/PLAN-v0.2.2.md` | v0.2.2 MenuBar→Overlay refactor plan | When implementing v0.2.2 features |
 | `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) | For historical architecture decisions |
 | `docs/RES-0002-reference-projects-architecture.md` | Reference analysis: Ratatui, TachyonFX, tui-rs, gping | When making architecture decisions |
 | `docs/RES-0001-performance-research.md` | Performance research (16ms poll, dirty flags, etc.) | When optimizing |

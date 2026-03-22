@@ -17,7 +17,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use std::any::Any;
 
-use crate::command::CommandId;
+use crate::command::{CommandId, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN};
 use crate::menu_bar::MenuItem;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_PRE_PROCESS};
@@ -211,7 +211,7 @@ fn label_display_width(label: &str) -> usize {
 ///
 /// A single-row bar that displays entries horizontally.  Each entry can be
 /// either a direct action (fires a command on click / hotkey) or a dropdown
-/// trigger (opens a bordered menu box).
+/// trigger (opens a bordered menu box via `OverlayManager`).
 ///
 /// Use [`menu_bar`] and [`status_line`] constructors for common
 /// configurations.
@@ -231,8 +231,12 @@ pub struct HorizontalBar {
     hovered_entry: Option<usize>,
     /// Which dropdown entry is currently open (`None` = all closed).
     active_dropdown: Option<usize>,
-    /// Which item in the open dropdown is highlighted.
-    selected_item: Option<usize>,
+    /// Pending dropdown request: the index Application should open as overlay.
+    /// Set by `request_dropdown()`, consumed by `Application` via `take_pending_dropdown()`.
+    pending_dropdown: Option<usize>,
+    /// Pending navigate direction: -1 (left) or +1 (right).
+    /// Set when Left/Right is pressed while dropdown active, consumed by Application.
+    pending_navigate_direction: Option<isize>,
     /// Right-aligned hint text (typically used in status bars).
     hint_text: Option<String>,
 }
@@ -268,7 +272,8 @@ impl HorizontalBar {
             drop_direction: direction,
             hovered_entry: None,
             active_dropdown: None,
-            selected_item: None,
+            pending_dropdown: None,
+            pending_navigate_direction: None,
             hint_text: None,
         }
     }
@@ -327,8 +332,80 @@ impl HorizontalBar {
     /// Close all open dropdowns and reset hover state.
     pub fn close(&mut self) {
         self.active_dropdown = None;
-        self.selected_item = None;
         self.hovered_entry = None;
+        self.pending_dropdown = None;
+        self.pending_navigate_direction = None;
+    }
+
+    // -----------------------------------------------------------------------
+    // Application coordination API
+    // -----------------------------------------------------------------------
+
+    /// Take the pending dropdown index. Returns `Some(index)` if a dropdown
+    /// should be opened, then clears the pending state.
+    pub fn take_pending_dropdown(&mut self) -> Option<usize> {
+        self.pending_dropdown.take()
+    }
+
+    /// Take the pending navigation direction. Returns `Some(delta)` if
+    /// Left/Right was pressed, then clears the pending state.
+    pub fn take_pending_navigate(&mut self) -> Option<isize> {
+        self.pending_navigate_direction.take()
+    }
+
+    /// Get the items for a dropdown at `index`. Returns `None` if the
+    /// index is out of range or the entry is not a Dropdown.
+    #[must_use]
+    pub fn dropdown_items_for(&self, index: usize) -> Option<&[MenuItem]> {
+        match self.entries.get(index)? {
+            BarEntry::Dropdown { items, .. } => Some(items),
+            BarEntry::Action { .. } => None,
+        }
+    }
+
+    /// Get the anchor point for positioning a dropdown overlay at `index`.
+    /// Returns `(x, y)` where:
+    /// - `x` = absolute X position of the entry on screen
+    /// - `y` = the bar row (for `DropDirection` calculation)
+    #[must_use]
+    pub fn dropdown_anchor(&self, index: usize) -> Option<(u16, u16)> {
+        let pos = self.entry_positions.get(index)?;
+        let bounds = self.base.bounds();
+        Some((bounds.x + pos, bounds.y))
+    }
+
+    /// Switch to the next/previous dropdown entry.
+    /// Called by Application in response to `CM_DROPDOWN_NAVIGATE`.
+    pub fn navigate_dropdown(&mut self, delta: isize, event: &mut Event) {
+        let dropdown_indices: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| {
+                if matches!(e, BarEntry::Dropdown { .. }) {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if dropdown_indices.is_empty() {
+            return;
+        }
+
+        let current_pos = self
+            .active_dropdown
+            .and_then(|idx| dropdown_indices.iter().position(|&d| d == idx))
+            .unwrap_or(0);
+
+        #[allow(clippy::cast_possible_wrap)]
+        let count = dropdown_indices.len() as isize;
+        #[allow(clippy::cast_possible_wrap)]
+        #[allow(clippy::cast_sign_loss)]
+        let next_pos = ((current_pos as isize + delta).rem_euclid(count)) as usize;
+        let next_idx = dropdown_indices[next_pos];
+        self.request_dropdown(next_idx, event);
     }
 
     // -----------------------------------------------------------------------
@@ -351,118 +428,15 @@ impl HorizontalBar {
         positions
     }
 
-    /// Open the dropdown at `index`.  Does nothing if the entry is not a
-    /// `Dropdown` variant or the index is out of bounds.
-    fn open_dropdown(&mut self, index: usize) {
+    /// Open the dropdown at `index`. Sets `pending_dropdown` so Application
+    /// can create a `MenuBox` overlay. Posts `CM_OPEN_DROPDOWN` as a deferred event.
+    fn request_dropdown(&mut self, index: usize, event: &mut Event) {
         if let Some(BarEntry::Dropdown { .. }) = self.entries.get(index) {
             self.active_dropdown = Some(index);
-            self.selected_item = self.first_selectable_item(index);
             self.hovered_entry = None;
+            self.pending_dropdown = Some(index);
+            event.post(Event::command(CM_OPEN_DROPDOWN));
         }
-    }
-
-    /// Find the first selectable (non-separator, enabled) item in a dropdown.
-    fn first_selectable_item(&self, dropdown_idx: usize) -> Option<usize> {
-        if let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(dropdown_idx) {
-            items
-                .iter()
-                .position(|item| !item.is_separator() && item.enabled)
-        } else {
-            None
-        }
-    }
-
-    /// Move item selection down in the active dropdown, skipping
-    /// separators / disabled items with wrap-around.
-    fn move_down(&mut self) {
-        let Some(dropdown_idx) = self.active_dropdown else {
-            return;
-        };
-        let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(dropdown_idx) else {
-            return;
-        };
-        let current = self.selected_item.unwrap_or(0);
-        let next = (current + 1..items.len())
-            .find(|&i| !items[i].is_separator() && items[i].enabled)
-            .or_else(|| (0..=current).find(|&i| !items[i].is_separator() && items[i].enabled));
-        if next.is_some() {
-            self.selected_item = next;
-        }
-    }
-
-    /// Move item selection up in the active dropdown, skipping
-    /// separators / disabled items with wrap-around.
-    fn move_up(&mut self) {
-        let Some(dropdown_idx) = self.active_dropdown else {
-            return;
-        };
-        let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(dropdown_idx) else {
-            return;
-        };
-        let current = self.selected_item.unwrap_or(0);
-        let prev = (0..current)
-            .rev()
-            .find(|&i| !items[i].is_separator() && items[i].enabled)
-            .or_else(|| {
-                (current..items.len())
-                    .rev()
-                    .find(|&i| !items[i].is_separator() && items[i].enabled)
-            });
-        if prev.is_some() {
-            self.selected_item = prev;
-        }
-    }
-
-    /// Switch focus `delta` steps left (`-1`) or right (`+1`), skipping
-    /// `Action` entries — only `Dropdown` entries stop the navigation.
-    ///
-    /// When landing on a `Dropdown`, it is opened automatically.
-    fn move_entry(&mut self, delta: isize) {
-        // Collect indices of Dropdown entries only (Borland style: arrows
-        // skip Action entries when navigating between open menus).
-        let dropdown_indices: Vec<usize> = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(i, e)| {
-                if matches!(e, BarEntry::Dropdown { .. }) {
-                    Some(i)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if dropdown_indices.is_empty() {
-            return;
-        }
-
-        // Find the position of the current dropdown in the dropdown-only list.
-        let current_pos = self
-            .active_dropdown
-            .and_then(|idx| dropdown_indices.iter().position(|&d| d == idx))
-            .unwrap_or(0);
-
-        #[allow(clippy::cast_possible_wrap)]
-        let count = dropdown_indices.len() as isize;
-        #[allow(clippy::cast_possible_wrap)]
-        #[allow(clippy::cast_sign_loss)]
-        let next_pos = ((current_pos as isize + delta).rem_euclid(count)) as usize;
-        let next_idx = dropdown_indices[next_pos];
-        self.open_dropdown(next_idx);
-    }
-
-    /// Return the command for the currently selected dropdown item, if any.
-    fn selected_command(&self) -> Option<CommandId> {
-        let dropdown_idx = self.active_dropdown?;
-        let item_idx = self.selected_item?;
-        if let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(dropdown_idx) {
-            let item = items.get(item_idx)?;
-            if item.enabled && !item.is_separator() {
-                return Some(item.command);
-            }
-        }
-        None
     }
 
     /// Determine which entry (if any) the bar-local column `x` belongs to.
@@ -481,53 +455,6 @@ impl HorizontalBar {
             }
         }
         None
-    }
-
-    /// Determine which dropdown item the absolute (col, row) position hits.
-    ///
-    /// Returns `Some(item_index)` when the coordinates are inside the dropdown
-    /// box, adjusted for [`DropDirection`].
-    fn item_at_position(&self, col: u16, row: u16) -> Option<usize> {
-        let dropdown_idx = self.active_dropdown?;
-        let BarEntry::Dropdown { items, .. } = self.entries.get(dropdown_idx)? else {
-            return None;
-        };
-        let bar_bounds = self.base.bounds();
-        let drop_x = bar_bounds.x + self.entry_positions[dropdown_idx];
-        let drop_width = Self::dropdown_width(items);
-        #[allow(clippy::cast_possible_truncation)]
-        let drop_height = items.len() as u16 + 2; // +2 for border rows
-
-        let drop_y = match self.drop_direction {
-            DropDirection::Down => bar_bounds.y + 1,
-            DropDirection::Up => bar_bounds.y.saturating_sub(drop_height),
-        };
-
-        if col < drop_x || col >= drop_x + drop_width {
-            return None;
-        }
-        if row < drop_y || row >= drop_y + drop_height {
-            return None;
-        }
-        // Border rows
-        if row == drop_y || row == drop_y + drop_height - 1 {
-            return None;
-        }
-        let inner_row = row - drop_y - 1;
-        Some(inner_row as usize)
-    }
-
-    /// Compute the visual width of the dropdown box for a set of items.
-    fn dropdown_width(items: &[MenuItem]) -> u16 {
-        let max_label = items
-            .iter()
-            .map(|item| label_display_width(&item.label))
-            .max()
-            .unwrap_or(0);
-        // border (2) + space (2) + label + right-padding (1) → at least 6
-        #[allow(clippy::cast_possible_truncation)]
-        let w = (max_label as u16).saturating_add(4);
-        w.max(6)
     }
 
     // -----------------------------------------------------------------------
@@ -605,168 +532,6 @@ impl HorizontalBar {
         }
     }
 
-    /// Draw a horizontal border row for a dropdown.
-    fn draw_dropdown_border_row(
-        buf: &mut Buffer,
-        drop_x: u16,
-        row: u16,
-        drop_width: u16,
-        style: ratatui::style::Style,
-        clip: Rect,
-        is_top: bool,
-    ) {
-        let (left, right) = if is_top {
-            ("┌", "┐")
-        } else {
-            ("└", "┘")
-        };
-        crate::clip::set_string_clipped(buf, drop_x, row, left, style, clip);
-        for x in 1..drop_width - 1 {
-            crate::clip::set_string_clipped(buf, drop_x + x, row, "─", style, clip);
-        }
-        crate::clip::set_string_clipped(buf, drop_x + drop_width - 1, row, right, style, clip);
-    }
-
-    /// Draw an item row in a dropdown (non-separator).
-    #[allow(clippy::too_many_arguments)]
-    fn draw_dropdown_item_row(
-        buf: &mut Buffer,
-        drop_x: u16,
-        row: u16,
-        drop_width: u16,
-        item: &MenuItem,
-        is_selected: bool,
-        box_style: ratatui::style::Style,
-        disabled_style: ratatui::style::Style,
-        selected_style: ratatui::style::Style,
-        hotkey_style: ratatui::style::Style,
-        hotkey_selected_style: ratatui::style::Style,
-        clip: Rect,
-    ) {
-        let (row_style, hk_style) = if is_selected {
-            (selected_style, hotkey_selected_style)
-        } else if !item.enabled {
-            (disabled_style, disabled_style)
-        } else {
-            (box_style, hotkey_style)
-        };
-
-        crate::clip::set_string_clipped(buf, drop_x, row, "│", box_style, clip);
-        for x in 1..drop_width - 1 {
-            crate::clip::set_string_clipped(buf, drop_x + x, row, " ", row_style, clip);
-        }
-        crate::clip::set_string_clipped(buf, drop_x + drop_width - 1, row, "│", box_style, clip);
-
-        let mut cur_x = drop_x + 1;
-        let mut in_marker = false;
-        for ch in item.label.chars() {
-            if ch == '~' {
-                in_marker = !in_marker;
-                continue;
-            }
-            let style = if in_marker { hk_style } else { row_style };
-            crate::clip::set_string_clipped(buf, cur_x, row, &ch.to_string(), style, clip);
-            cur_x += 1;
-            if cur_x >= drop_x + drop_width - 1 {
-                break;
-            }
-        }
-    }
-
-    /// Draw the open dropdown box, positioned according to [`DropDirection`].
-    fn draw_dropdown(&self, buf: &mut Buffer, clip: Rect) {
-        let Some(dropdown_idx) = self.active_dropdown else {
-            return;
-        };
-        let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(dropdown_idx) else {
-            return;
-        };
-        let Some(&bar_pos) = self.entry_positions.get(dropdown_idx) else {
-            return;
-        };
-
-        let bounds = self.base.bounds();
-        let drop_x = bounds.x + bar_pos;
-        let drop_width = Self::dropdown_width(items);
-        #[allow(clippy::cast_possible_truncation)]
-        let drop_height = items.len() as u16 + 2;
-
-        let drop_y = match self.drop_direction {
-            DropDirection::Down => bounds.y + 1,
-            DropDirection::Up => bounds.y.saturating_sub(drop_height),
-        };
-
-        let (
-            box_style,
-            border_style,
-            selected_style,
-            disabled_style,
-            hotkey_style,
-            hotkey_selected_style,
-        ) = theme::with_current(|t| {
-            (
-                t.menu_box_normal,
-                t.menu_box_normal,
-                t.menu_box_selected,
-                t.menu_box_disabled,
-                t.menu_box_hotkey,
-                t.menu_box_hotkey_selected,
-            )
-        });
-
-        // Top border
-        Self::draw_dropdown_border_row(buf, drop_x, drop_y, drop_width, border_style, clip, true);
-
-        // Items
-        for (item_idx, item) in items.iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
-            let row = drop_y + 1 + item_idx as u16;
-            let is_selected = self.selected_item == Some(item_idx);
-
-            if item.is_separator() {
-                crate::clip::set_string_clipped(buf, drop_x, row, "├", border_style, clip);
-                for x in 1..drop_width - 1 {
-                    crate::clip::set_string_clipped(buf, drop_x + x, row, "─", border_style, clip);
-                }
-                crate::clip::set_string_clipped(
-                    buf,
-                    drop_x + drop_width - 1,
-                    row,
-                    "┤",
-                    border_style,
-                    clip,
-                );
-            } else {
-                Self::draw_dropdown_item_row(
-                    buf,
-                    drop_x,
-                    row,
-                    drop_width,
-                    item,
-                    is_selected,
-                    box_style,
-                    disabled_style,
-                    selected_style,
-                    hotkey_style,
-                    hotkey_selected_style,
-                    clip,
-                );
-            }
-        }
-
-        // Bottom border
-        let bottom_y = drop_y + drop_height - 1;
-        Self::draw_dropdown_border_row(
-            buf,
-            drop_x,
-            bottom_y,
-            drop_width,
-            border_style,
-            clip,
-            false,
-        );
-    }
-
     // -----------------------------------------------------------------------
     // Event handling
     // -----------------------------------------------------------------------
@@ -790,7 +555,7 @@ impl HorizontalBar {
                             return;
                         }
                         BarEntry::Dropdown { .. } => {
-                            // We need the index to call open_dropdown.
+                            // We need the index to call request_dropdown.
                             // Find by matching key_code again after breaking borrow.
                             break;
                         }
@@ -811,7 +576,7 @@ impl HorizontalBar {
             None
         };
         if let Some(idx) = kc_match {
-            self.open_dropdown(idx);
+            self.request_dropdown(idx, event);
             event.clear();
         }
     }
@@ -823,6 +588,7 @@ impl HorizontalBar {
             KeyCode::F(10) => {
                 if self.is_active() {
                     self.close();
+                    event.post(Event::command(CM_DROPDOWN_CLOSED));
                 } else {
                     // Open the first Dropdown entry
                     let first_dropdown = self
@@ -830,45 +596,18 @@ impl HorizontalBar {
                         .iter()
                         .position(|e| matches!(e, BarEntry::Dropdown { .. }));
                     if let Some(idx) = first_dropdown {
-                        self.open_dropdown(idx);
+                        self.request_dropdown(idx, event);
                     }
                 }
                 event.clear();
             }
 
-            // Escape — close active dropdown
+            // Escape — close active dropdown (also handled by OverlayManager,
+            // but HorizontalBar must reset its own state)
             KeyCode::Esc if self.is_active() => {
                 self.close();
+                event.post(Event::command(CM_DROPDOWN_CLOSED));
                 event.clear();
-            }
-
-            // Left / Right — switch between dropdown entries (only when active)
-            KeyCode::Left if self.is_active() => {
-                self.move_entry(-1);
-                event.clear();
-            }
-            KeyCode::Right if self.is_active() => {
-                self.move_entry(1);
-                event.clear();
-            }
-
-            // Up / Down — navigate within the open dropdown
-            KeyCode::Up if self.is_active() => {
-                self.move_up();
-                event.clear();
-            }
-            KeyCode::Down if self.is_active() => {
-                self.move_down();
-                event.clear();
-            }
-
-            // Enter — select highlighted item and emit its command
-            KeyCode::Enter if self.is_active() => {
-                if let Some(cmd) = self.selected_command() {
-                    self.close();
-                    event.kind = EventKind::Command(cmd);
-                    event.handled = true;
-                }
             }
 
             // Alt+letter — open matching dropdown or fire matching action
@@ -881,7 +620,7 @@ impl HorizontalBar {
                 if let Some(entry_idx) = idx {
                     match &self.entries[entry_idx] {
                         BarEntry::Dropdown { .. } => {
-                            self.open_dropdown(entry_idx);
+                            self.request_dropdown(entry_idx, event);
                             event.clear();
                         }
                         BarEntry::Action { command, .. } => {
@@ -915,8 +654,9 @@ impl HorizontalBar {
                             BarEntry::Dropdown { .. } => {
                                 if self.active_dropdown == Some(idx) {
                                     self.close();
+                                    event.post(Event::command(CM_DROPDOWN_CLOSED));
                                 } else {
-                                    self.open_dropdown(idx);
+                                    self.request_dropdown(idx, event);
                                 }
                                 event.clear();
                             }
@@ -928,51 +668,13 @@ impl HorizontalBar {
                             }
                         }
                     }
-                } else if self.is_active() {
-                    // Click inside the open dropdown
-                    if let Some(item_idx) = self.item_at_position(col, row) {
-                        // Retrieve command while honouring borrow rules
-                        let cmd = if let Some(BarEntry::Dropdown { items, .. }) =
-                            self.entries.get(self.active_dropdown.unwrap_or(0))
-                        {
-                            items
-                                .get(item_idx)
-                                .filter(|item| item.enabled && !item.is_separator())
-                                .map(|item| item.command)
-                        } else {
-                            None
-                        };
-                        if let Some(cmd) = cmd {
-                            self.close();
-                            event.kind = EventKind::Command(cmd);
-                            event.handled = true;
-                        }
-                    } else {
-                        // Click outside dropdown and bar — close
-                        self.close();
-                        event.clear();
-                    }
                 }
+                // Clicks outside bar when active — don't handle here.
+                // OverlayManager dismiss-on-outside-click handles this.
             }
 
             MouseEventKind::Moved => {
                 if self.is_active() {
-                    // Hover over dropdown items — update selection
-                    if let Some(item_idx) = self.item_at_position(col, row) {
-                        let selectable = self.active_dropdown.is_some_and(|d_idx| {
-                            if let Some(BarEntry::Dropdown { items, .. }) = self.entries.get(d_idx)
-                            {
-                                items
-                                    .get(item_idx)
-                                    .is_some_and(|i| i.enabled && !i.is_separator())
-                            } else {
-                                false
-                            }
-                        });
-                        if selectable {
-                            self.selected_item = Some(item_idx);
-                        }
-                    }
                     // Switch dropdown on bar-row hover
                     if row == bar_bounds.y {
                         let local_col = col.saturating_sub(bar_bounds.x);
@@ -980,7 +682,7 @@ impl HorizontalBar {
                             if self.active_dropdown != Some(idx)
                                 && matches!(self.entries.get(idx), Some(BarEntry::Dropdown { .. }))
                             {
-                                self.open_dropdown(idx);
+                                self.request_dropdown(idx, event);
                             }
                         }
                     }
@@ -1002,7 +704,6 @@ impl HorizontalBar {
 
             _ => {
                 // Consume all other mouse events when a dropdown is open
-                // (prevents click-through to windows underneath).
                 if self.is_active() {
                     event.clear();
                 }
@@ -1033,9 +734,7 @@ impl View for HorizontalBar {
             return;
         }
         self.draw_bar(buf, clip);
-        if self.active_dropdown.is_some() {
-            self.draw_dropdown(buf, clip);
-        }
+        // Dropdown is now rendered by OverlayManager, not self-drawn
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -1263,7 +962,9 @@ mod tests {
         let mut bar = make_menu_bar();
         assert!(!bar.is_active());
 
-        bar.open_dropdown(0);
+        // Use F10 to open (request_dropdown requires event param)
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
         assert!(bar.is_active());
         assert_eq!(bar.active_dropdown(), Some(0));
 
@@ -1275,8 +976,9 @@ mod tests {
     #[test]
     fn test_open_dropdown_on_action_entry_does_nothing() {
         let mut bar = make_menu_bar();
-        // Entry 2 is an Action — opening it should be a no-op
-        bar.open_dropdown(2);
+        // Entry 2 is an Action — requesting it should be a no-op
+        let mut event = Event::default();
+        bar.request_dropdown(2, &mut event);
         assert!(!bar.is_active());
     }
 
@@ -1302,60 +1004,14 @@ mod tests {
     #[test]
     fn test_escape_closes() {
         let mut bar = make_menu_bar();
-        bar.open_dropdown(0);
+        // Open via F10
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
         assert!(bar.is_active());
 
         let mut event = make_key_event(KeyCode::Esc, KeyModifiers::NONE);
         bar.handle_event(&mut event);
         assert!(!bar.is_active());
-        assert!(event.is_cleared());
-    }
-
-    #[test]
-    fn test_enter_selects_item() {
-        let mut bar = make_menu_bar();
-        bar.open_dropdown(0);
-        // First selectable item in "File" dropdown is CM_NEW (index 0)
-        assert_eq!(bar.selected_item, Some(0));
-
-        let mut event = make_key_event(KeyCode::Enter, KeyModifiers::NONE);
-        bar.handle_event(&mut event);
-
-        assert!(!bar.is_active());
-        assert!(event.is_command());
-        assert_eq!(event.command_id(), Some(CM_NEW));
-    }
-
-    #[test]
-    fn test_arrow_navigation() {
-        let mut bar = make_menu_bar();
-        bar.open_dropdown(0);
-        assert_eq!(bar.active_dropdown(), Some(0));
-
-        // Right → switch to dropdown 1 (Edit)
-        let mut event = make_key_event(KeyCode::Right, KeyModifiers::NONE);
-        bar.handle_event(&mut event);
-        assert_eq!(bar.active_dropdown(), Some(1));
-        assert!(event.is_cleared());
-
-        // Left → back to dropdown 0 (File)
-        let mut event = make_key_event(KeyCode::Left, KeyModifiers::NONE);
-        bar.handle_event(&mut event);
-        assert_eq!(bar.active_dropdown(), Some(0));
-        assert!(event.is_cleared());
-
-        // Down → move to next item (from index 0 to index 1)
-        let initial_item = bar.selected_item;
-        let mut event = make_key_event(KeyCode::Down, KeyModifiers::NONE);
-        bar.handle_event(&mut event);
-        assert_ne!(bar.selected_item, initial_item);
-        assert!(event.is_cleared());
-
-        // Up → move back
-        let after_down = bar.selected_item;
-        let mut event = make_key_event(KeyCode::Up, KeyModifiers::NONE);
-        bar.handle_event(&mut event);
-        assert_ne!(bar.selected_item, after_down);
         assert!(event.is_cleared());
     }
 
@@ -1422,42 +1078,6 @@ mod tests {
         assert!(!bar.is_active());
         assert!(event.is_command());
         assert_eq!(event.command_id(), Some(CM_QUIT));
-    }
-
-    // -----------------------------------------------------------------------
-    // DropDirection tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_dropdown_direction_down() {
-        // Down: dropdown row = bar.y + 1 = 1
-        let mut bar = make_menu_bar(); // y=0, direction=Down
-        bar.open_dropdown(0);
-        // dropdown items start at row 2 (row 1 = top border, row 2 = first item)
-        let hit = bar.item_at_position(1, 2); // col inside dropdown, row = first item
-        assert!(hit.is_some());
-        assert_eq!(hit, Some(0));
-    }
-
-    #[test]
-    fn test_dropdown_direction_up() {
-        // Up: bar at y=10, dropdown opens above
-        let entries = vec![BarEntry::Dropdown {
-            label: "~F~ile".into(),
-            items: vec![
-                MenuItem::new("~N~ew", CM_NEW),
-                MenuItem::new("~O~pen", CM_OPEN),
-            ],
-            key_code: 0,
-        }];
-        let mut bar = HorizontalBar::status_line(Rect::new(0, 10, 80, 1), entries);
-        bar.open_dropdown(0);
-        // drop_height = 2 items + 2 border = 4
-        // drop_y = 10 - 4 = 6
-        // First item row = drop_y + 1 = 7
-        let hit = bar.item_at_position(1, 7);
-        assert!(hit.is_some());
-        assert_eq!(hit, Some(0));
     }
 
     // -----------------------------------------------------------------------
@@ -1535,5 +1155,100 @@ mod tests {
         assert!(bar.is_active());
         assert_eq!(bar.active_dropdown(), Some(0));
         assert!(event.is_cleared());
+        // Should have posted CM_OPEN_DROPDOWN
+        assert!(event
+            .deferred
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_OPEN_DROPDOWN)));
+    }
+
+    // -----------------------------------------------------------------------
+    // New deferred-event / Application-coordination tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_request_dropdown_posts_command() {
+        let mut bar = make_menu_bar();
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert!(bar.is_active());
+        assert_eq!(bar.active_dropdown(), Some(0));
+        // Should have posted CM_OPEN_DROPDOWN
+        assert!(event
+            .deferred
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_OPEN_DROPDOWN)));
+        // Should have pending dropdown
+        assert_eq!(bar.take_pending_dropdown(), Some(0));
+    }
+
+    #[test]
+    fn test_close_posts_dropdown_closed() {
+        let mut bar = make_menu_bar();
+        // Open first
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert!(bar.is_active());
+        // Press F10 again to close
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert!(!bar.is_active());
+        assert!(event
+            .deferred
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_DROPDOWN_CLOSED)));
+    }
+
+    #[test]
+    fn test_dropdown_items_for() {
+        let bar = make_menu_bar();
+        let items = bar.dropdown_items_for(0);
+        assert!(items.is_some());
+        assert!(!items.unwrap().is_empty());
+        // Action entry should return None
+        assert!(bar.dropdown_items_for(2).is_none());
+        // Out of range
+        assert!(bar.dropdown_items_for(99).is_none());
+    }
+
+    #[test]
+    fn test_dropdown_anchor() {
+        let bar = make_menu_bar();
+        let anchor = bar.dropdown_anchor(0);
+        assert!(anchor.is_some());
+        let (x, y) = anchor.unwrap();
+        assert_eq!(y, 0); // bar at y=0
+        assert_eq!(x, 0); // first entry at x=0
+    }
+
+    #[test]
+    fn test_navigate_dropdown() {
+        let mut bar = make_menu_bar();
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert_eq!(bar.active_dropdown(), Some(0));
+        // Navigate right
+        let mut event = Event::default();
+        bar.navigate_dropdown(1, &mut event);
+        assert_eq!(bar.active_dropdown(), Some(1)); // Edit dropdown
+        assert!(event
+            .deferred
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_OPEN_DROPDOWN)));
+    }
+
+    #[test]
+    fn test_escape_when_active_posts_closed() {
+        let mut bar = make_menu_bar();
+        let mut event = make_key_event(KeyCode::F(10), KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert!(bar.is_active());
+        let mut event = make_key_event(KeyCode::Esc, KeyModifiers::NONE);
+        bar.handle_event(&mut event);
+        assert!(!bar.is_active());
+        assert!(event
+            .deferred
+            .iter()
+            .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_DROPDOWN_CLOSED)));
     }
 }

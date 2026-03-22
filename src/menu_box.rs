@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use std::any::Any;
 
-use crate::command::CommandId;
+use crate::command::{CommandId, CM_DROPDOWN_NAVIGATE};
 use crate::menu_bar::MenuItem;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
@@ -52,6 +52,12 @@ pub struct MenuBox {
     selected: Option<usize>,
     /// Command selected by the user (`None` = nothing selected yet).
     result: Option<CommandId>,
+    /// If set, this `MenuBox` is owned by a `HorizontalBar` and will emit
+    /// commands through the event system instead of just storing `result`.
+    owner_bar_id: Option<ViewId>,
+    /// Direction for a pending navigate request: -1 (left) or 1 (right).
+    /// Set when Left/Right is pressed while owned by a bar.
+    navigate_direction: Option<isize>,
 }
 
 impl MenuBox {
@@ -68,6 +74,8 @@ impl MenuBox {
             items,
             selected,
             result: None,
+            owner_bar_id: None,
+            navigate_direction: None,
         }
     }
 
@@ -99,6 +107,29 @@ impl MenuBox {
         #[allow(clippy::cast_possible_truncation)]
         let height = items.len() as u16 + 2;
         Rect::new(x, y, width, height)
+    }
+
+    /// Set the owning bar's `ViewId`. When set, the `MenuBox` will emit
+    /// command events and navigation requests through the event system
+    /// instead of only storing the result internally.
+    #[must_use]
+    pub fn with_owner(mut self, bar_id: ViewId) -> Self {
+        self.owner_bar_id = Some(bar_id);
+        self
+    }
+
+    /// Get the owning bar's `ViewId`, if set.
+    #[must_use]
+    pub fn owner_bar_id(&self) -> Option<ViewId> {
+        self.owner_bar_id
+    }
+
+    /// Get the pending navigate direction set when Left/Right was pressed.
+    ///
+    /// Returns `-1` for Left, `1` for Right, or `None` if no navigation pending.
+    #[must_use]
+    pub fn navigate_direction(&self) -> Option<isize> {
+        self.navigate_direction
     }
 
     // -----------------------------------------------------------------------
@@ -155,10 +186,20 @@ impl MenuBox {
     }
 
     /// Commit the currently selected item as the result.
-    fn confirm_selection(&mut self) {
+    /// If an event is provided and this `MenuBox` has an owner, also emit the
+    /// command through the event system so it propagates through dispatch.
+    fn confirm_selection(&mut self, event: Option<&mut Event>) {
         if let Some(idx) = self.selected {
             if self.is_selectable(idx) {
-                self.result = Some(self.items[idx].command);
+                let cmd = self.items[idx].command;
+                self.result = Some(cmd);
+                // When owned by a bar, emit the command through the event
+                if self.owner_bar_id.is_some() {
+                    if let Some(ev) = event {
+                        ev.kind = EventKind::Command(cmd);
+                        ev.handled = true;
+                    }
+                }
             }
         }
     }
@@ -309,12 +350,27 @@ impl View for MenuBox {
                     event.clear();
                 }
                 KeyCode::Enter => {
-                    self.confirm_selection();
-                    event.clear();
+                    self.confirm_selection(Some(event));
+                    // Without owner, clear the event; with owner, confirm_selection
+                    // sets event.kind to Command and handled=true
+                    if self.owner_bar_id.is_none() {
+                        event.clear();
+                    }
                 }
                 KeyCode::Esc => {
                     // Escape — close without selection (result stays None)
                     self.result = None;
+                    event.clear();
+                }
+                // Left/Right navigate to adjacent dropdown (only when owned by bar)
+                KeyCode::Left if self.owner_bar_id.is_some() => {
+                    self.navigate_direction = Some(-1);
+                    event.post(Event::command(CM_DROPDOWN_NAVIGATE));
+                    event.clear();
+                }
+                KeyCode::Right if self.owner_bar_id.is_some() => {
+                    self.navigate_direction = Some(1);
+                    event.post(Event::command(CM_DROPDOWN_NAVIGATE));
                     event.clear();
                 }
                 _ => {}
@@ -329,8 +385,11 @@ impl View for MenuBox {
                         if let Some(item_idx) = self.item_at(col, row) {
                             if self.is_selectable(item_idx) {
                                 self.selected = Some(item_idx);
-                                self.confirm_selection();
-                                event.clear();
+                                self.confirm_selection(Some(event));
+                                // Without owner, clear the event
+                                if self.owner_bar_id.is_none() {
+                                    event.clear();
+                                }
                             }
                         }
                     }
@@ -597,5 +656,138 @@ mod tests {
 
         // Initial selection should be 0 (Enabled), not 1 (Disabled)
         assert_eq!(menu.selected(), Some(0));
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_emits_command_on_enter_with_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_emits_command_on_enter_with_owner() {
+        use crate::view::ViewBase;
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let owner_id = ViewBase::new(Rect::new(0, 0, 80, 1)).id();
+        let mut menu = MenuBox::new(bounds, items).with_owner(owner_id);
+
+        // Initial selection: index 0 = CM_NEW
+        assert_eq!(menu.selected(), Some(0));
+
+        // Enter should emit CM_NEW as command event
+        let mut event = make_key_event(KeyCode::Enter);
+        menu.handle_event(&mut event);
+        assert_eq!(menu.result(), Some(CM_NEW));
+        assert!(matches!(event.kind, EventKind::Command(cmd) if cmd == CM_NEW));
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_no_command_emission_without_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_no_command_emission_without_owner() {
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let mut menu = MenuBox::new(bounds, items);
+
+        // Without owner, Enter should store result but clear event (not emit command)
+        let mut event = make_key_event(KeyCode::Enter);
+        menu.handle_event(&mut event);
+        assert_eq!(menu.result(), Some(CM_NEW));
+        // Event should be cleared, not a command
+        assert!(event.is_cleared());
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_left_right_posts_navigate_with_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_left_right_posts_navigate_with_owner() {
+        use crate::view::ViewBase;
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let owner_id = ViewBase::new(Rect::new(0, 0, 80, 1)).id();
+        let mut menu = MenuBox::new(bounds, items).with_owner(owner_id);
+
+        // Left arrow should post CM_DROPDOWN_NAVIGATE as deferred event
+        let mut event = make_key_event(KeyCode::Left);
+        menu.handle_event(&mut event);
+        assert!(event.is_cleared());
+        assert_eq!(event.deferred.len(), 1);
+        assert!(matches!(
+            event.deferred[0].kind,
+            EventKind::Command(cmd) if cmd == CM_DROPDOWN_NAVIGATE
+        ));
+
+        // Right arrow should also post CM_DROPDOWN_NAVIGATE
+        let mut event = make_key_event(KeyCode::Right);
+        menu.handle_event(&mut event);
+        assert!(event.is_cleared());
+        assert_eq!(event.deferred.len(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_navigate_direction_set_on_left_right
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_navigate_direction_set_on_left_right() {
+        use crate::view::ViewBase;
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let owner_id = ViewBase::new(Rect::new(0, 0, 80, 1)).id();
+        let mut menu = MenuBox::new(bounds, items).with_owner(owner_id);
+
+        // Initially no direction pending
+        assert_eq!(menu.navigate_direction(), None);
+
+        // Left sets -1
+        let mut event = make_key_event(KeyCode::Left);
+        menu.handle_event(&mut event);
+        assert_eq!(menu.navigate_direction(), Some(-1));
+
+        // Right sets +1
+        let mut event = make_key_event(KeyCode::Right);
+        menu.handle_event(&mut event);
+        assert_eq!(menu.navigate_direction(), Some(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_left_right_ignored_without_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_left_right_ignored_without_owner() {
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let mut menu = MenuBox::new(bounds, items);
+
+        // Without owner, Left/Right should NOT be handled
+        let mut event = make_key_event(KeyCode::Left);
+        menu.handle_event(&mut event);
+        assert!(
+            !event.is_cleared(),
+            "Left should not be handled without owner"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // test_menu_box_mouse_click_emits_command_with_owner
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_menu_box_mouse_click_emits_command_with_owner() {
+        use crate::view::ViewBase;
+        let items = make_items();
+        let bounds = MenuBox::calculate_bounds(0, 0, &items);
+        let owner_id = ViewBase::new(Rect::new(0, 0, 80, 1)).id();
+        let mut menu = MenuBox::new(bounds, items).with_owner(owner_id);
+
+        // Click on first item (row = bounds.y + 1, col inside)
+        let mut event = make_mouse_down(1, 1); // inside first item
+        menu.handle_event(&mut event);
+        assert_eq!(menu.result(), Some(CM_NEW));
+        assert!(matches!(event.kind, EventKind::Command(cmd) if cmd == CM_NEW));
     }
 }

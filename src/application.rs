@@ -31,10 +31,13 @@
 //! 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 //! 6. Process deferred event queue
 
-use crate::command::{CommandId, CM_CLOSE, CM_QUIT};
+use crate::command::{
+    CommandId, CM_CLOSE, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT,
+};
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
-use crate::overlay::OverlayManager;
+use crate::menu_box::MenuBox;
+use crate::overlay::{calculate_overlay_bounds, Overlay, OverlayManager};
 use crate::status_line::StatusLine;
 use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
@@ -378,6 +381,176 @@ impl Application {
     // Private helpers
     // -------------------------------------------------------------------------
 
+    /// Handle dropdown orchestration commands.
+    ///
+    /// These commands are posted as deferred events by `HorizontalBar` and
+    /// `MenuBox` to coordinate overlay lifecycle:
+    /// - `CM_OPEN_DROPDOWN` → create a `MenuBox` overlay
+    /// - `CM_DROPDOWN_CLOSED` → dismiss the overlay and reset bar state
+    /// - `CM_DROPDOWN_NAVIGATE` → close current, open adjacent dropdown
+    fn handle_dropdown_commands(&mut self, event: &mut Event) {
+        let EventKind::Command(cmd) = event.kind else {
+            return;
+        };
+
+        match cmd {
+            CM_OPEN_DROPDOWN => {
+                self.handle_open_dropdown(event);
+            }
+            CM_DROPDOWN_CLOSED => {
+                self.handle_close_dropdown(event);
+            }
+            CM_DROPDOWN_NAVIGATE => {
+                self.handle_navigate_dropdown(event);
+            }
+            _ => {}
+        }
+    }
+
+    /// Create a `MenuBox` overlay for the pending dropdown.
+    fn handle_open_dropdown(&mut self, event: &mut Event) {
+        // Try menu bar first, then status line
+        let bar_data = if let Some(ref mut mb) = self.menu_bar {
+            if let Some(idx) = mb.take_pending_dropdown() {
+                if let (Some(items), Some(anchor)) =
+                    (mb.dropdown_items_for(idx), mb.dropdown_anchor(idx))
+                {
+                    Some((mb.id(), items.to_vec(), anchor, mb.drop_direction()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let bar_data = if bar_data.is_none() {
+            if let Some(ref mut sl) = self.status_line {
+                if let Some(idx) = sl.take_pending_dropdown() {
+                    if let (Some(items), Some(anchor)) =
+                        (sl.dropdown_items_for(idx), sl.dropdown_anchor(idx))
+                    {
+                        Some((sl.id(), items.to_vec(), anchor, sl.drop_direction()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            bar_data
+        };
+
+        let Some((bar_id, items, anchor, direction)) = bar_data else {
+            return;
+        };
+
+        // Remove any existing overlay from this bar
+        self.overlay_manager.pop_by_owner(bar_id);
+
+        // Calculate MenuBox bounds and adjust for screen overflow
+        let menu_bounds = MenuBox::calculate_bounds(anchor.0, anchor.1, &items);
+        let screen = Rect::new(0, 0, self.screen_size.width, self.screen_size.height);
+
+        let (overlay_rect, _actual_dir) = calculate_overlay_bounds(
+            anchor,
+            (menu_bounds.width, menu_bounds.height),
+            screen,
+            direction,
+        );
+
+        // Create MenuBox with owner so it emits commands through the event system
+        let menu_box = MenuBox::new(overlay_rect, items).with_owner(bar_id);
+
+        self.overlay_manager.push(Overlay {
+            view: Box::new(menu_box),
+            owner_id: bar_id,
+            dismiss_on_outside_click: true,
+            dismiss_on_escape: true,
+        });
+
+        event.clear();
+    }
+
+    /// Close the dropdown overlay and reset the owning bar state.
+    fn handle_close_dropdown(&mut self, event: &mut Event) {
+        // Close overlays owned by menu bar
+        if let Some(ref mb) = self.menu_bar {
+            let id = mb.id();
+            self.overlay_manager.pop_by_owner(id);
+        }
+        // Close overlays owned by status line
+        if let Some(ref sl) = self.status_line {
+            let id = sl.id();
+            self.overlay_manager.pop_by_owner(id);
+        }
+        // Reset bar states
+        if let Some(ref mut mb) = self.menu_bar {
+            mb.close();
+        }
+        if let Some(ref mut sl) = self.status_line {
+            sl.close();
+        }
+        event.clear();
+    }
+
+    /// Navigate to the adjacent dropdown (Left/Right arrow in open menu).
+    fn handle_navigate_dropdown(&mut self, event: &mut Event) {
+        // Determine which bar owns the current overlay and read navigate direction
+        // before popping (direction is stored in the MenuBox overlay).
+        let menu_bar_owner = self.menu_bar.as_ref().and_then(|mb| {
+            if self.overlay_manager.has_overlay_for(mb.id()) {
+                Some(mb.id())
+            } else {
+                None
+            }
+        });
+
+        if let Some(owner_id) = menu_bar_owner {
+            let delta = self.read_navigate_direction_from_overlay(owner_id);
+            self.overlay_manager.pop_by_owner(owner_id);
+            if let Some(ref mut mb) = self.menu_bar {
+                mb.navigate_dropdown(delta, event);
+            }
+        } else {
+            let status_line_owner = self.status_line.as_ref().and_then(|sl| {
+                if self.overlay_manager.has_overlay_for(sl.id()) {
+                    Some(sl.id())
+                } else {
+                    None
+                }
+            });
+            if let Some(owner_id) = status_line_owner {
+                let delta = self.read_navigate_direction_from_overlay(owner_id);
+                self.overlay_manager.pop_by_owner(owner_id);
+                if let Some(ref mut sl) = self.status_line {
+                    sl.navigate_dropdown(delta, event);
+                }
+            }
+        }
+        event.clear();
+    }
+
+    /// Read the navigate direction from the `MenuBox` overlay owned by `owner_id`.
+    ///
+    /// Downcasts the overlay view to `MenuBox` and returns its stored direction,
+    /// defaulting to `1` (right) if not found.
+    fn read_navigate_direction_from_overlay(&self, owner_id: ViewId) -> isize {
+        for overlay in self.overlay_manager.overlays_iter() {
+            if overlay.owner_id == owner_id {
+                if let Some(menu_box) = overlay.view.as_any().downcast_ref::<MenuBox>() {
+                    return menu_box.navigate_direction().unwrap_or(1);
+                }
+            }
+        }
+        1
+    }
+
     /// Handle application-level commands.
     ///
     /// Currently handles:
@@ -399,6 +572,9 @@ impl Application {
                             event.clear();
                         }
                     }
+                }
+                CM_OPEN_DROPDOWN | CM_DROPDOWN_CLOSED | CM_DROPDOWN_NAVIGATE => {
+                    self.handle_dropdown_commands(event);
                 }
                 other => {
                     // Unknown command — store for consumer to handle
@@ -502,7 +678,7 @@ impl Application {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::{CM_CLOSE, CM_QUIT};
+    use crate::command::{CM_CLOSE, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT};
     use crate::view::{Event, EventKind};
     use ratatui::layout::Rect;
 
@@ -726,6 +902,174 @@ mod tests {
         assert!(
             !app.is_running(),
             "deferred CM_QUIT must stop the application"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_open_dropdown_creates_overlay() {
+        use crate::command::CM_NEW;
+        use crate::menu_bar::{menu_bar_from_menus, Menu, MenuItem};
+
+        let mut app = Application::new(screen());
+        let menus = vec![Menu::new("~F~ile", vec![MenuItem::new("~N~ew", CM_NEW)])];
+        let mb = menu_bar_from_menus(screen(), menus);
+        app.set_menu_bar(mb);
+
+        // Simulate F10 to open dropdown
+        let f10 = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::F(10),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(f10));
+
+        // After dispatch + deferred processing, overlay must exist
+        assert!(
+            !app.overlay_manager().is_empty(),
+            "F10 must create a dropdown overlay"
+        );
+        assert!(
+            app.menu_bar().unwrap().is_active(),
+            "menu bar must show active dropdown"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_dropdown_escape_dismisses() {
+        use crate::command::CM_NEW;
+        use crate::menu_bar::{menu_bar_from_menus, Menu, MenuItem};
+
+        let mut app = Application::new(screen());
+        let menus = vec![Menu::new("~F~ile", vec![MenuItem::new("~N~ew", CM_NEW)])];
+        let mb = menu_bar_from_menus(screen(), menus);
+        app.set_menu_bar(mb);
+
+        // Open dropdown via F10
+        let f10 = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::F(10),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(f10));
+        assert!(
+            !app.overlay_manager().is_empty(),
+            "overlay must exist after F10"
+        );
+
+        // Press Escape — OverlayManager dismisses the overlay and posts CM_DROPDOWN_CLOSED
+        let esc = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::Esc,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(esc));
+
+        assert!(
+            app.overlay_manager().is_empty(),
+            "Escape must dismiss dropdown overlay"
+        );
+        assert!(
+            !app.menu_bar().unwrap().is_active(),
+            "menu bar must be deactivated after Escape"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_dropdown_enter_emits_command() {
+        use crate::command::CM_NEW;
+        use crate::menu_bar::{menu_bar_from_menus, Menu, MenuItem};
+
+        let mut app = Application::new(screen());
+        let menus = vec![Menu::new("~F~ile", vec![MenuItem::new("~N~ew", CM_NEW)])];
+        let mb = menu_bar_from_menus(screen(), menus);
+        app.set_menu_bar(mb);
+
+        // Open dropdown via F10
+        let f10 = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::F(10),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(f10));
+        assert!(
+            !app.overlay_manager().is_empty(),
+            "overlay must exist after F10"
+        );
+
+        // Press Enter — selects first item (CM_NEW) and emits the command
+        let enter = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::Enter,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(enter));
+
+        // The command should be stored as unhandled (no window handles CM_NEW)
+        let unhandled = app.take_unhandled_command();
+        assert_eq!(
+            unhandled,
+            Some(CM_NEW),
+            "Enter in dropdown must emit the selected item's command"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_cm_open_dropdown_without_bar_is_noop() {
+        let mut app = Application::new(screen());
+        // No menu bar installed — CM_OPEN_DROPDOWN must not panic
+        let mut event = Event::command(CM_OPEN_DROPDOWN);
+        app.dispatch(&mut event);
+        assert!(app.overlay_manager().is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_cm_dropdown_closed_resets_bar() {
+        use crate::command::CM_NEW;
+        use crate::menu_bar::{menu_bar_from_menus, Menu, MenuItem};
+
+        let mut app = Application::new(screen());
+        let mb = menu_bar_from_menus(
+            screen(),
+            vec![Menu::new("~F~ile", vec![MenuItem::new("~N~ew", CM_NEW)])],
+        );
+        app.set_menu_bar(mb);
+
+        // Open dropdown
+        let f10 = crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::F(10),
+            modifiers: crossterm::event::KeyModifiers::NONE,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        app.handle_crossterm_event(&crossterm::event::Event::Key(f10));
+        assert!(app.menu_bar().unwrap().is_active());
+
+        // Dispatch CM_DROPDOWN_CLOSED directly
+        let mut event = Event::command(CM_DROPDOWN_CLOSED);
+        app.dispatch(&mut event);
+
+        assert!(
+            app.overlay_manager().is_empty(),
+            "overlay must be dismissed"
+        );
+        assert!(
+            !app.menu_bar().unwrap().is_active(),
+            "bar must be inactive after CM_DROPDOWN_CLOSED"
         );
     }
 }

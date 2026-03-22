@@ -27,6 +27,7 @@ use turbo_tui::{
     button::Button,
     command::{CM_CLOSE, CM_OK, CM_QUIT},
     menu_bar::{Menu, MenuBar, MenuItem},
+    scrollbar::ScrollBar,
     static_text::StaticText,
     status_line::{StatusItem, StatusLine, KB_ALT_X, KB_F10},
     window::Window,
@@ -165,6 +166,9 @@ fn add_demo_windows(app: &mut Application) {
 
     let ok_btn = Button::new(Rect::new(12, 7, 10, 1), "~O~K", CM_OK, true);
     win1.add(Box::new(ok_btn));
+
+    // Add a vertical scrollbar to demonstrate the scrollbar-on-border feature
+    win1.frame_mut().set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
 
     app.add_window(win1);
 

@@ -226,10 +226,10 @@ impl Frame {
             return Rect::default();
         }
 
-        // Right inset: 1 for border + 1 for scrollbar if present
-        let right_inset: u16 = if self.v_scrollbar.is_some() { 2 } else { 1 };
-        // Bottom inset: 1 for border + 1 for scrollbar if present
-        let bottom_inset: u16 = if self.h_scrollbar.is_some() { 2 } else { 1 };
+        // Inset is always 1: scrollbars sit on the border, so interior is
+        // bounded by the border on all sides (border may have scrollbar overlaid)
+        let right_inset: u16 = 1;
+        let bottom_inset: u16 = 1;
 
         let w = b.width.saturating_sub(1 + right_inset);
         let h = b.height.saturating_sub(1 + bottom_inset);
@@ -490,7 +490,7 @@ impl Frame {
 
         // Vertical scrollbar
         if let Some(ref sb) = self.v_scrollbar {
-            let sb_x = b.x + b.width.saturating_sub(2);
+            let sb_x = b.x + b.width.saturating_sub(1);
             let sb_y = b.y + 1;
             let sb_height = b.height.saturating_sub(2);
             let sb_bounds = Rect::new(sb_x, sb_y, 1, sb_height);
@@ -504,7 +504,7 @@ impl Frame {
         if let Some(ref sb) = self.h_scrollbar {
             let h_sb_bounds = Rect::new(
                 b.x + 1,
-                b.y + b.height.saturating_sub(2),
+                b.y + b.height.saturating_sub(1),
                 b.width.saturating_sub(2),
                 1,
             );
@@ -638,9 +638,9 @@ mod tests {
         let mut frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
         frame.set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
 
-        // With v_scrollbar: right inset is 2 instead of 1
+        // With v_scrollbar: scrollbar sits on right border, interior same size
         let interior = frame.interior_area();
-        assert_eq!(interior, Rect::new(11, 6, 37, 18));
+        assert_eq!(interior, Rect::new(11, 6, 38, 18));
     }
 
     #[test]
@@ -649,9 +649,9 @@ mod tests {
         let mut frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
         frame.set_h_scrollbar(ScrollBar::horizontal(Rect::new(0, 0, 10, 1)));
 
-        // With h_scrollbar: bottom inset is 2 instead of 1
+        // With h_scrollbar: scrollbar sits on bottom border, interior same size
         let interior = frame.interior_area();
-        assert_eq!(interior, Rect::new(11, 6, 38, 17));
+        assert_eq!(interior, Rect::new(11, 6, 38, 18));
     }
 
     #[test]
@@ -661,9 +661,9 @@ mod tests {
         frame.set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
         frame.set_h_scrollbar(ScrollBar::horizontal(Rect::new(0, 0, 10, 1)));
 
-        // Both scrollbars: right inset 2, bottom inset 2
+        // Both scrollbars: scrollbars sit on borders, interior same as no scrollbars
         let interior = frame.interior_area();
-        assert_eq!(interior, Rect::new(11, 6, 37, 17));
+        assert_eq!(interior, Rect::new(11, 6, 38, 18));
     }
 
     #[test]

@@ -1,0 +1,253 @@
+{
+  "name": "Turbo Vision",
+  "desktop": {
+    "bg": {
+      "fg": "DarkGray",
+      "bg": "#181818"
+    },
+    "char": " "
+  },
+  "borders": {
+    "window": "double",
+    "menu": {
+      "chars": "single",
+      "sep_l": "├",
+      "sep_r": "┤"
+    }
+  },
+  "window": {
+    "frame_active": {
+      "fg": "White",
+      "bg": "Blue"
+    },
+    "frame_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "title_active": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "title_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "interior": {
+      "fg": "Yellow",
+      "bg": "Blue"
+    },
+    "close_button": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "resize_handle": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "frame_dragging": {
+      "fg": "Yellow",
+      "bg": "Blue",
+      "bold": true
+    },
+    "close_button_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "resize_handle_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "close_button_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "resize_handle_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "close_button_text": "[■]",
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "resize_grip_char": "◢",
+    "minimize_button_text": "",
+    "maximize_button_text": "",
+    "maximize_restore_text": "",
+    "minimize_button": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "minimize_button_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "minimize_button_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "maximize_button": {
+      "fg": "LightGreen",
+      "bg": "Blue"
+    },
+    "maximize_button_hover": {
+      "fg": "White",
+      "bg": "Blue",
+      "bold": true
+    },
+    "maximize_button_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    }
+  },
+  "dialog": {
+    "frame": {
+      "fg": "White",
+      "bg": "Gray"
+    },
+    "title": {
+      "fg": "White",
+      "bg": "Gray",
+      "bold": true
+    },
+    "interior": {
+      "fg": "Black",
+      "bg": "Gray"
+    }
+  },
+  "single_frame": {
+    "frame": {
+      "fg": "Gray",
+      "bg": "Blue"
+    }
+  },
+  "menu_bar": {
+    "normal": {
+      "fg": "Black",
+      "bg": "Gray"
+    },
+    "selected": {
+      "fg": "Black",
+      "bg": "Green"
+    },
+    "hotkey": {
+      "fg": "Red",
+      "bg": "Gray",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "Red",
+      "bg": "Green",
+      "bold": true
+    }
+  },
+  "menu_box": {
+    "normal": {
+      "fg": "Black",
+      "bg": "Gray"
+    },
+    "selected": {
+      "fg": "Black",
+      "bg": "Green"
+    },
+    "disabled": {
+      "fg": "DarkGray",
+      "bg": "Gray"
+    },
+    "separator": {
+      "fg": "DarkGray",
+      "bg": "Gray"
+    },
+    "hotkey": {
+      "fg": "Red",
+      "bg": "Gray",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "Red",
+      "bg": "Green",
+      "bold": true
+    }
+  },
+  "status_line": {
+    "normal": {
+      "fg": "Black",
+      "bg": "Gray"
+    },
+    "hotkey": {
+      "fg": "Yellow",
+      "bg": "Gray",
+      "bold": true
+    },
+    "selected": {
+      "fg": "Black",
+      "bg": "Green"
+    }
+  },
+  "button": {
+    "normal": {
+      "fg": "Black",
+      "bg": "Green"
+    },
+    "default": {
+      "fg": "White",
+      "bg": "Green",
+      "bold": true
+    },
+    "focused": {
+      "fg": "LightCyan",
+      "bg": "Green"
+    },
+    "disabled": {
+      "fg": "DarkGray",
+      "bg": "Gray"
+    },
+    "hover": {
+      "fg": "White",
+      "bg": "Green",
+      "bold": true
+    }
+  },
+  "static_text": {
+    "fg": "Yellow",
+    "bg": "Blue"
+  },
+  "scrollbar": {
+    "track": {
+      "fg": "Blue",
+      "bg": "Cyan"
+    },
+    "thumb": {
+      "fg": "Blue",
+      "bg": "Cyan"
+    },
+    "arrows": {
+      "fg": "Blue",
+      "bg": "Cyan"
+    },
+    "thumb_hover": {
+      "fg": "White",
+      "bg": "Cyan"
+    },
+    "arrows_hover": {
+      "fg": "White",
+      "bg": "Cyan"
+    },
+    "track_inactive": {
+      "fg": "DarkGray",
+      "bg": "Blue"
+    },
+    "thumb_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    },
+    "arrows_inactive": {
+      "fg": "Gray",
+      "bg": "Blue"
+    }
+  }
+}

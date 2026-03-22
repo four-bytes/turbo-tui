@@ -1,0 +1,252 @@
+{
+  "name": "Matrix",
+  "desktop": {
+    "bg": {
+      "fg": "#282828",
+      "bg": "#0f0f14"
+    },
+    "char": " "
+  },
+  "borders": {
+    "window": "single",
+    "menu": {
+      "chars": "single",
+      "sep_l": "├",
+      "sep_r": "┤"
+    }
+  },
+  "window": {
+    "frame_active": {
+      "fg": "#00c878",
+      "bg": "#0f0f14"
+    },
+    "frame_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "title_active": {
+      "fg": "#00ff96",
+      "bg": "#0f0f14",
+      "bold": true
+    },
+    "title_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "interior": {
+      "fg": "#00c878",
+      "bg": "#141619"
+    },
+    "close_button": {
+      "fg": "#ff5050",
+      "bg": "#0f0f14"
+    },
+    "resize_handle": {
+      "fg": "#00c878",
+      "bg": "#0f0f14"
+    },
+    "frame_dragging": {
+      "fg": "#00ff96",
+      "bg": "#0f0f14",
+      "bold": true
+    },
+    "close_button_hover": {
+      "fg": "#ff5050",
+      "bg": "#c83232"
+    },
+    "resize_handle_hover": {
+      "fg": "#00ff96",
+      "bg": "#0f0f14",
+      "bold": true
+    },
+    "close_button_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "resize_handle_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "close_button_text": "[■]",
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "minimize_button_text": " ─ ",
+    "maximize_button_text": " □ ",
+    "maximize_restore_text": " ◻ ",
+    "minimize_button": {
+      "fg": "#00c878",
+      "bg": "#0f0f14"
+    },
+    "minimize_button_hover": {
+      "fg": "#00ff96",
+      "bg": "#0f0f14",
+      "bold": true
+    },
+    "minimize_button_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "maximize_button": {
+      "fg": "#00c878",
+      "bg": "#0f0f14"
+    },
+    "maximize_button_hover": {
+      "fg": "#00ff96",
+      "bg": "#0f0f14",
+      "bold": true
+    },
+    "maximize_button_inactive": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    },
+    "resize_grip_char": "◢"
+  },
+  "dialog": {
+    "frame": {
+      "fg": "#00c878",
+      "bg": "#1e2323"
+    },
+    "title": {
+      "fg": "#00ff96",
+      "bg": "#1e2323",
+      "bold": true
+    },
+    "interior": {
+      "fg": "#00c878",
+      "bg": "#1e2323"
+    }
+  },
+  "single_frame": {
+    "frame": {
+      "fg": "#32503c",
+      "bg": "#0f0f14"
+    }
+  },
+  "menu_bar": {
+    "normal": {
+      "fg": "#00c878",
+      "bg": "#191c1e"
+    },
+    "selected": {
+      "fg": "#0f0f14",
+      "bg": "#00c878"
+    },
+    "hotkey": {
+      "fg": "#00ff96",
+      "bg": "#191c1e",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "#0f0f14",
+      "bg": "#00c878",
+      "bold": true
+    }
+  },
+  "menu_box": {
+    "normal": {
+      "fg": "#00b464",
+      "bg": "#191c1e"
+    },
+    "selected": {
+      "fg": "#0f0f14",
+      "bg": "#00c878"
+    },
+    "disabled": {
+      "fg": "#323c37",
+      "bg": "#191c1e"
+    },
+    "separator": {
+      "fg": "#28372d",
+      "bg": "#191c1e"
+    },
+    "hotkey": {
+      "fg": "#00ff96",
+      "bg": "#191c1e",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "#0f0f14",
+      "bg": "#00c878",
+      "bold": true
+    }
+  },
+  "status_line": {
+    "normal": {
+      "fg": "#00b464",
+      "bg": "#191c1e"
+    },
+    "hotkey": {
+      "fg": "#00ff96",
+      "bg": "#191c1e",
+      "bold": true
+    },
+    "selected": {
+      "fg": "#0f0f14",
+      "bg": "#00c878"
+    }
+  },
+  "button": {
+    "normal": {
+      "fg": "#00b464",
+      "bg": "#232826"
+    },
+    "default": {
+      "fg": "#00ff96",
+      "bg": "#232826",
+      "bold": true
+    },
+    "focused": {
+      "fg": "#0f0f14",
+      "bg": "#00c878"
+    },
+    "disabled": {
+      "fg": "#323c37",
+      "bg": "#232826"
+    },
+    "hover": {
+      "fg": "#00ff96",
+      "bg": "#00c878",
+      "bold": true
+    }
+  },
+  "static_text": {
+    "fg": "#00b464",
+    "bg": "#141619"
+  },
+  "scrollbar": {
+    "track": {
+      "fg": "#1e2823",
+      "bg": "#141619"
+    },
+    "thumb": {
+      "fg": "#00c878",
+      "bg": "#141619"
+    },
+    "arrows": {
+      "fg": "#32503c",
+      "bg": "#141619"
+    },
+    "thumb_hover": {
+      "fg": "#00ff96",
+      "bg": "#141619"
+    },
+    "arrows_hover": {
+      "fg": "#00ff96",
+      "bg": "#141619"
+    },
+    "track_inactive": {
+      "fg": "#1e2823",
+      "bg": "#141619"
+    },
+    "thumb_inactive": {
+      "fg": "#1e2823",
+      "bg": "#141619"
+    },
+    "arrows_inactive": {
+      "fg": "#1e2823",
+      "bg": "#141619"
+    }
+  }
+}

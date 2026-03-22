@@ -89,21 +89,13 @@ impl StaticText {
         self.centered
     }
 
-    /// Draw the text to the buffer.
-    fn draw_text(&self, buf: &mut Buffer, area: Rect) {
+    /// Draw the text to the buffer, clipped to the given area.
+    fn draw_text(&self, buf: &mut Buffer, clip: Rect) {
         if self.text.is_empty() {
             return;
         }
 
         let bounds = self.base.bounds();
-
-        // Skip drawing if completely outside clip area
-        if bounds.y >= area.y + area.height || bounds.y + bounds.height <= area.y {
-            return;
-        }
-        if bounds.x >= area.x + area.width || bounds.x + bounds.width <= area.x {
-            return;
-        }
 
         let x = if self.centered {
             #[allow(clippy::cast_possible_truncation)]
@@ -114,7 +106,7 @@ impl StaticText {
         };
 
         let style = theme::with_current(|t| t.static_text);
-        buf.set_string(x, bounds.y, &self.text, style);
+        crate::clip::set_string_clipped(buf, x, bounds.y, &self.text, style, clip);
     }
 }
 
@@ -131,8 +123,8 @@ impl View for StaticText {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        self.draw_text(buf, area);
+    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+        self.draw_text(buf, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {

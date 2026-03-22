@@ -97,10 +97,26 @@ pub const CM_NEXT: CommandId = 141;
 pub const CM_PREV: CommandId = 142;
 pub const CM_TILE: CommandId = 143;
 pub const CM_CASCADE: CommandId = 144;
+pub const CM_NEXT_THEME: CommandId = 145;
+/// Minimize the active window.
+pub const CM_MINIMIZE: CommandId = 146;
 
 /// Commands >= `INTERNAL_COMMAND_BASE` are internal view commands
 /// and will NOT close modal dialogs.
 pub const INTERNAL_COMMAND_BASE: CommandId = 1000;
+
+// Dropdown orchestration commands (internal, >= INTERNAL_COMMAND_BASE)
+/// Internal: `HorizontalBar` requests Application to open a dropdown overlay.
+/// The bar stores the dropdown index in `pending_dropdown` for Application to read.
+pub const CM_OPEN_DROPDOWN: CommandId = INTERNAL_COMMAND_BASE + 10;
+
+/// Internal: A dropdown overlay was closed (item selected, Escape, or outside click).
+/// Sent so the owning `HorizontalBar` can reset its `active_dropdown` state.
+pub const CM_DROPDOWN_CLOSED: CommandId = INTERNAL_COMMAND_BASE + 11;
+
+/// Internal: Navigate to an adjacent dropdown (Left/Right arrow in an open menu).
+/// The bar stores the navigation direction in `pending_dropdown_navigate`.
+pub const CM_DROPDOWN_NAVIGATE: CommandId = INTERNAL_COMMAND_BASE + 12;
 
 #[cfg(test)]
 mod tests {

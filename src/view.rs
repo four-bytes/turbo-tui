@@ -57,6 +57,8 @@ pub const SF_RESIZING: u16 = 0x0020;
 pub const SF_SHADOW: u16 = 0x0040;
 /// View is the active window.
 pub const SF_ACTIVE: u16 = 0x0080;
+/// View is minimized (collapsed to title bar).
+pub const SF_MINIMIZED: u16 = 0x0100;
 
 // ============================================================================
 // Option Flags (bitfield)
@@ -101,6 +103,9 @@ pub struct Event {
     pub kind: EventKind,
     /// Whether the event has been handled.
     pub handled: bool,
+    /// Deferred events to be dispatched after the current dispatch cycle.
+    /// Child views can push events here for parent/application-level processing.
+    pub deferred: Vec<Event>,
 }
 
 impl Event {
@@ -110,6 +115,7 @@ impl Event {
         Self {
             kind,
             handled: false,
+            deferred: Vec::new(),
         }
     }
 
@@ -174,6 +180,11 @@ impl Event {
             EventKind::Command(id) | EventKind::Broadcast(id) => Some(*id),
             _ => None,
         }
+    }
+
+    /// Post a deferred event to be dispatched after the current cycle.
+    pub fn post(&mut self, event: Event) {
+        self.deferred.push(event);
     }
 }
 
@@ -255,9 +266,11 @@ pub trait View {
 
     /// Draw the view to the buffer.
     ///
-    /// The `area` parameter is the actual area available for drawing,
-    /// which may be smaller than `bounds()` due to clamping.
-    fn draw(&self, buf: &mut Buffer, area: Rect);
+    /// The `clip` parameter defines the clip region — only draw within this
+    /// rectangle. Views should draw at their own `bounds()` coordinates,
+    /// skipping any cells outside `clip`. Containers pass the intersection
+    /// of the parent area and child bounds.
+    fn draw(&self, buf: &mut Buffer, clip: Rect);
 
     // --- Events ---
 
@@ -339,6 +352,37 @@ pub trait View {
 
     /// Downcast to `Any` for mutable concrete type access.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    // --- Lifecycle hooks ---
+
+    /// Called when this view is inserted into a container.
+    ///
+    /// `parent_bounds` is the container's bounds, useful for relative positioning.
+    /// Default implementation does nothing.
+    fn on_insert(&mut self, _parent_bounds: Rect) {}
+
+    /// Called when this view is removed from a container.
+    ///
+    /// Default implementation does nothing.
+    fn on_remove(&mut self) {}
+
+    /// Called when the terminal is resized.
+    ///
+    /// `new_size` is the new terminal dimensions `(width, height)`.
+    /// Default implementation does nothing.
+    fn on_resize(&mut self, _new_size: (u16, u16)) {}
+
+    /// Called when this view receives focus (`SF_FOCUSED` set).
+    ///
+    /// Default implementation does nothing. Override to react to focus
+    /// changes, e.g., showing a cursor or updating visual state.
+    fn on_focus(&mut self) {}
+
+    /// Called when this view loses focus (`SF_FOCUSED` cleared).
+    ///
+    /// Default implementation does nothing. Override to react to blur,
+    /// e.g., hiding a cursor or updating visual state.
+    fn on_blur(&mut self) {}
 }
 
 // ============================================================================
@@ -387,6 +431,8 @@ pub struct ViewBase {
     owner_type: OwnerType,
     /// End state for modal dialogs.
     end_state: CommandId,
+    /// Whether this view needs redrawing.
+    dirty: bool,
 }
 
 impl ViewBase {
@@ -402,6 +448,7 @@ impl ViewBase {
             options: 0,
             owner_type: OwnerType::None,
             end_state: 0,
+            dirty: true,
         }
     }
 
@@ -415,6 +462,7 @@ impl ViewBase {
             options,
             owner_type: OwnerType::None,
             end_state: 0,
+            dirty: true,
         }
     }
 
@@ -459,6 +507,27 @@ impl ViewBase {
     pub fn is_disabled(&self) -> bool {
         self.state & SF_DISABLED != 0
     }
+
+    /// Check if this view needs redrawing.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// Mark this view as needing redraw.
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Mark this view as clean (drawn).
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
+
+    /// Set the option flags.
+    pub fn set_options(&mut self, options: u16) {
+        self.options = options;
+    }
 }
 impl View for ViewBase {
     fn id(&self) -> ViewId {
@@ -470,10 +539,13 @@ impl View for ViewBase {
     }
 
     fn set_bounds(&mut self, bounds: Rect) {
-        self.bounds = bounds;
+        if self.bounds != bounds {
+            self.bounds = bounds;
+            self.dirty = true;
+        }
     }
 
-    fn draw(&self, _buf: &mut Buffer, _area: Rect) {
+    fn draw(&self, _buf: &mut Buffer, _clip: Rect) {
         // Base implementation draws nothing
     }
 
@@ -487,7 +559,10 @@ impl View for ViewBase {
     }
 
     fn set_state(&mut self, state: u16) {
-        self.state = state;
+        if self.state != state {
+            self.state = state;
+            self.dirty = true;
+        }
     }
 
     fn options(&self) -> u16 {
@@ -541,7 +616,8 @@ impl dyn View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::{CM_CLOSE, CM_OK};
+    use crate::command::{CM_CANCEL, CM_CLOSE, CM_OK};
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     #[test]
     fn test_view_id_uniqueness() {
@@ -694,5 +770,64 @@ mod tests {
         // ViewId must be Send + Sync for cross-thread use
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<ViewId>();
+    }
+
+    #[test]
+    fn test_event_deferred_empty_by_default() {
+        let event = Event::key(KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        assert!(event.deferred.is_empty());
+    }
+
+    #[test]
+    fn test_event_post_deferred() {
+        let mut event = Event::key(KeyEvent {
+            code: KeyCode::Char('a'),
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        });
+        event.post(Event::command(CM_OK));
+        assert_eq!(event.deferred.len(), 1);
+        match &event.deferred[0].kind {
+            EventKind::Command(id) => assert_eq!(*id, CM_OK),
+            _ => panic!("expected Command event"),
+        }
+    }
+
+    #[test]
+    fn test_event_post_multiple_deferred() {
+        let mut event = Event::command(CM_CLOSE);
+        event.post(Event::command(CM_OK));
+        event.post(Event::command(CM_CANCEL));
+        assert_eq!(event.deferred.len(), 2);
+    }
+
+    #[test]
+    fn test_event_deferred_independent_of_handled() {
+        let mut event = Event::command(CM_OK);
+        event.post(Event::command(CM_CLOSE));
+        event.clear();
+        // Deferred events survive even when the event is cleared
+        assert!(event.is_cleared());
+        assert_eq!(event.deferred.len(), 1);
+    }
+
+    #[test]
+    fn test_on_focus_default_is_noop() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
+        // Should compile and not panic
+        base.on_focus();
+    }
+
+    #[test]
+    fn test_on_blur_default_is_noop() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
+        // Should compile and not panic
+        base.on_blur();
     }
 }

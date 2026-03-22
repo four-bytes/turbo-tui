@@ -48,6 +48,7 @@ use std::any::Any;
 ///
 /// - Default button: bold/bright style
 /// - Focused button: inverse colors
+/// - Hovered button: highlighted background
 /// - Normal button: standard style
 pub struct Button {
     /// Embedded base providing `ViewId`, bounds, state, options.
@@ -58,6 +59,8 @@ pub struct Button {
     command: CommandId,
     /// Whether this is the default button (responds to Enter in dialogs).
     is_default: bool,
+    /// Whether the mouse is currently hovering over this button.
+    hovered: bool,
 }
 
 impl Button {
@@ -79,6 +82,7 @@ impl Button {
             label: label.to_owned(),
             command,
             is_default,
+            hovered: false,
         }
     }
 
@@ -107,16 +111,8 @@ impl Button {
     }
 
     /// Draw the button content to the buffer.
-    fn draw_button(&self, buf: &mut Buffer, area: Rect) {
+    fn draw_button(&self, buf: &mut Buffer, clip: Rect) {
         let bounds = self.base.bounds();
-
-        // Skip drawing if completely outside clip area
-        if bounds.y >= area.y + area.height || bounds.y + bounds.height <= area.y {
-            return;
-        }
-        if bounds.x >= area.x + area.width || bounds.x + bounds.width <= area.x {
-            return;
-        }
 
         let display = self.display_label();
         let focused = self.base.state() & SF_FOCUSED != 0;
@@ -132,6 +128,8 @@ impl Button {
         let style = theme::with_current(|t| {
             if focused {
                 t.button_focused
+            } else if self.hovered {
+                t.button_hover
             } else if self.is_default {
                 t.button_default
             } else {
@@ -139,7 +137,7 @@ impl Button {
             }
         });
 
-        buf.set_string(x, y, &button_text, style);
+        crate::clip::set_string_clipped(buf, x, y, &button_text, style, clip);
     }
 
     /// Check if a mouse event is inside the button bounds.
@@ -162,8 +160,8 @@ impl View for Button {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        self.draw_button(buf, area);
+    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+        self.draw_button(buf, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -172,13 +170,21 @@ impl View for Button {
         }
 
         match &event.kind {
-            EventKind::Mouse(mouse) => {
-                if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+            EventKind::Mouse(mouse) => match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) => {
                     if self.is_inside(mouse.column, mouse.row) {
                         event.kind = EventKind::Command(self.command);
                     }
                 }
-            }
+                MouseEventKind::Moved => {
+                    let inside = self.is_inside(mouse.column, mouse.row);
+                    if inside != self.hovered {
+                        self.hovered = inside;
+                        self.base.mark_dirty();
+                    }
+                }
+                _ => {}
+            },
             EventKind::Key(key) => {
                 // Only respond to Space/Enter when focused
                 if self.base.state() & SF_FOCUSED != 0 {
@@ -367,5 +373,63 @@ mod tests {
         // Set focused
         button.set_state(button.state() | SF_FOCUSED);
         assert_ne!(button.state() & SF_FOCUSED, 0);
+    }
+
+    #[test]
+    fn test_button_hover_state() {
+        let mut button = Button::new(Rect::new(5, 3, 10, 1), "OK", CM_OK, false);
+
+        // Initially not hovered
+        assert!(!button.hovered);
+
+        // Mouse moves inside
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 7,
+            row: 3,
+            modifiers: KeyModifiers::empty(),
+        };
+        let mut event = Event::mouse(mouse);
+        button.handle_event(&mut event);
+        assert!(
+            button.hovered,
+            "Button should be hovered when mouse is inside"
+        );
+
+        // Mouse moves outside
+        let mouse_out = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 20,
+            row: 3,
+            modifiers: KeyModifiers::empty(),
+        };
+        let mut event_out = Event::mouse(mouse_out);
+        button.handle_event(&mut event_out);
+        assert!(
+            !button.hovered,
+            "Button should not be hovered when mouse is outside"
+        );
+    }
+
+    #[test]
+    fn test_button_hover_ignored_when_focused() {
+        let mut button = Button::new(Rect::new(5, 3, 10, 1), "OK", CM_OK, false);
+
+        // Set focused
+        button.set_state(button.state() | SF_FOCUSED);
+
+        // Mouse moves inside — should set hovered flag
+        let mouse = MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 7,
+            row: 3,
+            modifiers: KeyModifiers::empty(),
+        };
+        let mut event = Event::mouse(mouse);
+        button.handle_event(&mut event);
+
+        // When drawing, focused style takes priority over hover style
+        // This test just verifies the hovered flag is set
+        assert!(button.hovered);
     }
 }

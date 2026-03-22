@@ -1,6 +1,6 @@
 [package]
 name = "turbo-tui"
-version = "0.1.0"
+version = "0.2.2"
 edition = "2021"
 authors = ["Robby Beyer <robby@four-bytes.de>"]
 license = "MIT"
@@ -11,12 +11,17 @@ keywords = ["tui", "terminal", "ui", "ratatui", "windowing"]
 categories = ["command-line-interface", "gui"]
 readme = "README.md"
 
+[features]
+default = ["json-themes"]
+json-themes = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
-# Will add test utilities later
 
 [lints.rust]
 unsafe_code = "forbid"
@@ -27,3 +32,8 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+
+[[example]]
+name = "gen_themes"
+required-features = ["json-themes"]
+

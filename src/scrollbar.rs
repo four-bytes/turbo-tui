@@ -49,6 +49,17 @@ pub enum Orientation {
     Horizontal,
 }
 
+/// Which part of the scrollbar is hovered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollBarHover {
+    /// Nothing hovered.
+    None,
+    /// An arrow button is hovered.
+    Arrow,
+    /// The thumb is hovered.
+    Thumb,
+}
+
 // ============================================================================
 // ScrollBar
 // ============================================================================
@@ -71,6 +82,7 @@ pub enum Orientation {
 ///
 /// let value = scrollbar.value();
 /// ```
+#[derive(Clone)]
 pub struct ScrollBar {
     /// Base view functionality.
     base: ViewBase,
@@ -90,6 +102,10 @@ pub struct ScrollBar {
     dragging_thumb: bool,
     /// Value at drag start (for proportional tracking).
     drag_start_value: i32,
+    /// Currently hovered element.
+    hovered: ScrollBarHover,
+    /// Active state (true if owning window is focused).
+    active: bool,
 }
 
 impl ScrollBar {
@@ -116,6 +132,8 @@ impl ScrollBar {
             arrow_step: 1,
             dragging_thumb: false,
             drag_start_value: 0,
+            hovered: ScrollBarHover::None,
+            active: true,
         }
     }
 
@@ -142,6 +160,8 @@ impl ScrollBar {
             arrow_step: 1,
             dragging_thumb: false,
             drag_start_value: 0,
+            hovered: ScrollBarHover::None,
+            active: true,
         }
     }
 
@@ -189,6 +209,20 @@ impl ScrollBar {
     #[must_use]
     pub fn orientation(&self) -> Orientation {
         self.orientation
+    }
+
+    /// Check if the scrollbar is in active (focused window) state.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Set the active state (affects rendering style: active vs inactive).
+    pub fn set_active(&mut self, active: bool) {
+        if self.active != active {
+            self.active = active;
+            self.base.mark_dirty();
+        }
     }
 
     /// Calculate thumb position (pixel/cell coordinate).
@@ -285,6 +319,11 @@ impl ScrollBar {
             if self.dragging_thumb && matches!(mouse.kind, MouseEventKind::Up(_)) {
                 self.dragging_thumb = false;
             }
+            // Clear hover when mouse leaves
+            if self.hovered != ScrollBarHover::None {
+                self.hovered = ScrollBarHover::None;
+                self.base.mark_dirty();
+            }
             return;
         }
 
@@ -303,6 +342,41 @@ impl ScrollBar {
                 if self.dragging_thumb {
                     self.dragging_thumb = false;
                     event.handled = true;
+                }
+            }
+            MouseEventKind::Moved => {
+                // Update hover state based on which part the mouse is over
+                let new_hover = match self.orientation {
+                    Orientation::Vertical => {
+                        if rel_row == 0 || rel_row >= bounds.height.saturating_sub(1) {
+                            ScrollBarHover::Arrow
+                        } else {
+                            let track_pos = (rel_row - 1) as usize;
+                            let (thumb_pos, thumb_len) = self.thumb_range();
+                            if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
+                                ScrollBarHover::Thumb
+                            } else {
+                                ScrollBarHover::None
+                            }
+                        }
+                    }
+                    Orientation::Horizontal => {
+                        if rel_col == 0 || rel_col >= bounds.width.saturating_sub(1) {
+                            ScrollBarHover::Arrow
+                        } else {
+                            let track_pos = (rel_col - 1) as usize;
+                            let (thumb_pos, thumb_len) = self.thumb_range();
+                            if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
+                                ScrollBarHover::Thumb
+                            } else {
+                                ScrollBarHover::None
+                            }
+                        }
+                    }
+                };
+                if new_hover != self.hovered {
+                    self.hovered = new_hover;
+                    self.base.mark_dirty();
                 }
             }
             _ => {}
@@ -437,8 +511,26 @@ impl View for ScrollBar {
         }
 
         // Get theme styles
-        let (track_style, thumb_style, arrow_style) =
-            theme::with_current(|t| (t.scrollbar_track, t.scrollbar_thumb, t.scrollbar_arrows));
+        let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
+            if !self.active {
+                return (
+                    t.scrollbar_track_inactive,
+                    t.scrollbar_thumb_inactive,
+                    t.scrollbar_arrows_inactive,
+                );
+            }
+            let thumb = if self.hovered == ScrollBarHover::Thumb {
+                t.scrollbar_thumb_hover
+            } else {
+                t.scrollbar_thumb
+            };
+            let arrows = if self.hovered == ScrollBarHover::Arrow {
+                t.scrollbar_arrows_hover
+            } else {
+                t.scrollbar_arrows
+            };
+            (t.scrollbar_track, thumb, arrows)
+        });
 
         // Calculate track size
         let (thumb_pos, _thumb_len) = self.thumb_range();

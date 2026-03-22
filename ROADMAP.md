@@ -9,7 +9,7 @@
 | v0.1.0 | ✅ Released | 172 | Full widget library, 7 known bugs |
 | v0.2.0-dev | ✅ Complete | 280 | Architecture rebuild: Container, Frame, Window, Desktop, Overlay, Application, Dialog, HorizontalBar, MsgBox, JSON themes |
 | v0.2.1 | ✅ Released | 321 | Scrollbar fixes, window handling, Builder Lite, task shelf, lifecycle hooks, title centering |
-| v0.2.2-dev | 🔧 In Progress | — | MenuBar → Overlay dropdown refactor |
+| v0.2.2 | ✅ Released | 335 | MenuBar → Overlay dropdown refactor, minimized window tray fix |
 
 ---
 

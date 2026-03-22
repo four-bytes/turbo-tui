@@ -5,7 +5,7 @@
 **turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.2.2-dev — MenuBar→Overlay dropdown refactor (v0.1 on `main`, v0.2 on `v0.2-rebuild`)
+- **Status:** v0.2.2 — Released (v0.2 merged to `main`)
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui

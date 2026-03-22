@@ -75,6 +75,17 @@ impl Container {
                     }
                 }
 
+                // MouseMoved: broadcast to ALL visible children so each can
+                // update or clear its hover state based on the mouse position.
+                if matches!(mouse.kind, crossterm::event::MouseEventKind::Moved) {
+                    for i in (0..self.children.len()).rev() {
+                        if self.children[i].state() & SF_VISIBLE != 0 {
+                            self.children[i].handle_event(event);
+                        }
+                    }
+                    return;
+                }
+
                 // Normal hit-testing: reverse Z-order (front to back)
                 for i in (0..self.children.len()).rev() {
                     if event.is_cleared() {

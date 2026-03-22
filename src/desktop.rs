@@ -331,7 +331,7 @@ mod tests {
     use crate::view::{SF_FOCUSED, SF_VISIBLE};
 
     fn setup_theme() {
-        crate::theme::set(Theme::borland_classic());
+        crate::theme::set(Theme::turbo_vision());
     }
 
     #[test]
@@ -611,8 +611,7 @@ mod tests {
         // The buffer cells should reflect the theme's desktop background.
         // Compare fg/bg only — Ratatui cells carry an extra underline_color(Reset)
         // that is not part of the theme style.
-        let (theme_bg, theme_char) =
-            theme::with_current(|t| (t.desktop_bg, t.desktop_char));
+        let (theme_bg, theme_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
         let cell = buf.cell(Position::new(0, 0)).unwrap();
         assert_eq!(cell.symbol(), theme_char.to_string().as_str());
         assert_eq!(cell.fg, theme_bg.fg.unwrap_or(ratatui::style::Color::Reset));

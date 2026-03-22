@@ -240,7 +240,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 
     fn setup_theme() {
-        crate::theme::set(Theme::dark());
+        crate::theme::set(Theme::turbo_vision());
     }
 
     fn key_event(code: KeyCode) -> Event {

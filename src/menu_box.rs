@@ -192,7 +192,7 @@ impl View for MenuBox {
             border_style,
             selected_style,
             disabled_style,
-            sep_style,
+            _sep_style,
             hotkey_style,
             hotkey_selected_style,
         ) = theme::with_current(|t| {
@@ -246,11 +246,12 @@ impl View for MenuBox {
             let is_selected = self.selected == Some(item_idx);
 
             if item.is_separator() {
-                buf.set_string(area.x, row, &s_sl, sep_style);
+                // Separator line: all characters use border style for uniform appearance
+                buf.set_string(area.x, row, &s_sl, border_style);
                 for x in 1..area.width - 1 {
-                    buf.set_string(area.x + x, row, &s_h, sep_style);
+                    buf.set_string(area.x + x, row, &s_h, border_style);
                 }
-                buf.set_string(area.x + area.width - 1, row, &s_sr, sep_style);
+                buf.set_string(area.x + area.width - 1, row, &s_sr, border_style);
             } else {
                 let (row_style, hk_style) = if is_selected {
                     (selected_style, hotkey_selected_style)

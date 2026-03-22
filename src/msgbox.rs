@@ -218,7 +218,7 @@ mod tests {
     use crate::view::View;
 
     fn setup_theme() {
-        crate::theme::set(Theme::dark());
+        crate::theme::set(Theme::turbo_vision());
     }
 
     #[test]

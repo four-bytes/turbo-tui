@@ -277,7 +277,8 @@ impl Window {
         self.resize_mouse_start = None;
         let st = self.base.state();
         self.base.set_state(st & !(SF_DRAGGING | SF_RESIZING));
-        self.frame.set_state(self.frame.state() & !(SF_DRAGGING | SF_RESIZING));
+        self.frame
+            .set_state(self.frame.state() & !(SF_DRAGGING | SF_RESIZING));
     }
 
     /// Start a resize operation from the given mouse position.
@@ -365,8 +366,9 @@ impl View for Window {
         // 2. Fill interior with background (prevents bleed-through)
         self.fill_interior(buf, clip);
 
-        // 3. Draw children
-        self.interior.draw(buf, clip);
+        // 3. Draw children (clip to interior so children can't draw over frame)
+        let interior_clip = self.frame.interior_area().intersection(clip);
+        self.interior.draw(buf, interior_clip);
     }
 
     #[allow(clippy::too_many_lines)]
@@ -436,6 +438,20 @@ impl View for Window {
                         }
                     }
 
+                    // Mouse moved (no button) — update hover states
+                    MouseEventKind::Moved => {
+                        let b = self.base.bounds();
+                        if col >= b.x && col < b.x + b.width && row >= b.y && row < b.y + b.height {
+                            // Inside window — update frame hover
+                            self.frame.update_hover(col, row);
+                            // Also forward to interior for child hover tracking
+                            self.interior.handle_event(event);
+                        } else {
+                            // Outside window — clear hover
+                            self.frame.clear_hover();
+                        }
+                    }
+
                     // Other mouse events (scroll, right-click) → interior
                     _ => {
                         self.interior.handle_event(event);
@@ -501,7 +517,7 @@ mod tests {
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn setup_theme() {
-        crate::theme::set(Theme::dark());
+        crate::theme::set(Theme::turbo_vision());
     }
 
     fn mouse_down(col: u16, row: u16) -> Event {

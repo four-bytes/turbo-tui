@@ -1,0 +1,211 @@
+{
+  "name": "Windows",
+  "desktop": {
+    "bg": {
+      "fg": "#008080",
+      "bg": "#008080"
+    },
+    "char": " "
+  },
+"borders": {
+    "window": "none",
+    "menu": {
+      "chars": "none",
+      "sep_l": " ",
+      "sep_r": " "
+    }
+  },
+  "window": {
+    "frame_active": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "frame_inactive": {
+      "fg": "Gray",
+      "bg": "#808080"
+    },
+    "title_active": {
+      "fg": "White",
+      "bg": "#000080",
+      "bold": true
+    },
+    "title_inactive": {
+      "fg": "#c8c8c8",
+      "bg": "#808080"
+    },
+    "interior": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "close_button": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "resize_handle": {
+      "fg": "DarkGray",
+      "bg": "#000080"
+    },
+    "frame_dragging": {
+      "fg": "Yellow",
+      "bg": "#000080",
+      "bold": true
+    },
+    "close_button_hover": {
+      "fg": "White",
+      "bg": "#c83232"
+    },
+    "resize_handle_hover": {
+      "fg": "White",
+      "bg": "#c0c0c0"
+    },
+    "close_button_inactive": {
+      "fg": "Gray",
+      "bg": "#808080"
+    },
+    "resize_handle_inactive": {
+      "fg": "Gray",
+      "bg": "#808080"
+    },
+    "title_bar_bg": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "close_button_text": " × ",
+    "close_button_right": true,
+    "resize_grip_char": "◢"
+  },
+  "dialog": {
+    "frame": {
+      "fg": "White",
+      "bg": "#c0c0c0"
+    },
+    "title": {
+      "fg": "White",
+      "bg": "#000080",
+      "bold": true
+    },
+    "interior": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    }
+  },
+  "single_frame": {
+    "frame": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    }
+  },
+  "menu_bar": {
+    "normal": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "hotkey": {
+      "fg": "Red",
+      "bg": "#c0c0c0",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "White",
+      "bg": "#000080",
+      "bold": true
+    }
+  },
+  "menu_box": {
+    "normal": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "disabled": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "separator": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "hotkey": {
+      "fg": "Red",
+      "bg": "#c0c0c0",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "White",
+      "bg": "#000080",
+      "bold": true
+    }
+  },
+  "status_line": {
+    "normal": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "hotkey": {
+      "fg": "Red",
+      "bg": "#c0c0c0",
+      "bold": true
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#000080"
+    }
+  },
+  "button": {
+    "normal": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "default": {
+      "fg": "Black",
+      "bg": "#c0c0c0",
+      "bold": true
+    },
+    "focused": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "disabled": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "hover": {
+      "fg": "White",
+      "bg": "#0000a0",
+      "bold": true
+    }
+  },
+  "static_text": {
+    "fg": "Black",
+    "bg": "#c0c0c0"
+  },
+  "scrollbar": {
+    "track": {
+      "fg": "#808080",
+      "bg": "#c0c0c0"
+    },
+    "thumb": {
+      "fg": "#000080",
+      "bg": "#c0c0c0"
+    },
+    "arrows": {
+      "fg": "Black",
+      "bg": "#c0c0c0"
+    },
+    "thumb_hover": {
+      "fg": "White",
+      "bg": "#c0c0c0"
+    },
+    "arrows_hover": {
+      "fg": "White",
+      "bg": "#c0c0c0"
+    }
+  }
+}

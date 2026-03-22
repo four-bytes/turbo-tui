@@ -13,7 +13,7 @@ impl Container {
                 let cb = child.bounds();
                 let intersection = cb.intersection(clip);
                 if intersection.width > 0 && intersection.height > 0 {
-                    child.draw(buf, clip);
+                    child.draw(buf, intersection);
                 }
             }
         }

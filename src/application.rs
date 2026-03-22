@@ -31,7 +31,7 @@
 //! 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 //! 6. Process deferred event queue
 
-use crate::command::{CM_CLOSE, CM_QUIT};
+use crate::command::{CommandId, CM_CLOSE, CM_QUIT};
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
 use crate::overlay::OverlayManager;
@@ -96,6 +96,8 @@ pub struct Application {
     overlay_manager: OverlayManager,
     /// Whether the application is still running.
     running: bool,
+    /// Last unhandled command (for the consumer to read).
+    last_unhandled_command: Option<CommandId>,
 }
 
 impl Application {
@@ -116,6 +118,7 @@ impl Application {
             status_line: None,
             overlay_manager: OverlayManager::new(screen_size.width, screen_size.height),
             running: true,
+            last_unhandled_command: None,
         }
     }
 
@@ -139,6 +142,27 @@ impl Application {
     /// [`is_running`]: Application::is_running
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    /// Take the last unhandled command, if any.
+    ///
+    /// Returns the command ID and clears it. This allows the consumer
+    /// to handle custom commands that the library doesn't know about.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// app.handle_crossterm_event(&event);
+    /// if let Some(cmd) = app.take_unhandled_command() {
+    ///     match cmd {
+    ///         MY_CUSTOM_COMMAND => { /* handle it */ }
+    ///         _ => {}
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    pub fn take_unhandled_command(&mut self) -> Option<CommandId> {
+        self.last_unhandled_command.take()
     }
 
     // -------------------------------------------------------------------------
@@ -282,6 +306,9 @@ impl Application {
     ///
     /// [`resize`]: Application::resize
     pub fn handle_crossterm_event(&mut self, ct_event: &crossterm::event::Event) {
+        // Clear any previous unhandled command
+        self.last_unhandled_command = None;
+
         match ct_event {
             crossterm::event::Event::Key(key) => {
                 if key.kind == crossterm::event::KeyEventKind::Press {
@@ -373,7 +400,10 @@ impl Application {
                         }
                     }
                 }
-                _ => {}
+                other => {
+                    // Unknown command — store for consumer to handle
+                    self.last_unhandled_command = Some(other);
+                }
             }
         }
     }
@@ -574,15 +604,15 @@ mod tests {
 
     #[test]
     fn test_application_layout_with_menu_and_status() {
-        use crate::menu_bar::{Menu, MenuBar};
-        use crate::status_line::StatusLine;
+        use crate::menu_bar::{menu_bar_from_menus, Menu};
+        use crate::status_line::status_line_from_items;
 
         let mut app = Application::new(screen());
 
-        let mb = MenuBar::new(screen(), vec![Menu::new("~F~ile", vec![])]);
+        let mb = menu_bar_from_menus(screen(), vec![Menu::new("~F~ile", vec![])]);
         app.set_menu_bar(mb);
 
-        let sl = StatusLine::new(screen(), vec![]);
+        let sl = status_line_from_items(screen(), vec![]);
         app.set_status_line(sl);
 
         // Menu bar must be at row 0
@@ -649,7 +679,11 @@ mod tests {
 
         // Second CM_CLOSE removes new front (W2)
         app.dispatch(&mut Event::command(CM_CLOSE));
-        assert_eq!(app.desktop().window_count(), 1, "second CM_CLOSE removes W2");
+        assert_eq!(
+            app.desktop().window_count(),
+            1,
+            "second CM_CLOSE removes W2"
+        );
 
         // Third CM_CLOSE removes last window (W1)
         app.dispatch(&mut Event::command(CM_CLOSE));

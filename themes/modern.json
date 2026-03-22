@@ -1,0 +1,208 @@
+{
+  "name": "Modern",
+  "desktop": {
+    "bg": {
+      "fg": "#3c3c3c",
+      "bg": "#141419"
+    },
+    "char": " "
+  },
+  "borders": {
+    "window": "round",
+    "menu": {
+      "chars": "round",
+      "sep_l": "├",
+      "sep_r": "┤"
+    }
+  },
+  "window": {
+    "frame_active": {
+      "fg": "#6495ed",
+      "bg": "#141419"
+    },
+    "frame_inactive": {
+      "fg": "#464650",
+      "bg": "#141419"
+    },
+    "title_active": {
+      "fg": "White",
+      "bg": "#141419",
+      "bold": true
+    },
+    "title_inactive": {
+      "fg": "#64646e",
+      "bg": "#141419"
+    },
+    "interior": {
+      "fg": "#d2d2dc",
+      "bg": "#1e1e26"
+    },
+    "close_button": {
+      "fg": "#dc5050",
+      "bg": "#141419"
+    },
+    "resize_handle": {
+      "fg": "#6495ed",
+      "bg": "#141419"
+    },
+    "frame_dragging": {
+      "fg": "#ffc83c",
+      "bg": "#141419",
+      "bold": true
+    },
+    "close_button_hover": {
+      "fg": "#fc6060",
+      "bg": "#141419"
+    },
+    "resize_handle_hover": {
+      "fg": "White",
+      "bg": "#141419",
+      "bold": true
+    },
+    "close_button_inactive": {
+      "fg": "#464650",
+      "bg": "#141419"
+    },
+    "resize_handle_inactive": {
+      "fg": "#464650",
+      "bg": "#141419"
+    },
+    "close_button_text": "[■]",
+    "close_button_right": false,
+    "resize_grip_char": "◢"
+  },
+  "dialog": {
+    "frame": {
+      "fg": "#b4b4be",
+      "bg": "#2d2d37"
+    },
+    "title": {
+      "fg": "White",
+      "bg": "#2d2d37",
+      "bold": true
+    },
+    "interior": {
+      "fg": "#d2d2dc",
+      "bg": "#2d2d37"
+    }
+  },
+  "single_frame": {
+    "frame": {
+      "fg": "#464650",
+      "bg": "#141419"
+    }
+  },
+  "menu_bar": {
+    "normal": {
+      "fg": "#b4b4be",
+      "bg": "#23232a"
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#3c64a0"
+    },
+    "hotkey": {
+      "fg": "#6495ed",
+      "bg": "#23232a",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "#ffc83c",
+      "bg": "#3c64a0",
+      "bold": true
+    }
+  },
+  "menu_box": {
+    "normal": {
+      "fg": "#c8c8d2",
+      "bg": "#2a2a34"
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#3c64a0"
+    },
+    "disabled": {
+      "fg": "#50505a",
+      "bg": "#2a2a34"
+    },
+    "separator": {
+      "fg": "#3c3c46",
+      "bg": "#2a2a34"
+    },
+    "hotkey": {
+      "fg": "#6495ed",
+      "bg": "#2a2a34",
+      "bold": true
+    },
+    "hotkey_selected": {
+      "fg": "#ffc83c",
+      "bg": "#3c64a0",
+      "bold": true
+    }
+  },
+  "status_line": {
+    "normal": {
+      "fg": "#a0a0aa",
+      "bg": "#23232a"
+    },
+    "hotkey": {
+      "fg": "#6495ed",
+      "bg": "#23232a",
+      "bold": true
+    },
+    "selected": {
+      "fg": "White",
+      "bg": "#3c64a0"
+    }
+  },
+  "button": {
+    "normal": {
+      "fg": "#b4b4be",
+      "bg": "#373741"
+    },
+    "default": {
+      "fg": "White",
+      "bg": "#373741",
+      "bold": true
+    },
+    "focused": {
+      "fg": "White",
+      "bg": "#3c64a0"
+    },
+    "disabled": {
+      "fg": "#50505a",
+      "bg": "#373741"
+    },
+    "hover": {
+      "fg": "White",
+      "bg": "#5078b4",
+      "bold": true
+    }
+  },
+  "static_text": {
+    "fg": "#b4b4be",
+    "bg": "#1e1e26"
+  },
+  "scrollbar": {
+    "track": {
+      "fg": "#32323c",
+      "bg": "#1e1e26"
+    },
+    "thumb": {
+      "fg": "#6495ed",
+      "bg": "#1e1e26"
+    },
+    "arrows": {
+      "fg": "#50505a",
+      "bg": "#1e1e26"
+    },
+    "thumb_hover": {
+      "fg": "White",
+      "bg": "#1e1e26"
+    },
+    "arrows_hover": {
+      "fg": "White",
+      "bg": "#1e1e26"
+    }
+  }
+}

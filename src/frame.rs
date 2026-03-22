@@ -5,7 +5,7 @@
 //! - Three frame types: Window, Dialog, Single
 //! - Centered title on the top border
 //! - Close button `[■]` on the top-left (for closeable frames)
-//! - Resize handle `⋱` on the bottom-right (for resizable frames)
+//! - Resize handle `◢` on the bottom-right (for resizable frames)
 //! - Optional vertical scrollbar on the right border
 //! - Optional horizontal scrollbar on the bottom border
 //!
@@ -17,6 +17,7 @@ use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
+use ratatui::style::{Color, Style};
 use std::any::Any;
 
 // ============================================================================
@@ -32,6 +33,17 @@ pub enum FrameType {
     Dialog,
     /// Single-line frame — used for group boxes and panels.
     Single,
+}
+
+/// Which element of the frame is currently hovered by the mouse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameHover {
+    /// Nothing hovered.
+    None,
+    /// Close button is hovered.
+    CloseButton,
+    /// Resize handle is hovered.
+    ResizeHandle,
 }
 
 // ============================================================================
@@ -77,6 +89,8 @@ pub struct Frame {
     v_scrollbar: Option<ScrollBar>,
     /// Optional horizontal scrollbar (occupies bottom border).
     h_scrollbar: Option<ScrollBar>,
+    /// Currently hovered frame element.
+    hovered: FrameHover,
 }
 
 impl Frame {
@@ -104,6 +118,7 @@ impl Frame {
             resizable,
             v_scrollbar: None,
             h_scrollbar: None,
+            hovered: FrameHover::None,
         }
     }
 
@@ -243,16 +258,33 @@ impl Frame {
 
     /// Check if the given position is on the close button `[■]`.
     ///
-    /// Returns `true` if closeable and point is at top-left corner area.
-    /// The close button occupies positions (x+1, y) through (x+3, y).
+    /// Returns `true` if closeable and point is at the close button area.
+    /// The close button position depends on theme configuration:
+    /// - Left-aligned (Borland): positions (x+1, y) through (`x+close_len`, y)
+    /// - Right-aligned (Windows): positions (x+width-close_len-1, y) through (x+width-2, y)
     #[must_use]
     pub fn is_close_button(&self, col: u16, row: u16) -> bool {
         if !self.closeable {
             return false;
         }
-
         let b = self.base.bounds();
-        col > b.x && col <= b.x + 3 && row == b.y
+        if row != b.y || col < b.x || col >= b.x + b.width {
+            return false;
+        }
+
+        theme::with_current(|t| {
+            #[allow(clippy::cast_possible_truncation)]
+            let close_len = t.close_button_text.chars().count() as u16;
+            if t.close_button_right {
+                // Right-aligned: close button at (b.x + b.width - 1 - close_len) .. (b.x + b.width - 2)
+                let close_start = b.x + b.width - 1 - close_len;
+                col >= close_start && col < close_start + close_len
+            } else {
+                // Left-aligned: close button at (b.x + 2) .. (b.x + 2 + close_len - 1)
+                // 1-cell gap between corner and close button
+                col >= b.x + 2 && col < b.x + 2 + close_len
+            }
+        })
     }
 
     /// Check if the given position is on the resize handle `⋱`.
@@ -278,18 +310,47 @@ impl Frame {
         if row != b.y {
             return false;
         }
-
-        // Not on title bar if outside horizontal bounds
         if col < b.x || col >= b.x + b.width {
             return false;
         }
-
-        // If closeable, exclude close button area (columns 1-3)
-        if self.closeable && col > b.x && col <= b.x + 3 {
+        // Exclude close button area
+        if self.closeable && self.is_close_button(col, row) {
             return false;
         }
-
         true
+    }
+
+    /// Update the hover state based on mouse position.
+    ///
+    /// Returns the new hover state.
+    pub fn update_hover(&mut self, col: u16, row: u16) -> FrameHover {
+        let new_hover = if self.is_close_button(col, row) {
+            FrameHover::CloseButton
+        } else if self.is_resize_handle(col, row) {
+            FrameHover::ResizeHandle
+        } else {
+            FrameHover::None
+        };
+
+        if new_hover != self.hovered {
+            self.hovered = new_hover;
+            self.base.mark_dirty();
+        }
+        new_hover
+    }
+
+    /// Clear the hover state (mouse left the frame area).
+    pub fn clear_hover(&mut self) {
+        if self.hovered != FrameHover::None {
+            self.hovered = FrameHover::None;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Get the current hover state.
+    #[must_use]
+    pub fn hovered(&self) -> FrameHover {
+        self.hovered
     }
 
     /// Draw a single character to the buffer at the given position.
@@ -349,7 +410,12 @@ impl View for Frame {
             let (frame_style, title_style) = match self.frame_type {
                 FrameType::Window => {
                     if is_dragging {
-                        (t.window_frame_dragging, t.window_title_active)
+                        // Title inherits the dragging frame's background
+                        let title_during_drag = Style::default()
+                            .fg(t.window_title_active.fg.unwrap_or(Color::White))
+                            .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
+                            .add_modifier(t.window_title_active.add_modifier);
+                        (t.window_frame_dragging, title_during_drag)
                     } else if is_active {
                         (t.window_frame_active, t.window_title_active)
                     } else {
@@ -359,17 +425,57 @@ impl View for Frame {
                 FrameType::Dialog => (t.dialog_frame, t.dialog_title),
                 FrameType::Single => (t.single_frame, t.single_frame),
             };
+            let close_style = if is_dragging {
+                // During drag/resize, close button should match dragging frame bg
+                Style::default()
+                    .fg(t.window_close_button.fg.unwrap_or(Color::White))
+                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
+            } else if self.hovered == FrameHover::CloseButton {
+                t.window_close_button_hover
+            } else if is_active {
+                t.window_close_button
+            } else {
+                t.window_close_button_inactive
+            };
+            let resize_style = if is_dragging {
+                // During resize, grip should match dragging frame bg
+                Style::default()
+                    .fg(t.window_resize_handle.fg.unwrap_or(Color::White))
+                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
+            } else if self.hovered == FrameHover::ResizeHandle {
+                t.window_resize_handle_hover
+            } else if is_active {
+                t.window_resize_handle
+            } else {
+                t.window_resize_handle_inactive
+            };
             FrameStyles {
                 frame: frame_style,
                 title: title_style,
-                close: t.window_close_button,
-                resize: t.window_resize_handle,
+                close: close_style,
+                resize: resize_style,
                 tl: t.border_tl,
                 tr: t.border_tr,
                 bl: t.border_bl,
                 br: t.border_br,
                 h: t.border_h,
                 v: t.border_v,
+                close_text: {
+                    let mut arr = ['\0'; 8];
+                    #[allow(clippy::explicit_counter_loop)]
+                    for (i, ch) in t.close_button_text.chars().take(8).enumerate() {
+                        arr[i] = ch;
+                    }
+                    arr
+                },
+                close_text_len: {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let len = t.close_button_text.chars().count().min(8) as u8;
+                    len
+                },
+                close_right: t.close_button_right,
+                resize_char: t.resize_grip_char,
+                title_bar_bg: t.title_bar_bg,
             }
         });
 
@@ -420,12 +526,24 @@ struct FrameStyles {
     br: char,
     h: char,
     v: char,
+    close_text: [char; 8],
+    close_text_len: u8,
+    close_right: bool,
+    resize_char: char,
+    title_bar_bg: Option<ratatui::style::Style>,
 }
 
 impl Frame {
     /// Draw the top border including corners, horizontal line, close button, and title.
     fn draw_top_border(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
         let b = self.base.bounds();
+
+        // Optional title bar background (fills entire top row)
+        if let Some(tb_bg) = styles.title_bar_bg {
+            for col in (b.x + 1)..(b.x + b.width - 1) {
+                Self::draw_char(buf, col, b.y, ' ', tb_bg, clip);
+            }
+        }
 
         // Corner characters
         Self::draw_char(buf, b.x, b.y, styles.tl, styles.frame, clip);
@@ -438,9 +556,25 @@ impl Frame {
 
         // Close button
         if self.closeable {
-            Self::draw_char(buf, b.x + 1, b.y, '[', styles.close, clip);
-            Self::draw_char(buf, b.x + 2, b.y, '■', styles.close, clip);
-            Self::draw_char(buf, b.x + 3, b.y, ']', styles.close, clip);
+            let close_chars = &styles.close_text[..styles.close_text_len as usize];
+            #[allow(clippy::cast_possible_truncation)]
+            let close_len = close_chars.len() as u16;
+
+            if styles.close_right {
+                // Right-aligned close button
+                let close_start = b.x + b.width - 1 - close_len;
+                for (i, &ch) in close_chars.iter().enumerate() {
+                    let col = close_start + u16::try_from(i).unwrap_or(0);
+                    Self::draw_char(buf, col, b.y, ch, styles.close, clip);
+                }
+            } else {
+                // Left-aligned close button (Borland default)
+                // 1-cell gap between corner and close button
+                for (i, &ch) in close_chars.iter().enumerate() {
+                    let col = b.x + 2 + u16::try_from(i).unwrap_or(0);
+                    Self::draw_char(buf, col, b.y, ch, styles.close, clip);
+                }
+            }
         }
 
         // Title
@@ -448,19 +582,41 @@ impl Frame {
             let title_full = format!(" {} ", self.title);
             let title_len = u16::try_from(title_full.chars().count()).unwrap_or(0);
             let available_width = b.width.saturating_sub(2);
-            let start_col = if title_len < available_width {
+
+            #[allow(clippy::cast_possible_truncation)]
+            let close_len = if self.closeable {
+                u16::from(styles.close_text_len)
+            } else {
+                0
+            };
+
+            let mut start_col = if title_len < available_width {
                 b.x + 1 + (available_width.saturating_sub(title_len)) / 2
             } else {
                 b.x + 1
             };
 
+            // Clamp: title must not overlap close button
+            if self.closeable {
+                if styles.close_right {
+                    // Close on right: handled in loop break condition below
+                } else {
+                    // Close on left: title must start after close button
+                    // Close button is at b.x + 2 with 1-cell gap
+                    start_col = start_col.max(b.x + 2 + close_len);
+                }
+            }
+
+            // Right boundary: don't overlap right-aligned close button or right border
+            let right_limit = if self.closeable && styles.close_right {
+                b.x + b.width - 1 - close_len
+            } else {
+                b.x + b.width - 1
+            };
+
             for (i, ch) in title_full.chars().enumerate() {
                 let col = start_col + u16::try_from(i).unwrap_or(0);
-                // Skip close button area
-                if self.closeable && col > b.x && col <= b.x + 3 {
-                    continue;
-                }
-                if col >= b.x + b.width - 1 {
+                if col >= right_limit {
                     break;
                 }
                 Self::draw_char(buf, col, b.y, ch, styles.title, clip);
@@ -534,7 +690,7 @@ impl Frame {
                 buf,
                 b.x + b.width - 1,
                 b.y + b.height - 1,
-                '⋱',
+                styles.resize_char,
                 styles.resize,
                 clip,
             );
@@ -561,7 +717,7 @@ mod tests {
     use crate::theme::Theme;
 
     fn setup_default_theme() {
-        theme::set(Theme::dark());
+        theme::set(Theme::turbo_vision());
     }
 
     #[test]
@@ -685,15 +841,16 @@ mod tests {
         setup_default_theme();
         let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Window);
 
-        // Close button at (11, 5), (12, 5), (13, 5)
-        assert!(frame.is_close_button(11, 5));
+        // Close button at (12, 5), (13, 5), (14, 5) — with 1-cell gap from corner
         assert!(frame.is_close_button(12, 5));
         assert!(frame.is_close_button(13, 5));
+        assert!(frame.is_close_button(14, 5));
 
         // Not on close button
         assert!(!frame.is_close_button(10, 5)); // Top-left corner
-        assert!(!frame.is_close_button(14, 5)); // Past close button
-        assert!(!frame.is_close_button(11, 6)); // Different row
+        assert!(!frame.is_close_button(11, 5)); // Gap between corner and close button
+        assert!(!frame.is_close_button(15, 5)); // Past close button
+        assert!(!frame.is_close_button(12, 6)); // Different row
     }
 
     #[test]
@@ -702,8 +859,8 @@ mod tests {
         let frame = Frame::new(Rect::new(10, 5, 40, 20), "Test", FrameType::Dialog);
 
         // Not closeable, so is_close_button always returns false
-        assert!(!frame.is_close_button(11, 5));
         assert!(!frame.is_close_button(12, 5));
+        assert!(!frame.is_close_button(13, 5));
     }
 
     #[test]
@@ -735,13 +892,15 @@ mod tests {
 
         // Title bar is row 5 (top border)
         assert!(frame.is_title_bar(10, 5)); // Top-left corner
-        assert!(frame.is_title_bar(14, 5)); // Past close button
+        assert!(frame.is_title_bar(11, 5)); // Gap between corner and close button
+        assert!(frame.is_title_bar(15, 5)); // Past close button
         assert!(frame.is_title_bar(49, 5)); // Top-right corner
 
         // Close button area is NOT part of title bar for Window type
-        assert!(!frame.is_title_bar(11, 5)); // Close button
+        // Close button now at cols 12, 13, 14 (with 1-cell gap)
         assert!(!frame.is_title_bar(12, 5)); // Close button
         assert!(!frame.is_title_bar(13, 5)); // Close button
+        assert!(!frame.is_title_bar(14, 5)); // Close button
 
         // Wrong row
         assert!(!frame.is_title_bar(10, 6));
@@ -762,10 +921,10 @@ mod tests {
         let bl = buf.cell(Position::new(0, 9)).unwrap();
         let br = buf.cell(Position::new(19, 9)).unwrap();
 
-        // Use theme characters (dark theme uses thick borders)
-        assert_eq!(tl.symbol(), "┏");
-        assert_eq!(tr.symbol(), "┓");
-        assert_eq!(bl.symbol(), "┗");
+        // Use theme characters (Turbo Vision theme uses double-line borders)
+        assert_eq!(tl.symbol(), "╔");
+        assert_eq!(tr.symbol(), "╗");
+        assert_eq!(bl.symbol(), "╚");
         // Resize handle in corner for Window type
         assert_eq!(br.symbol(), "⋱");
     }
@@ -794,6 +953,38 @@ mod tests {
     }
 
     #[test]
+    fn test_frame_title_never_overlaps_close_button() {
+        setup_default_theme();
+        // Very narrow window — title "LongTitle" won't fit centered without overlap
+        let bounds = Rect::new(0, 0, 12, 5);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 10));
+        let frame = Frame::new(bounds, "LongTitle", FrameType::Window);
+        frame.draw(&mut buf, Rect::new(0, 0, 20, 10));
+
+        // Close button occupies cols 2, 3, 4 (with 1-cell gap from corner)
+        // Verify close button is intact
+        assert_eq!(buf.cell(Position::new(2, 0)).unwrap().symbol(), "[");
+        assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "■");
+        assert_eq!(buf.cell(Position::new(4, 0)).unwrap().symbol(), "]");
+
+        // Title must start at col 5 or later — cols 2-4 must be close button only
+        // Collect the top row from col 5 onwards
+        let title_area: String = (5..12)
+            .filter_map(|col| {
+                let sym = buf.cell(Position::new(col, 0)).unwrap().symbol();
+                Some(sym.to_string())
+            })
+            .collect();
+
+        // Title " LongTitle " should be truncated but start at col 5+
+        // At minimum, some title chars should be visible
+        assert!(
+            title_area.contains('L') || title_area.contains('o'),
+            "Title should be visible starting after close button, got: {title_area:?}"
+        );
+    }
+
+    #[test]
     fn test_frame_draw_renders_close_button() {
         setup_default_theme();
         let bounds = Rect::new(0, 0, 20, 10);
@@ -801,10 +992,10 @@ mod tests {
         let frame = Frame::new(bounds, "Test", FrameType::Window);
         frame.draw(&mut buf, bounds);
 
-        // Close button at positions 1, 2, 3
-        let b1 = buf.cell(Position::new(1, 0)).unwrap();
-        let b2 = buf.cell(Position::new(2, 0)).unwrap();
-        let b3 = buf.cell(Position::new(3, 0)).unwrap();
+        // Close button at positions 2, 3, 4 (with 1-cell gap from corner)
+        let b1 = buf.cell(Position::new(2, 0)).unwrap();
+        let b2 = buf.cell(Position::new(3, 0)).unwrap();
+        let b3 = buf.cell(Position::new(4, 0)).unwrap();
 
         assert_eq!(b1.symbol(), "[");
         assert_eq!(b2.symbol(), "■");
@@ -839,7 +1030,7 @@ mod tests {
 
         let br = buf.cell(Position::new(19, 9)).unwrap();
         // Bottom-right should be normal corner, not resize handle
-        assert_eq!(br.symbol(), "┛");
+        assert_eq!(br.symbol(), "╝");
     }
 
     #[test]
@@ -888,5 +1079,70 @@ mod tests {
 
         // Cannot focus
         assert!(!frame.can_focus());
+    }
+
+    #[test]
+    fn test_frame_hover_close_button() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(10, 5, 30, 15), "Test", FrameType::Window);
+
+        // Initially no hover
+        assert_eq!(frame.hovered(), FrameHover::None);
+
+        // Hover over close button (left-aligned: cols 12, 13,14 at row 5 with 1-cell gap)
+        let hover = frame.update_hover(13, 5);
+        assert_eq!(hover, FrameHover::CloseButton);
+        assert_eq!(frame.hovered(), FrameHover::CloseButton);
+
+        // Hover over resize handle (bottom-right corner: col 39, row 19)
+        let hover2 = frame.update_hover(39, 19);
+        assert_eq!(hover2, FrameHover::ResizeHandle);
+        assert_eq!(frame.hovered(), FrameHover::ResizeHandle);
+
+        // Hover over empty area (middle of top border)
+        let hover3 = frame.update_hover(20, 5);
+        assert_eq!(hover3, FrameHover::None);
+        assert_eq!(frame.hovered(), FrameHover::None);
+
+        // Clear hover
+        frame.clear_hover();
+        assert_eq!(frame.hovered(), FrameHover::None);
+    }
+
+    #[test]
+    fn test_frame_hover_resize_handle() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 40, 20), "Test", FrameType::Window);
+
+        // Resize handle at bottom-right (39, 19)
+        let hover = frame.update_hover(39, 19);
+        assert_eq!(hover, FrameHover::ResizeHandle);
+
+        // Just outside - not on resize handle
+        let hover2 = frame.update_hover(38, 19);
+        assert_eq!(hover2, FrameHover::None);
+
+        let hover3 = frame.update_hover(39, 18);
+        assert_eq!(hover3, FrameHover::None);
+    }
+
+    #[test]
+    fn test_frame_hover_not_closeable() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(10, 5, 30, 15), "Test", FrameType::Dialog);
+
+        // Dialog is not closeable, so close button area returns None
+        let hover = frame.update_hover(13, 5);
+        assert_eq!(hover, FrameHover::None);
+    }
+
+    #[test]
+    fn test_frame_hover_not_resizable() {
+        setup_default_theme();
+        let mut frame = Frame::new(Rect::new(0, 0, 40, 20), "Test", FrameType::Dialog);
+
+        // Dialog is not resizable, so resize handle returns None
+        let hover = frame.update_hover(39, 19);
+        assert_eq!(hover, FrameHover::None);
     }
 }

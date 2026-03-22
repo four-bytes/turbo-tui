@@ -49,3 +49,22 @@
 
 ### Deferred
 - MenuBar→Overlay dropdown refactor (using Overlay system instead of self-draw) — planned for v0.2.1
+
+### HorizontalBar Unification (2026-03-22)
+- **NEW** `src/horizontal_bar.rs`: Unified `HorizontalBar` struct replacing separate `MenuBar` and `StatusLine`
+  - `BarEntry` enum: `Action` (direct command) or `Dropdown` (opens menu box)
+  - `DropDirection`: reuses `overlay::DropDirection` — `Down` for menu bar, `Up` for status bar
+  - Supports mixed entries: menu bars can have direct actions, status bars can have dropdowns
+  - Full keyboard (F10, Esc, arrows, Enter, Alt+letter, key codes) + mouse handling
+  - 26 tests
+- **Refactored** `menu_bar.rs` → thin backward-compat wrapper (1070→276 lines)
+  - `MenuItem`, `Menu` types retained
+  - `pub type MenuBar = HorizontalBar` alias
+  - `From<Menu> for BarEntry`, `menu_bar_from_menus()` convenience constructor
+- **Refactored** `status_line.rs` → thin backward-compat wrapper (664→325 lines)
+  - `StatusItem`, `KB_*` constants, `key_matches()` retained
+  - `pub type StatusLine = HorizontalBar` alias
+  - `From<StatusItem> for BarEntry`, `status_line_from_items()` convenience constructor
+- Updated `application.rs` and `examples/demo.rs` to use new API
+- Design doc: `docs/DESIGN-horizontal-bar.md`
+- 255 tests passing, clippy pedantic clean, zero unsafe code

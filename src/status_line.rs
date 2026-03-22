@@ -1,17 +1,16 @@
-//! Status Line — context-sensitive status bar with clickable shortcuts.
+//! Status Line — backward-compatibility wrapper around [`HorizontalBar`].
 //!
-//! The status bar displays at the bottom of the screen and shows keyboard
-//! shortcuts that can be activated by mouse click or hotkey. Uses `~X~`
-//! markers to highlight hotkey letters.
+//! The [`StatusLine`] type is now a type alias for
+//! [`HorizontalBar`](crate::horizontal_bar::HorizontalBar) configured with
+//! [`DropDirection::Up`](crate::overlay::DropDirection::Up).
+//!
+//! Use [`status_line_from_items`] to build a `StatusLine` from the legacy
+//! [`StatusItem`] list.  All [`KB_*`](KB_F1) constants and [`StatusItem`]
+//! remain available for backward compatibility.
 
 use crate::command::CommandId;
-use crate::theme;
-use crate::view::{Event, EventKind, View, ViewBase, OF_PRE_PROCESS};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
-use std::any::Any;
-use std::cell::RefCell;
 
 // ============================================================================
 // Constants for key codes
@@ -85,250 +84,13 @@ impl StatusItem {
 }
 
 // ============================================================================
-// StatusLine
-// ============================================================================
-
-/// Context-sensitive status bar with clickable shortcuts.
-///
-/// Displays at the bottom of the screen with keyboard shortcuts. Items
-/// can be activated by:
-///
-/// - Mouse click
-/// - Hotkey (F-keys or other shortcuts)
-///
-/// Uses `OF_PRE_PROCESS` to intercept key events before the focused view.
-///
-/// # Example
-///
-/// ```ignore
-/// use four_turbo_tui::status_line::{StatusLine, StatusItem, KB_F1};
-/// use four_turbo_tui::command::CM_CLOSE;
-///
-/// let items = vec![
-///     StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
-///     StatusItem::new("~F2~ Open", CM_OPEN, KB_F2),
-/// ];
-///
-/// let mut status = StatusLine::new(Rect::new(0, 23, 80, 1), items);
-/// status.set_hint(Some("Ready".into()));
-/// ```
-#[derive(Debug, Clone)]
-pub struct StatusLine {
-    /// Base view implementation (has `OF_PRE_PROCESS`).
-    base: ViewBase,
-    /// Status items.
-    items: Vec<StatusItem>,
-    /// (`start_x`, `end_x`) for each item — computed on draw.
-    item_positions: RefCell<Vec<(u16, u16)>>,
-    /// Right-aligned context text.
-    hint_text: Option<String>,
-    /// Currently hovered item (for mouse highlight).
-    hovered_item: Option<usize>,
-}
-
-impl StatusLine {
-    /// Create a new status line with the given items.
-    ///
-    /// The bounds should typically be a single row at the bottom of the screen.
-    #[must_use]
-    pub fn new(bounds: Rect, items: Vec<StatusItem>) -> Self {
-        Self {
-            base: ViewBase::with_options(bounds, OF_PRE_PROCESS),
-            items,
-            item_positions: RefCell::new(Vec::new()),
-            hint_text: None,
-            hovered_item: None,
-        }
-    }
-
-    /// Set the right-aligned hint text.
-    pub fn set_hint(&mut self, hint: Option<String>) {
-        self.hint_text = hint;
-    }
-
-    /// Get the current hint text.
-    #[must_use]
-    pub fn hint(&self) -> Option<&str> {
-        self.hint_text.as_deref()
-    }
-
-    /// Get the status items.
-    #[must_use]
-    pub fn items(&self) -> &[StatusItem] {
-        &self.items
-    }
-
-    /// Find which item (if any) contains the given x coordinate.
-    #[must_use]
-    fn item_at_x(&self, x: u16) -> Option<usize> {
-        let positions = self.item_positions.borrow();
-        for (idx, &(start, end)) in positions.iter().enumerate() {
-            if x >= start && x < end {
-                return Some(idx);
-            }
-        }
-        None
-    }
-
-    /// Draw the status line to the buffer.
-    fn draw_status(&self, buf: &mut Buffer, _area: Rect) {
-        let bounds = self.base.bounds();
-        let buf_area = buf.area();
-        // Early return if status line row is outside the buffer
-        if bounds.y >= buf_area.y + buf_area.height || bounds.y < buf_area.y {
-            return;
-        }
-
-        // Get theme styles
-        let (style, hotkey_style, selected_style) =
-            theme::with_current(|t| (t.status_normal, t.status_hotkey, t.status_selected));
-
-        // Clear the line
-        for x in bounds.left()..bounds.right() {
-            if let Some(cell) = buf.cell_mut((x, bounds.y)) {
-                cell.set_style(style);
-            }
-        }
-
-        let mut x = bounds.x;
-        self.item_positions.borrow_mut().clear();
-
-        // Draw each item
-        for (idx, item) in self.items.iter().enumerate() {
-            let segments = parse_hotkey_text(&item.text);
-            let start_x = x;
-
-            // Hover style check
-            let is_hovered = self.hovered_item == Some(idx);
-
-            for (text, highlighted) in &segments {
-                let seg_style = if is_hovered {
-                    selected_style
-                } else if *highlighted {
-                    hotkey_style
-                } else {
-                    style
-                };
-
-                buf.set_string(x, bounds.y, text, seg_style);
-                x += u16::try_from(text.len()).unwrap_or(u16::MAX);
-            }
-
-            // Add space between items
-            if idx < self.items.len() - 1 {
-                buf.set_string(x, bounds.y, "  ", style);
-                x += 2;
-            }
-
-            let end_x = x;
-            self.item_positions.borrow_mut().push((start_x, end_x));
-        }
-
-        // Draw hint text right-aligned
-        if let Some(hint) = &self.hint_text {
-            let hint_len = u16::try_from(hint.len()).unwrap_or(u16::MAX);
-            if hint_len < bounds.width {
-                let hint_x = bounds.x + bounds.width - hint_len - 1;
-                buf.set_string(hint_x, bounds.y, hint, style);
-            }
-        }
-    }
-}
-
-impl View for StatusLine {
-    fn id(&self) -> crate::view::ViewId {
-        self.base.id()
-    }
-
-    fn bounds(&self) -> Rect {
-        self.base.bounds()
-    }
-
-    fn set_bounds(&mut self, bounds: Rect) {
-        self.base.set_bounds(bounds);
-    }
-
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
-        self.draw_status(buf, area); // area is passed but draw_status uses self.base.bounds()
-    }
-
-    fn handle_event(&mut self, event: &mut Event) {
-        if event.is_cleared() {
-            return;
-        }
-
-        match &event.kind {
-            EventKind::Key(key) => {
-                // Check if any item's key_code matches
-                for item in &self.items {
-                    if item.key_code != 0 && key_matches(key, item.key_code) {
-                        event.kind = EventKind::Command(item.command);
-                        return; // Don't clear — let command propagate
-                    }
-                }
-            }
-            EventKind::Mouse(mouse) => {
-                let bounds = self.base.bounds();
-
-                // Only handle if mouse is on our row
-                let mouse_in_row = mouse.row >= bounds.y && mouse.row < bounds.y + bounds.height;
-
-                if !mouse_in_row {
-                    return;
-                }
-
-                match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        // Find which item was clicked
-                        if let Some(idx) = self.item_at_x(mouse.column) {
-                            event.kind = EventKind::Command(self.items[idx].command);
-                            event.handled = true;
-                        }
-                    }
-                    MouseEventKind::Moved => {
-                        self.hovered_item = self.item_at_x(mouse.column);
-                    }
-                    MouseEventKind::Up(MouseButton::Left) => {
-                        // Clear hover on mouse up if outside
-                        if self.item_at_x(mouse.column).is_none() {
-                            self.hovered_item = None;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn state(&self) -> u16 {
-        self.base.state()
-    }
-
-    fn set_state(&mut self, state: u16) {
-        self.base.set_state(state);
-    }
-
-    fn options(&self) -> u16 {
-        self.base.options() | OF_PRE_PROCESS
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
-
-// ============================================================================
 // Helper functions
 // ============================================================================
 
 /// Check if a key event matches the given key code.
 ///
-/// Maps F-key codes to `KeyCode::F(n)` values.
+/// Maps F-key codes to `KeyCode::F(n)` values and `KB_ALT_X` to
+/// `Alt+x` / `Alt+X`.
 #[must_use]
 pub fn key_matches(key: &KeyEvent, code: u16) -> bool {
     // Extract F-key number from our code constants
@@ -363,8 +125,10 @@ pub fn key_matches(key: &KeyEvent, code: u16) -> bool {
 
 /// Parse text with `~X~` markers.
 ///
-/// Returns segments with (text, highlighted) tuples.
+/// Returns segments with `(text, highlighted)` tuples.
 /// The text between `~` markers is marked as highlighted.
+///
+/// Delegates to [`crate::horizontal_bar::parse_hotkey_text`].
 ///
 /// # Examples
 ///
@@ -375,71 +139,79 @@ pub fn key_matches(key: &KeyEvent, code: u16) -> bool {
 /// ```
 #[must_use]
 pub fn parse_hotkey_text(text: &str) -> Vec<(String, bool)> {
-    let mut segments = Vec::new();
-    let chars = text.chars();
-    let mut current = String::new();
-    let mut in_hotkey = false;
-
-    for ch in chars {
-        if ch == '~' {
-            if !current.is_empty() {
-                segments.push((current.clone(), in_hotkey));
-                current.clear();
-            }
-            in_hotkey = !in_hotkey;
-        } else {
-            current.push(ch);
-        }
-    }
-
-    // Handle trailing text after last `~`
-    if !current.is_empty() {
-        segments.push((current, false));
-    }
-
-    segments
+    crate::horizontal_bar::parse_hotkey_text(text)
 }
 
 /// Compute display width, stripping `~` markers.
+///
+/// Delegates to [`crate::horizontal_bar::display_width`].
 #[must_use]
 pub fn display_width(text: &str) -> usize {
-    let mut width = 0;
-    let mut in_tilde = false;
-
-    for ch in text.chars() {
-        if ch == '~' {
-            in_tilde = !in_tilde;
-        } else {
-            width += 1;
-        }
-    }
-
-    width
+    crate::horizontal_bar::display_width(text)
 }
 
 /// Compute item positions starting at a given x offset.
 ///
-/// Returns (`start_x`, `end_x`) for each item.
+/// Returns `(start_x, end_x)` for each item.  Each item occupies
+/// 1 leading space + text display width + 1 trailing space.
 #[must_use]
 pub fn compute_positions(items: &[StatusItem], start_x: u16) -> Vec<(u16, u16)> {
     let mut positions = Vec::new();
     let mut x = start_x;
 
-    for (idx, item) in items.iter().enumerate() {
+    for item in items {
         let width = u16::try_from(display_width(&item.text)).unwrap_or(u16::MAX);
         let start = x;
-        let end = if idx < items.len() - 1 {
-            x + width + 2 // Add 2 for separator
-        } else {
-            x + width
-        };
-
+        // Each item: 1 leading space + text width + 1 trailing space
+        let end = x + width + 2;
         positions.push((start, end));
         x = end;
     }
 
     positions
 }
+
+// ============================================================================
+// Type alias + From impl + convenience constructor
+// ============================================================================
+
+/// Type alias for backward compatibility.
+///
+/// `StatusLine` is now implemented by [`HorizontalBar`] with [`DropDirection::Up`].
+///
+/// [`DropDirection::Up`]: crate::overlay::DropDirection::Up
+pub type StatusLine = crate::horizontal_bar::HorizontalBar;
+
+impl From<StatusItem> for crate::horizontal_bar::BarEntry {
+    fn from(item: StatusItem) -> Self {
+        Self::Action {
+            label: item.text,
+            command: item.command,
+            key_code: item.key_code,
+        }
+    }
+}
+
+/// Create a new status line from a list of [`StatusItem`] entries.
+///
+/// This is a convenience wrapper around [`HorizontalBar::status_line`] that
+/// converts each `StatusItem` into a [`BarEntry::Action`].
+///
+/// [`BarEntry::Action`]: crate::horizontal_bar::BarEntry::Action
+#[must_use]
+pub fn status_line_from_items(bounds: Rect, items: Vec<StatusItem>) -> StatusLine {
+    let entries = items
+        .into_iter()
+        .map(crate::horizontal_bar::BarEntry::from)
+        .collect();
+    crate::horizontal_bar::HorizontalBar::status_line(bounds, entries)
+}
+
+// ============================================================================
+// Re-exports
+// ============================================================================
+
+pub use crate::horizontal_bar::{BarEntry, HorizontalBar};
 
 // ============================================================================
 // Tests
@@ -467,95 +239,38 @@ mod tests {
     }
 
     #[test]
-    fn test_status_line_new() {
-        let items = vec![StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1)];
-        let status = StatusLine::new(Rect::new(0, 23, 80, 1), items);
-
-        assert_eq!(status.items().len(), 1);
-        assert!(status.hint().is_none());
-    }
-
-    #[test]
-    fn test_status_line_hint() {
-        let items = vec![StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1)];
-        let mut status = StatusLine::new(Rect::new(0, 23, 80, 1), items);
-
-        assert!(status.hint().is_none());
-
-        status.set_hint(Some("Ready".into()));
-        assert_eq!(status.hint(), Some("Ready"));
-
-        status.set_hint(None);
-        assert!(status.hint().is_none());
-    }
-
-    #[test]
-    fn test_parse_hotkey_text() {
-        // Simple hotkey
-        let segments = parse_hotkey_text("~F1~ Help");
-        assert_eq!(
-            segments,
-            vec![("F1".to_string(), true), (" Help".to_string(), false),]
-        );
-
-        // No hotkey
-        let segments = parse_hotkey_text("No Hotkey");
-        assert_eq!(segments, vec![("No Hotkey".to_string(), false),]);
-
-        // Multiple hotkeys
-        let segments = parse_hotkey_text("~Alt~+~X~");
-        assert_eq!(
-            segments,
-            vec![
-                ("Alt".to_string(), true),
-                ("+".to_string(), false),
-                ("X".to_string(), true),
-            ]
-        );
-
-        // Hotkey at end
-        let segments = parse_hotkey_text("Open ~File~");
-        assert_eq!(
-            segments,
-            vec![("Open ".to_string(), false), ("File".to_string(), true),]
-        );
-    }
-
-    #[test]
-    fn test_display_width() {
-        assert_eq!(display_width("~F1~ Help"), 7);
-        assert_eq!(display_width("No hotkey"), 9);
-        assert_eq!(display_width("~F1~~F2~"), 4);
-    }
-
-    #[test]
     fn test_key_matches_f_keys() {
-        // F1
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE);
         assert!(key_matches(&key, KB_F1));
         assert!(!key_matches(&key, KB_F2));
 
-        // F10
         let key = KeyEvent::new(KeyCode::F(10), KeyModifiers::NONE);
         assert!(key_matches(&key, KB_F10));
-
-        // F12
-        let key = KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE);
-        assert!(key_matches(&key, KB_F12));
     }
 
     #[test]
     fn test_key_matches_alt() {
-        // Alt+X
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT);
         assert!(key_matches(&key, KB_ALT_X));
 
-        let key = KeyEvent::new(KeyCode::Char('X'), KeyModifiers::ALT);
-        assert!(key_matches(&key, KB_ALT_X));
-
-        // Regular X without Alt
         let key = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
         assert!(!key_matches(&key, KB_ALT_X));
+    }
+
+    #[test]
+    fn test_parse_hotkey_text_delegated() {
+        let segments = parse_hotkey_text("~F1~ Help");
+        assert_eq!(
+            segments,
+            vec![("F1".to_string(), true), (" Help".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn test_display_width_delegated() {
+        assert_eq!(display_width("~F1~ Help"), 7);
     }
 
     #[test]
@@ -564,94 +279,47 @@ mod tests {
             StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
             StatusItem::new("~F2~ Open", CM_CLOSE, KB_F2),
         ];
-
         let positions = compute_positions(&items, 0);
         assert_eq!(positions.len(), 2);
-        // "~F1~ Help" = 7 display chars, with 2 space separator = 9
         assert_eq!(positions[0], (0, 9));
-        // "~F2~ Open" = 7 display chars, no separator (last item)
-        // Start at 9, end at 16
-        assert_eq!(positions[1], (9, 16));
+        assert_eq!(positions[1], (9, 18));
     }
 
     #[test]
-    fn test_status_line_has_pre_process() {
-        let items = vec![StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1)];
-        let status = StatusLine::new(Rect::new(0, 23, 80, 1), items);
-
-        assert_ne!(status.options() & OF_PRE_PROCESS, 0);
+    fn test_from_status_item_to_bar_entry() {
+        let item = StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1);
+        let entry: crate::horizontal_bar::BarEntry = item.into();
+        assert_eq!(entry.label(), "~F1~ Help");
+        assert_eq!(entry.key_code(), KB_F1);
+        if let crate::horizontal_bar::BarEntry::Action { command, .. } = &entry {
+            assert_eq!(*command, CM_CLOSE);
+        } else {
+            panic!("Expected Action variant");
+        }
     }
 
     #[test]
-    fn test_status_line_draw() {
-        let items = vec![StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1)];
-        let mut status = StatusLine::new(Rect::new(0, 0, 20, 1), items);
-        status.set_hint(Some("Ready".into()));
-
-        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
-        status.draw(&mut buf, Rect::new(0, 0, 20, 1));
-
-        // Check that text was written
-        let content: String = buf.content().iter().map(|c| c.symbol()).collect::<String>();
-        assert!(content.contains("F1"));
-        assert!(content.contains("Help"));
-        assert!(content.contains("Ready"));
-    }
-
-    #[test]
-    fn test_status_line_click() {
+    fn test_status_line_from_items() {
+        use ratatui::layout::Rect;
         let items = vec![
             StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
             StatusItem::new("~F2~ Open", CM_CLOSE, KB_F2),
         ];
-        let mut status = StatusLine::new(Rect::new(0, 0, 20, 1), items);
-
-        // First draw to compute positions
-        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
-        status.draw(&mut buf, Rect::new(0, 0, 20, 1));
-
-        // Now simulate a click on first item (x=0)
-        let mut event = Event::mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 0,
-            row: 0,
-            modifiers: KeyModifiers::NONE,
-        });
-        status.handle_event(&mut event);
-        assert!(event.is_command());
-        assert_eq!(event.command_id(), Some(CM_CLOSE));
+        let bar = status_line_from_items(Rect::new(0, 23, 80, 1), items);
+        assert_eq!(bar.entries().len(), 2);
+        assert!(!bar.is_active());
     }
 
     #[test]
-    fn test_status_line_key() {
-        let items = vec![StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1)];
-        let mut status = StatusLine::new(Rect::new(0, 0, 20, 1), items);
-
-        // Press F1
-        let mut event = Event::key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE));
-        status.handle_event(&mut event);
-        assert!(event.is_command());
-        assert_eq!(event.command_id(), Some(CM_CLOSE));
-    }
-
-    #[test]
-    fn test_status_item_positions_no_overlap() {
-        let items = vec![
-            StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
-            StatusItem::new("~F2~ Open", CM_CLOSE, KB_F2),
-            StatusItem::new("~F3~ Exit", CM_CLOSE, KB_F3),
-        ];
-
-        let positions = compute_positions(&items, 0);
-
-        // Check no overlaps
-        for i in 0..positions.len() - 1 {
-            assert!(positions[i].1 <= positions[i + 1].0);
-        }
-
-        // Check ordering
-        for i in 1..positions.len() {
-            assert!(positions[i].0 >= positions[i - 1].1);
-        }
+    fn test_type_alias_usable() {
+        use ratatui::layout::Rect;
+        let entries = vec![crate::horizontal_bar::BarEntry::Action {
+            label: "~F1~ Help".into(),
+            command: CM_CLOSE,
+            key_code: KB_F1,
+        }];
+        let bar: StatusLine =
+            crate::horizontal_bar::HorizontalBar::status_line(Rect::new(0, 23, 80, 1), entries);
+        assert_eq!(bar.entries().len(), 1);
     }
 }

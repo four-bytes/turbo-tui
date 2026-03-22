@@ -97,6 +97,7 @@ pub const CM_NEXT: CommandId = 141;
 pub const CM_PREV: CommandId = 142;
 pub const CM_TILE: CommandId = 143;
 pub const CM_CASCADE: CommandId = 144;
+pub const CM_NEXT_THEME: CommandId = 145;
 
 /// Commands >= `INTERNAL_COMMAND_BASE` are internal view commands
 /// and will NOT close modal dialogs.

@@ -4,7 +4,7 @@
 //! - Application event loop
 //! - Desktop with blue background
 //! - Overlapping windows with drag and resize
-//! - `MenuBar` with dropdown menus
+//! - `MenuBar` with dropdown menus (theme list built dynamically)
 //! - `StatusLine` with F-key shortcuts
 //! - Buttons and labels in windows
 //!
@@ -12,6 +12,7 @@
 //! - Alt+X: Quit
 //! - F10: Activate menu bar
 //! - Mouse: Click, drag, resize windows
+//! - F2: Cycle themes
 //! - Tab: Cycle focus within a window
 
 use crossterm::{
@@ -25,13 +26,19 @@ use std::time::Duration;
 use turbo_tui::{
     application::Application,
     button::Button,
-    command::{CM_CLOSE, CM_OK, CM_QUIT},
-    menu_bar::{Menu, MenuBar, MenuItem},
+    command::{CM_CLOSE, CM_NEXT_THEME, CM_OK, CM_QUIT},
+    horizontal_bar::{BarEntry, HorizontalBar},
+    menu_bar::{menu_bar_from_menus, Menu, MenuItem},
     scrollbar::ScrollBar,
     static_text::StaticText,
-    status_line::{StatusItem, StatusLine, KB_ALT_X, KB_F10},
+    status_line::{KB_ALT_X, KB_F10, KB_F2},
+    theme,
     window::Window,
 };
+
+/// Base command ID for dynamic theme selection.
+/// Theme at index `i` in the sorted registry gets command `CM_THEME_BASE + i`.
+const CM_THEME_BASE: u16 = 1060;
 
 fn main() -> io::Result<()> {
     // Setup terminal
@@ -59,15 +66,26 @@ fn main() -> io::Result<()> {
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
     let size = terminal.size()?;
 
-    // Optionally set a theme (dark is default)
-    // theme::set(theme::Theme::borland_classic());
-    // theme::set(theme::Theme::modern());
-    // theme::set(theme::Theme::matrix());
+    // ── Theme initialization ───────────────────────────────────────────
+    // 1. Register built-in Turbo Vision theme
+    theme::init_builtin();
+    // 2. Load JSON themes from themes/ directory (if available)
+    let themes_dir = std::path::Path::new("themes");
+    if themes_dir.exists() {
+        let _ = theme::load_themes_from_dir(themes_dir);
+    }
+    // 3. Set initial theme (prefer "Dark" from JSON, fall back to "Turbo Vision")
+    if !theme::set_by_name("Dark") {
+        let _ = theme::set_by_name("Turbo Vision");
+    }
+
+    // Snapshot theme names for menu building and command handling
+    let theme_names = theme::registered_names();
 
     let mut app = Application::new(Rect::new(0, 0, size.width, size.height));
 
-    // Setup menu bar
-    setup_menu_bar(&mut app);
+    // Setup menu bar (needs theme_names for dynamic theme submenu)
+    setup_menu_bar(&mut app, &theme_names);
 
     // Setup status line
     setup_status_line(&mut app);
@@ -75,26 +93,47 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Add demo windows
     add_demo_windows(&mut app);
 
-    // Event loop
-    loop {
-        terminal.draw(|frame| {
-            app.draw(frame);
-        })?;
+    // ── Event loop ─────────────────────────────────────────────────────
+    // Draw once before entering the loop so the initial frame is visible.
+    terminal.draw(|frame| {
+        app.draw(frame);
+    })?;
 
+    loop {
         if event::poll(Duration::from_millis(16))? {
             let ct_event = event::read()?;
 
             // Handle Alt+X quit before passing to app
             if let event::Event::Key(key) = &ct_event {
-                if key.kind == event::KeyEventKind::Press
-                    && key.code == KeyCode::Char('x')
-                    && key.modifiers.contains(KeyModifiers::ALT)
-                {
-                    break;
+                if key.kind == event::KeyEventKind::Press {
+                    if key.code == KeyCode::Char('x') && key.modifiers.contains(KeyModifiers::ALT) {
+                        break;
+                    }
+
+                    // F2 → cycle theme
+                    if key.code == KeyCode::F(2) {
+                        let _ = theme::cycle_next_registered();
+                    }
                 }
             }
 
             app.handle_crossterm_event(&ct_event);
+
+            // Handle commands from menu
+            if let Some(cmd) = app.take_unhandled_command() {
+                // Check if it's a dynamic theme selection command
+                if cmd >= CM_THEME_BASE {
+                    let idx = (cmd - CM_THEME_BASE) as usize;
+                    if let Some(name) = theme_names.get(idx) {
+                        let _ = theme::set_by_name(name);
+                    }
+                }
+            }
+
+            // Redraw only after processing an event
+            terminal.draw(|frame| {
+                app.draw(frame);
+            })?;
         }
 
         if !app.is_running() {
@@ -105,8 +144,26 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     Ok(())
 }
 
-fn setup_menu_bar(app: &mut Application) {
+fn setup_menu_bar(app: &mut Application, theme_names: &[String]) {
     let bounds = Rect::new(0, 0, 80, 1); // Will be resized by Application
+
+    // Build theme menu items dynamically from registered theme names
+    let mut window_items = vec![
+        MenuItem::new("~T~ile", 1020),
+        MenuItem::new("~C~ascade", 1021),
+        MenuItem::separator(),
+        MenuItem::new("~C~lose", CM_CLOSE),
+    ];
+
+    if !theme_names.is_empty() {
+        window_items.push(MenuItem::separator());
+        for (i, name) in theme_names.iter().enumerate() {
+            #[allow(clippy::cast_possible_truncation)]
+            let cmd = CM_THEME_BASE + i as u16;
+            window_items.push(MenuItem::new(&format!("Theme: {name}"), cmd));
+        }
+    }
+
     let menus = vec![
         Menu::new(
             "~F~ile",
@@ -125,30 +182,45 @@ fn setup_menu_bar(app: &mut Application) {
                 MenuItem::new("~P~aste", 1012),
             ],
         ),
-        Menu::new(
-            "~W~indow",
-            vec![
-                MenuItem::new("~T~ile", 1020),
-                MenuItem::new("~C~ascade", 1021),
-                MenuItem::separator(),
-                MenuItem::new("~C~lose", CM_CLOSE),
-            ],
-        ),
+        Menu::new("~W~indow", window_items),
         Menu::new("~H~elp", vec![MenuItem::new("~A~bout", 1030)]),
     ];
 
-    let menu_bar = MenuBar::new(bounds, menus);
+    let menu_bar = menu_bar_from_menus(bounds, menus);
     app.set_menu_bar(menu_bar);
 }
 
 fn setup_status_line(app: &mut Application) {
     let bounds = Rect::new(0, 23, 80, 1); // Will be resized by Application
-    let items = vec![
-        StatusItem::new("~Alt+X~ Quit", CM_QUIT, KB_ALT_X),
-        StatusItem::new("~F10~ Menu", 1040, KB_F10),
+
+    let entries = vec![
+        BarEntry::Action {
+            label: "~Alt+X~ Quit".into(),
+            command: CM_QUIT,
+            key_code: KB_ALT_X,
+        },
+        BarEntry::Action {
+            label: "~F2~ Theme".into(),
+            command: CM_NEXT_THEME,
+            key_code: KB_F2,
+        },
+        BarEntry::Action {
+            label: "~F10~ Menu".into(),
+            command: 1040,
+            key_code: KB_F10,
+        },
+        BarEntry::Dropdown {
+            label: "~I~nfo".into(),
+            items: vec![
+                MenuItem::new("~A~bout", 1030),
+                MenuItem::separator(),
+                MenuItem::new("~V~ersion", 1031),
+            ],
+            key_code: 0,
+        },
     ];
 
-    let status_line = StatusLine::new(bounds, items);
+    let status_line = HorizontalBar::status_line(bounds, entries);
     app.set_status_line(status_line);
 }
 
@@ -168,7 +240,8 @@ fn add_demo_windows(app: &mut Application) {
     win1.add(Box::new(ok_btn));
 
     // Add a vertical scrollbar to demonstrate the scrollbar-on-border feature
-    win1.frame_mut().set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
+    win1.frame_mut()
+        .set_v_scrollbar(ScrollBar::vertical(Rect::new(0, 0, 1, 10)));
 
     app.add_window(win1);
 

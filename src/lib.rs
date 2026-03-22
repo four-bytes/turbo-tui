@@ -10,8 +10,15 @@
 pub mod command;
 pub mod theme;
 
+// JSON theme serialization (optional, requires `json-themes` feature)
+#[cfg(feature = "json-themes")]
+pub mod theme_json;
+
 // Level 1: View abstraction
 pub mod view;
+
+// Clip-aware rendering utilities (crate-internal)
+pub(crate) mod clip;
 
 // Level 2: Container
 pub mod container;
@@ -36,6 +43,9 @@ pub mod status_line;
 
 // Level 5: Compositions
 pub mod msgbox;
+
+// Unified horizontal bar (menu bar + status line)
+pub mod horizontal_bar;
 
 /// Prelude — import this for quick access to common types.
 pub mod prelude {

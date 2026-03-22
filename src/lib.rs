@@ -39,12 +39,12 @@ pub mod menu_bar;
 pub mod menu_box;
 pub mod scrollbar;
 pub mod static_text;
-pub mod status_line;
+pub mod status_bar;
 
 // Level 5: Compositions
 pub mod msgbox;
 
-// Unified horizontal bar (menu bar + status line)
+// Unified horizontal bar (menu bar + status bar)
 pub mod horizontal_bar;
 
 /// Prelude — import this for quick access to common types.

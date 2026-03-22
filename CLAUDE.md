@@ -79,33 +79,31 @@ No Makefile — use cargo directly.
 - **Hotkey markers:** `~X~` in labels marks the hotkey letter (rendered underlined)
 - **Borland keys:** Alt+X = quit, F10 = menu, Alt+letter = open specific menu
 
-### Reference
-- Pattern source: [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT) — study patterns, don't copy code
+### Plans
 - Architecture decision: [ADR-002](~/four-code/docs/ADR-002-turbo-tui-windowing.md) in four-code
-- **v0.2 Architecture Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md) — Detailed build plan with 10 steps, architecture decisions, new concepts (Deferred Event Queue, Lifecycle Hooks, Overlay System, Event Coalescing)
-- **v0.2.1 Progression Plan:** [`docs/PLAN-v0.2.1.md`](docs/PLAN-v0.2.1.md) — Window handling, scrollbar fixes, Builder Lite, task shelf, lifecycle hooks
-- **Reference Research:** [`docs/RES-0002-reference-projects-architecture.md`](docs/RES-0002-reference-projects-architecture.md) — Ratatui patterns, TachyonFX, tui-rs demo analysis
+- **v0.2 Architecture Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md) — Detailed build plan with 10 steps, architecture decisions
+- **v0.2.1 Progression Plan:** [`docs/PLAN-v0.2.1.md`](docs/PLAN-v0.2.1.md) — Window handling, scrollbar fixes, Builder Lite, task shelf
 
 ## Key Design Decisions
 
-1. **turbo-vision-4-rust is NOT built on Ratatui** — it's a standalone framework on crossterm at the same level as Ratatui. That's why we port patterns instead of using it as a dependency.
+1. **turbo-tui extends Ratatui** — it's NOT a standalone framework. All rendering goes through Ratatui's `Frame`/`Buffer`.
 2. **Crate name `turbo-tui`** is reserved on crates.io.
-3. **Three-phase dispatch** is critical: StatusLine uses `OF_PRE_PROCESS` to intercept F-keys before they reach focused windows. Without this, F1/F5/F10 would go to the focused window first.
+3. **Three-phase dispatch** is critical: StatusBar uses `OF_PRE_PROCESS` to intercept F-keys before they reach focused windows. Without this, F1/F5/F10 would go to the focused window first.
 4. **Mouse events** route front-to-back (reverse Z-order) with hit-testing. Keyboard/command events use three-phase dispatch through the focused child.
 
-## Architecture Principles (from Reference Analysis — 2026-03-22)
+## Architecture Principles
 
-These principles were established after reviewing Ratatui's official patterns and should guide ALL future development:
+These principles guide ALL development:
 
-1. **View trait stays unified** — Do NOT split into separate Widget + EventHandler traits. turbo-tui's `View` (state + events + render) IS the component architecture. Ratatui widgets are stateless renderers for data-display apps; turbo-tui components are stateful interactive views. Reviewed: [Component Architecture](https://ratatui.rs/concepts/application-patterns/component-architecture/), [Widgets](https://ratatui.rs/concepts/widgets/).
+1. **View trait stays unified** — Do NOT split into separate Widget + EventHandler traits. turbo-tui's `View` (state + events + render) IS the component architecture. Ratatui widgets are stateless renderers for data-display apps; turbo-tui components are stateful interactive views.
 
-2. **Builder Lite pattern for construction** — Self-consuming methods returning `Self`, NOT a separate Builder struct. Example: `Window::new(bounds, "Title").scrollbars(true, false).min_size(20, 8)`. Source: [Builder Lite](https://ratatui.rs/concepts/builder-lite-pattern/).
+2. **Builder Lite pattern for construction** — Self-consuming methods returning `Self`, NOT a separate Builder struct. Example: `Window::new(bounds, "Title").scrollbars(true, false).min_size(20, 8)`.
 
 3. **Deferred events over Action returns** — Keep the deferred event queue. The `Action` enum return pattern doesn't support three-phase dispatch where multiple views process the same event.
 
 4. **Frame owns scrollbars** — Scrollbars are `Option<ScrollBar>` on Frame, sitting on the border. They are NOT Container children. This prevents scrollbars from consuming interior space.
 
-5. **Post-render effects = future** — TachyonFX-style buffer transforms for animations. Not in v0.2.x, but design must not prevent it. Integration point: `Application::draw()` + optional `EffectManager`. Source: [TachyonFX](https://github.com/junkdog/tachyonfx).
+5. **Post-render effects = future** — TachyonFX-style buffer transforms for animations. Not in v0.2.x, but design must not prevent it. Integration point: `Application::draw()` + optional `EffectManager`.
 
 6. **Scrollbar inactive styling** — Scrollbars have active/inactive appearance based on owning window's `SF_FOCUSED` state. 3 theme fields: `scrollbar_track_inactive`, `scrollbar_thumb_inactive`, `scrollbar_arrows_inactive`. Propagated via `Window::set_state()`.
 
@@ -230,19 +228,6 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 - **Issue:** Creating a configured window requires 5-8 separate setter calls. No fluent API.
 - **Plan:** Builder Lite pattern + FrameConfig struct + widget presets. See `docs/PLAN-v0.2.1.md` Phase 4a-4c.
 
-## Reference URLs (for Architecture Decisions)
-
-| Reference | URL | Relevance |
-|-----------|-----|-----------|
-| Ratatui Component Architecture | https://ratatui.rs/concepts/application-patterns/component-architecture/ | Component trait pattern — turbo-tui's View is equivalent |
-| Ratatui Event Handling | https://ratatui.rs/concepts/event-handling/ | 3 event patterns — we use approach 2 |
-| Ratatui Widgets | https://ratatui.rs/concepts/widgets/ | Widget/StatefulWidget/WidgetRef traits |
-| Ratatui Builder Lite | https://ratatui.rs/concepts/builder-lite-pattern/ | Self-consuming fluent API pattern |
-| TachyonFX | https://github.com/junkdog/tachyonfx | Post-render effects, future animation integration |
-| tui-rs demo | https://github.com/fdehau/tui-rs/tree/master/examples/demo | Dense dashboard layout, gauge/chart patterns |
-| gping | https://github.com/orf/gping | Real-time gauge, ring-buffer data |
-| Ratatui Scrollbar | https://ratatui.rs/examples/widgets/scrollbar/ | Scrollbar widget reference |
-
 ## Agent Strategy
 
 - **~70% developer-mid** (Kimi K2): Logic, state machines, widget implementations
@@ -262,8 +247,6 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) | Historical reference |
 | `docs/PLAN-v0.2.2.md` | v0.2.2 MenuBar→Overlay refactor plan | When implementing v0.2.2 features |
 | `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) | For historical architecture decisions |
-| `docs/RES-0002-reference-projects-architecture.md` | Reference analysis: Ratatui, TachyonFX, tui-rs, gping | When making architecture decisions |
-| `docs/RES-0001-performance-research.md` | Performance research (16ms poll, dirty flags, etc.) | When optimizing |
 | `docs/DESIGN-horizontal-bar.md` | HorizontalBar unification design | When changing menu/status bar |
 
 ## Related Projects
@@ -274,4 +257,3 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | ADR-002 | `~/four-code/docs/ADR-002-turbo-tui-windowing.md` | Architecture decision record |
 | v0.2 Plan | `docs/PLAN-v0.2.md` | Detailed architecture plan for v0.2 rebuild |
 | v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | Progression plan with reference analysis findings |
-| Research | `docs/RES-0002-reference-projects-architecture.md` | Reference projects analysis |

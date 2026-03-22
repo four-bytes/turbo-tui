@@ -1,10 +1,10 @@
-//! Status Line — backward-compatibility wrapper around [`HorizontalBar`].
+//! Status Bar — backward-compatibility wrapper around [`HorizontalBar`].
 //!
-//! The [`StatusLine`] type is now a type alias for
+//! The [`StatusBar`] type is now a type alias for
 //! [`HorizontalBar`](crate::horizontal_bar::HorizontalBar) configured with
 //! [`DropDirection::Up`](crate::overlay::DropDirection::Up).
 //!
-//! Use [`status_line_from_items`] to build a `StatusLine` from the legacy
+//! Use [`status_bar_from_items`] to build a `StatusBar` from the legacy
 //! [`StatusItem`] list.  All [`KB_*`](KB_F1) constants and [`StatusItem`]
 //! remain available for backward compatibility.
 
@@ -133,7 +133,7 @@ pub fn key_matches(key: &KeyEvent, code: u16) -> bool {
 /// # Examples
 ///
 /// ```
-/// # use turbo_tui::status_line::parse_hotkey_text;
+/// # use turbo_tui::status_bar::parse_hotkey_text;
 /// let segments = parse_hotkey_text("~F1~ Help");
 /// assert_eq!(segments, vec![("F1".to_string(), true), (" Help".to_string(), false)]);
 /// ```
@@ -177,10 +177,10 @@ pub fn compute_positions(items: &[StatusItem], start_x: u16) -> Vec<(u16, u16)> 
 
 /// Type alias for backward compatibility.
 ///
-/// `StatusLine` is now implemented by [`HorizontalBar`] with [`DropDirection::Up`].
+/// `StatusBar` is now implemented by [`HorizontalBar`] with [`DropDirection::Up`].
 ///
 /// [`DropDirection::Up`]: crate::overlay::DropDirection::Up
-pub type StatusLine = crate::horizontal_bar::HorizontalBar;
+pub type StatusBar = crate::horizontal_bar::HorizontalBar;
 
 impl From<StatusItem> for crate::horizontal_bar::BarEntry {
     fn from(item: StatusItem) -> Self {
@@ -192,19 +192,19 @@ impl From<StatusItem> for crate::horizontal_bar::BarEntry {
     }
 }
 
-/// Create a new status line from a list of [`StatusItem`] entries.
+/// Create a new status bar from a list of [`StatusItem`] entries.
 ///
-/// This is a convenience wrapper around [`HorizontalBar::status_line`] that
+/// This is a convenience wrapper around [`HorizontalBar::status_bar`] that
 /// converts each `StatusItem` into a [`BarEntry::Action`].
 ///
 /// [`BarEntry::Action`]: crate::horizontal_bar::BarEntry::Action
 #[must_use]
-pub fn status_line_from_items(bounds: Rect, items: Vec<StatusItem>) -> StatusLine {
+pub fn status_bar_from_items(bounds: Rect, items: Vec<StatusItem>) -> StatusBar {
     let entries = items
         .into_iter()
         .map(crate::horizontal_bar::BarEntry::from)
         .collect();
-    crate::horizontal_bar::HorizontalBar::status_line(bounds, entries)
+    crate::horizontal_bar::HorizontalBar::status_bar(bounds, entries)
 }
 
 // ============================================================================
@@ -299,13 +299,13 @@ mod tests {
     }
 
     #[test]
-    fn test_status_line_from_items() {
+    fn test_status_bar_from_items() {
         use ratatui::layout::Rect;
         let items = vec![
             StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
             StatusItem::new("~F2~ Open", CM_CLOSE, KB_F2),
         ];
-        let bar = status_line_from_items(Rect::new(0, 23, 80, 1), items);
+        let bar = status_bar_from_items(Rect::new(0, 23, 80, 1), items);
         assert_eq!(bar.entries().len(), 2);
         assert!(!bar.is_active());
     }
@@ -318,8 +318,8 @@ mod tests {
             command: CM_CLOSE,
             key_code: KB_F1,
         }];
-        let bar: StatusLine =
-            crate::horizontal_bar::HorizontalBar::status_line(Rect::new(0, 23, 80, 1), entries);
+        let bar: StatusBar =
+            crate::horizontal_bar::HorizontalBar::status_bar(Rect::new(0, 23, 80, 1), entries);
         assert_eq!(bar.entries().len(), 1);
     }
 }

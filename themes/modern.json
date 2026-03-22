@@ -172,7 +172,7 @@
       "bold": true
     }
   },
-  "status_line": {
+  "status_bar": {
     "normal": {
       "fg": "#a0a0aa",
       "bg": "#23232a"

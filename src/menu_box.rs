@@ -223,7 +223,8 @@ impl View for MenuBox {
     }
 
     #[allow(clippy::similar_names)]
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
+    fn draw(&self, buf: &mut Buffer, _clip: Rect) {
+        let area = self.base.bounds();
         if area.width < 4 || area.height < 3 {
             return;
         }

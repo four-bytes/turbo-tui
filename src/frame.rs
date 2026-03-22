@@ -1235,36 +1235,26 @@ impl Frame {
             let available = tray.title_end.saturating_sub(tray.title_start);
 
             if available >= 2 {
-                // Center within FULL frame width first
+                // Center within FULL frame width first, but never go left of title_start
                 let ideal_start = b.x + (b.width.saturating_sub(title_len)) / 2;
+                let clamped_start = ideal_start.max(tray.title_start);
 
                 // Clip to button tray boundaries
-                let vis_start = ideal_start.max(tray.title_start);
-                let vis_end = (ideal_start + title_len).min(tray.title_end);
+                let vis_start = clamped_start;
+                let vis_end = (clamped_start + title_len).min(tray.title_end);
 
                 if vis_end > vis_start {
-                    // Calculate how many characters to skip from the start
-                    #[allow(clippy::cast_possible_truncation)]
-                    let chars_to_skip = (vis_start.saturating_sub(ideal_start)) as usize;
                     #[allow(clippy::cast_possible_truncation)]
                     let vis_count = (vis_end - vis_start) as usize;
 
-                    // Determine truncation
-                    let truncated_left = vis_start > ideal_start;
-                    let truncated_right = (ideal_start + title_len) > tray.title_end;
+                    // Only right-side truncation possible (left side is always at clamped_start)
+                    let truncated_right = (clamped_start + title_len) > tray.title_end;
 
-                    // Draw visible characters with ellipsis where needed
-                    for (i, &ch) in title_chars
-                        .iter()
-                        .skip(chars_to_skip)
-                        .take(vis_count)
-                        .enumerate()
-                    {
+                    // Draw visible characters with ellipsis on right if needed
+                    for (i, &ch) in title_chars.iter().take(vis_count).enumerate() {
                         #[allow(clippy::cast_possible_truncation)]
                         let col = vis_start + i as u16;
-                        let draw_ch = if (truncated_left && i == 0)
-                            || (truncated_right && i == vis_count - 1)
-                        {
+                        let draw_ch = if truncated_right && i == vis_count - 1 {
                             '…'
                         } else {
                             ch

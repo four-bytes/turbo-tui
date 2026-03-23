@@ -174,9 +174,11 @@ These principles guide ALL development:
   - Phase 5: Demo + integration tests
   - Plan: `docs/PLAN-v0.2.2.md`
 
-### Remaining (Deferred tov0.2.3+)
+### Remaining (Deferred to v0.2.3+)
 - Step 9b: MenuBar→Overlay dropdown refactor (MenuBar currently self-draws dropdown — works but can't extend beyond clip area)
 - Step 9a/c/d: Widget adaptations (minor — existing widgets work but don't use v0.2 patterns fully)
+- **Scrollbar thumb positioning fix** — mouse click should map to middle of thumb positions; only the area between arrow buttons counts for thumb positioning (not full track length)
+- **Partial invalidation system** — dirty-region tracking that allows partial window redraws instead of full-screen repaint, reducing SSH bandwidth for remote usage
 - Future: Gauge/ProgressBar, ListView, TachyonFX integration, channel-based events (see PLAN-v0.2.1.md Future Phases)
 
 ### Build Order (10 Steps)

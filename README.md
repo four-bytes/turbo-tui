@@ -29,7 +29,7 @@ turbo-tui = { git = "https://github.com/four-bytes/turbo-tui" }
 
 ## Architecture
 
-turbo-tui does **not** replace Ratatui — it extends it. All rendering goes through Ratatui's `Frame` and `Buffer`.
+turbo-tui does **not** replace Ratatui — it extends it. All rendering goes through Ratatui's `Frame` and `Buffer`. The patterns are adapted from [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed), reimplemented for the Ratatui ecosystem.
 
 ```
 Application

@@ -9,7 +9,7 @@
 - INTERNAL_COMMAND_BASE (1000) convention: commands >= 1000 don't close dialogs
 - 4 tests passing
 - ADR-002 written in four-code documenting architecture decisions
-- Pattern reference: turbo-vision-4-rust (MIT licensed)
+- Pattern reference: [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed)
 
 ### Complete Widget Library
 - view.rs: View trait, ViewId (atomic counter), StateFlags, OptionFlags, Event system

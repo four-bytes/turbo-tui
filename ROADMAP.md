@@ -58,8 +58,9 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 ---
 
-## v0.2.3 — Integration + External Events (PLANNED)
+## v0.2.3 — Scrollbar Fix + Integration (PLANNED)
 
+- [ ] **F3:** Scrollbar thumb positioning fix — mouse click maps to middle of positions; only area between arrow buttons counts for thumb calculation
 - [ ] **F4:** TachyonFX integration point (`Application::draw()` + optional `EffectManager`)
 - [ ] **F5:** Channel-based external events (`tokio::mpsc` for background → UI)
 - [ ] **F6:** `Application::post_event()` public API
@@ -67,8 +68,9 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 ---
 
-## v0.3.0 — Advanced Widgets (FUTURE)
+## v0.3.0 — Advanced Widgets + Invalidation (FUTURE)
 
+- [ ] **F8:** Partial invalidation system — dirty-region tracking for partial window redraws instead of full-screen repaint (reduces SSH bandwidth for remote usage)
 - [ ] **F9:** Tree widget (hierarchical list/tree view)
 - [ ] Drag-and-drop between windows
 - [ ] Multi-document interface (MDI) patterns

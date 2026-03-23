@@ -80,6 +80,17 @@ impl Desktop {
         removed
     }
 
+    /// Close (remove) all windows from the desktop.
+    ///
+    /// Clears the task shelf since no minimized windows remain.
+    pub fn close_all_windows(&mut self) {
+        while self.windows.child_count() > 0 {
+            self.windows.remove(0);
+        }
+        self.task_shelf_height = 0;
+        self.base.mark_dirty();
+    }
+
     /// Get the current task shelf height in rows.
     #[must_use]
     pub fn task_shelf_height(&self) -> u16 {
@@ -973,5 +984,50 @@ mod tests {
             Rect::new(0, 1, 80, 21),
             "effective area shrinks by shelf height"
         );
+    }
+
+    #[test]
+    fn test_desktop_close_all_windows() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+        desktop.add_window(Window::new(Rect::new(15, 15, 30, 10), "W3"));
+        assert_eq!(desktop.window_count(), 3);
+
+        desktop.close_all_windows();
+        assert_eq!(desktop.window_count(), 0);
+        assert_eq!(desktop.task_shelf_height(), 0);
+    }
+
+    #[test]
+    fn test_desktop_close_all_empty_is_noop() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        assert_eq!(desktop.window_count(), 0);
+
+        desktop.close_all_windows(); // Should not panic
+        assert_eq!(desktop.window_count(), 0);
+    }
+
+    #[test]
+    fn test_desktop_close_all_with_minimized() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+
+        // Minimize one
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+        assert_eq!(desktop.task_shelf_height(), 1);
+
+        desktop.close_all_windows();
+        assert_eq!(desktop.window_count(), 0);
+        assert_eq!(desktop.task_shelf_height(), 0);
     }
 }

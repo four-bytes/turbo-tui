@@ -100,6 +100,8 @@ pub const CM_CASCADE: CommandId = 144;
 pub const CM_NEXT_THEME: CommandId = 145;
 /// Minimize the active window.
 pub const CM_MINIMIZE: CommandId = 146;
+/// Close all windows on the desktop.
+pub const CM_CLOSE_ALL: CommandId = 147;
 
 /// Commands >= `INTERNAL_COMMAND_BASE` are internal view commands
 /// and will NOT close modal dialogs.

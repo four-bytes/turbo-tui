@@ -32,7 +32,8 @@
 //! 6. Process deferred event queue
 
 use crate::command::{
-    CommandId, CM_CLOSE, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT,
+    CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE,
+    CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
 };
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
@@ -576,6 +577,18 @@ impl Application {
                 CM_OPEN_DROPDOWN | CM_DROPDOWN_CLOSED | CM_DROPDOWN_NAVIGATE => {
                     self.handle_dropdown_commands(event);
                 }
+                CM_CLOSE_ALL => {
+                    self.desktop.close_all_windows();
+                    event.clear();
+                }
+                CM_TILE => {
+                    self.desktop.tile();
+                    event.clear();
+                }
+                CM_CASCADE => {
+                    self.desktop.cascade();
+                    event.clear();
+                }
                 other => {
                     // Unknown command — store for consumer to handle
                     self.last_unhandled_command = Some(other);
@@ -678,7 +691,9 @@ impl Application {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::command::{CM_CLOSE, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT};
+    use crate::command::{
+        CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
+    };
     use crate::view::{Event, EventKind};
     use ratatui::layout::Rect;
 
@@ -1070,6 +1085,64 @@ mod tests {
         assert!(
             !app.menu_bar().unwrap().is_active(),
             "bar must be inactive after CM_DROPDOWN_CLOSED"
+        );
+    }
+
+    #[test]
+    fn test_application_cm_close_all() {
+        let mut app = Application::new(screen());
+        app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W1"));
+        app.add_window(Window::new(Rect::new(5, 5, 20, 8), "W2"));
+        app.add_window(Window::new(Rect::new(10, 10, 20, 8), "W3"));
+        assert_eq!(app.desktop().window_count(), 3);
+
+        let mut event = Event::command(CM_CLOSE_ALL);
+        app.dispatch(&mut event);
+
+        assert_eq!(
+            app.desktop().window_count(),
+            0,
+            "CM_CLOSE_ALL removes all windows"
+        );
+        assert!(event.is_cleared());
+        assert!(app.is_running(), "app still running after close all");
+    }
+
+    #[test]
+    fn test_application_cm_tile() {
+        let mut app = Application::new(screen());
+        app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W1"));
+        app.add_window(Window::new(Rect::new(5, 5, 20, 8), "W2"));
+        assert_eq!(app.desktop().window_count(), 2);
+
+        let mut event = Event::command(CM_TILE);
+        app.dispatch(&mut event);
+
+        assert!(event.is_cleared());
+        // Windows should now be tiled (arranged in grid)
+        let b0 = app.desktop().windows().child_at(0).unwrap().bounds();
+        let b1 = app.desktop().windows().child_at(1).unwrap().bounds();
+        // Two windows tile into 1x2 or 2x1 grid — just check they've been repositioned
+        assert!(b0 != b1, "tiled windows should have different bounds");
+    }
+
+    #[test]
+    fn test_application_cm_cascade() {
+        let mut app = Application::new(screen());
+        app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W1"));
+        app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W2"));
+        assert_eq!(app.desktop().window_count(), 2);
+
+        let mut event = Event::command(CM_CASCADE);
+        app.dispatch(&mut event);
+
+        assert!(event.is_cleared());
+        // Windows should now be cascaded (offset from each other)
+        let b0 = app.desktop().windows().child_at(0).unwrap().bounds();
+        let b1 = app.desktop().windows().child_at(1).unwrap().bounds();
+        assert!(
+            b1.x > b0.x || b1.y > b0.y,
+            "cascaded windows should be offset"
         );
     }
 }

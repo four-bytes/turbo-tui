@@ -20,7 +20,7 @@
 //!
 //! Double-click on title bar toggles between maximized and previous bounds.
 
-use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
+use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_SCROLL_CHANGED, CM_ZOOM};
 use crate::container::Container;
 use crate::frame::{Frame, FrameConfig, FrameType};
 use crate::theme;
@@ -73,6 +73,13 @@ pub struct Window {
     minimized_bounds: Option<Rect>,
     /// Maximum width for minimized title bar (characters). Default: 30.
     minimized_max_width: u16,
+    /// Current scroll offset (columns scrolled right, rows scrolled down).
+    /// Children are drawn translated by `(-scroll_offset.0, -scroll_offset.1)`.
+    scroll_offset: (i32, i32),
+    /// Logical content size in cells `(width, height)`.
+    /// If `None`, content size is auto-calculated from child bounds.
+    /// Used to set scrollbar max values.
+    content_size: Option<(u16, u16)>,
 }
 
 impl Window {
@@ -97,6 +104,8 @@ impl Window {
             drag_limits: None,
             minimized_bounds: None,
             minimized_max_width: 30,
+            scroll_offset: (0, 0),
+            content_size: None,
         }
     }
 
@@ -120,10 +129,12 @@ impl Window {
             drag_limits: None,
             minimized_bounds: None,
             minimized_max_width: 30,
+            scroll_offset: (0, 0),
+            content_size: None,
         }
     }
 
-    // ── Builder Lite ─────────────────────────────────────────────────────────
+    // ── BuilderLite ─────────────────────────────────────────────────────────
 
     /// Create a window from a [`FrameConfig`].
     ///
@@ -159,6 +170,8 @@ impl Window {
             drag_limits: None,
             minimized_bounds: None,
             minimized_max_width: 30,
+            scroll_offset: (0, 0),
+            content_size: None,
         }
     }
 
@@ -238,6 +251,17 @@ impl Window {
     #[must_use]
     pub fn with_minimized_max_width(mut self, width: u16) -> Self {
         self.minimized_max_width = width;
+        self
+    }
+
+    /// Set the logical content size for scrolling (Builder Lite).
+    ///
+    /// When content is larger than the interior, scrollbars automatically
+    /// adjust their range. Pass `None` to auto-detect from child bounds.
+    #[must_use]
+    pub fn with_content_size(mut self, width: u16, height: u16) -> Self {
+        self.content_size = Some((width, height));
+        self.update_scrollbar_params();
         self
     }
 
@@ -450,6 +474,40 @@ impl Window {
         self.minimized_max_width = width;
     }
 
+    // ── Scroll offset and content size ───────────────────────────────────────────
+
+    /// Get the current scroll offset `(x, y)` in cells.
+    #[must_use]
+    pub fn scroll_offset(&self) -> (i32, i32) {
+        self.scroll_offset
+    }
+
+    /// Set the scroll offset directly.
+    ///
+    /// Clamps to valid range based on content size vs interior size.
+    /// Also syncs scrollbar values.
+    pub fn set_scroll_offset(&mut self, x: i32, y: i32) {
+        let (max_x, max_y) = self.max_scroll_offset();
+        self.scroll_offset = (x.clamp(0, max_x), y.clamp(0, max_y));
+        self.sync_scrollbars_from_offset();
+    }
+
+    /// Get the logical content size if explicitly set.
+    #[must_use]
+    pub fn content_size(&self) -> Option<(u16, u16)> {
+        self.content_size
+    }
+
+    /// Set the logical content size explicitly.
+    ///
+    /// This determines the scrollbar range: `max_scroll = content_size - interior_size`.
+    /// Pass `None` to auto-calculate from child bounds.
+    /// After setting, scrollbar params are updated and scroll offset is clamped.
+    pub fn set_content_size(&mut self, size: Option<(u16, u16)>) {
+        self.content_size = size;
+        self.update_scrollbar_params();
+    }
+
     /// Close this window by posting a `CM_CLOSE` command as a deferred event.
     ///
     /// Sets the event as handled.
@@ -468,6 +526,97 @@ impl Window {
         self.frame.set_bounds(new_bounds);
         let interior_rect = self.frame.interior_area();
         self.interior.set_bounds(interior_rect);
+        self.update_scrollbar_params();
+    }
+
+    // ── Scroll offset helpers ───────────────────────────────────────────────────
+
+    /// Calculate the effective content size.
+    ///
+    /// If `content_size` is explicitly set, returns that.
+    /// Otherwise, calculates the bounding box of all children relative to the interior.
+    pub(crate) fn effective_content_size(&self) -> (u16, u16) {
+        if let Some(size) = self.content_size {
+            return size;
+        }
+
+        // Auto-calculate from children bounds
+        let interior = self.frame.interior_area();
+        let mut max_right: u16 = 0;
+        let mut max_bottom: u16 = 0;
+
+        for child in self.interior.children() {
+            let cb = child.bounds();
+            // Child bounds are absolute — convert to relative to interior
+            let rel_right = (cb.x + cb.width).saturating_sub(interior.x);
+            let rel_bottom = (cb.y + cb.height).saturating_sub(interior.y);
+            max_right = max_right.max(rel_right);
+            max_bottom = max_bottom.max(rel_bottom);
+        }
+
+        // Content size is at least the interior size
+        (
+            max_right.max(interior.width),
+            max_bottom.max(interior.height),
+        )
+    }
+
+    /// Calculate the maximum scroll offset based on content vs interior size.
+    fn max_scroll_offset(&self) -> (i32, i32) {
+        let interior = self.frame.interior_area();
+        let (cw, ch) = self.effective_content_size();
+        let max_x = i32::from(cw)
+            .saturating_sub(i32::from(interior.width))
+            .max(0);
+        let max_y = i32::from(ch)
+            .saturating_sub(i32::from(interior.height))
+            .max(0);
+        (max_x, max_y)
+    }
+
+    /// Update scrollbar parameters based on content size and interior size.
+    ///
+    /// Called after resize, `content_size` change, or child addition.
+    fn update_scrollbar_params(&mut self) {
+        let interior = self.frame.interior_area();
+        let (_cw, _ch) = self.effective_content_size();
+        let (max_x, max_y) = self.max_scroll_offset();
+
+        // Update vertical scrollbar
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            let page = i32::from(interior.height).max(1);
+            sb.set_params(self.scroll_offset.1, 0, max_y, page, 1);
+        }
+
+        // Update horizontal scrollbar
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            let page = i32::from(interior.width).max(1);
+            sb.set_params(self.scroll_offset.0, 0, max_x, page, 1);
+        }
+
+        // Clamp scroll offset if content shrank
+        self.scroll_offset.0 = self.scroll_offset.0.clamp(0, max_x);
+        self.scroll_offset.1 = self.scroll_offset.1.clamp(0, max_y);
+    }
+
+    /// Sync scrollbar values FROM the current `scroll_offset`.
+    fn sync_scrollbars_from_offset(&mut self) {
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_value(self.scroll_offset.1);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_value(self.scroll_offset.0);
+        }
+    }
+
+    /// Sync `scroll_offset` FROM scrollbar values (after user interacts with scrollbar).
+    fn sync_offset_from_scrollbars(&mut self) {
+        if let Some(sb) = self.frame.v_scrollbar() {
+            self.scroll_offset.1 = sb.value();
+        }
+        if let Some(sb) = self.frame.h_scrollbar() {
+            self.scroll_offset.0 = sb.value();
+        }
     }
 
     /// Start a drag operation from the given mouse position.
@@ -545,6 +694,89 @@ impl Window {
         }
     }
 
+    /// Draw children with scroll offset applied.
+    ///
+    /// Temporarily shifts each child's bounds by `-scroll_offset` for drawing,
+    /// then restores the original bounds. Children outside the visible area
+    /// after the shift are culled (not drawn).
+    fn draw_scrolled_children(&self, buf: &mut Buffer, clip: Rect) {
+        use crate::view::SF_VISIBLE;
+
+        let (sx, sy) = self.scroll_offset;
+        let _interior = self.frame.interior_area();
+
+        for child in self.interior.children() {
+            if child.state() & SF_VISIBLE == 0 {
+                continue;
+            }
+            let original = child.bounds();
+
+            // Calculate shifted bounds (relative to interior origin)
+            let shifted_x = i32::from(original.x) - sx;
+            let shifted_y = i32::from(original.y) - sy;
+
+            // Cull: if shifted bounds are entirely outside clip, skip
+            if shifted_x >= i32::from(clip.x + clip.width)
+                || shifted_y >= i32::from(clip.y + clip.height)
+            {
+                continue;
+            }
+            let shifted_right = shifted_x + i32::from(original.width);
+            let shifted_bottom = shifted_y + i32::from(original.height);
+            if shifted_right <= i32::from(clip.x) || shifted_bottom <= i32::from(clip.y) {
+                continue;
+            }
+
+            // Create a mini buffer for this child's original area
+            if original.width == 0 || original.height == 0 {
+                continue;
+            }
+            let mut temp_buf = ratatui::buffer::Buffer::empty(original);
+            // Pre-fill with window interior style so unpainted cells don't
+            // overwrite the background with default (no-color) style
+            let bg_style = theme::with_current(|t| t.window_interior);
+            for row_idx in original.y..original.y + original.height {
+                for col_idx in original.x..original.x + original.width {
+                    if let Some(cell) =
+                        temp_buf.cell_mut(ratatui::layout::Position::new(col_idx, row_idx))
+                    {
+                        cell.set_char(' ').set_style(bg_style);
+                    }
+                }
+            }
+            child.draw(&mut temp_buf, original);
+
+            // Copy visible cells from temp to main buf, applying scroll offset
+            for row in 0..original.height {
+                for col in 0..original.width {
+                    let dest_x = i32::from(original.x + col) - sx;
+                    let dest_y = i32::from(original.y + row) - sy;
+
+                    // Check if destination is within clip
+                    if dest_x < i32::from(clip.x)
+                        || dest_x >= i32::from(clip.x + clip.width)
+                        || dest_y < i32::from(clip.y)
+                        || dest_y >= i32::from(clip.y + clip.height)
+                    {
+                        continue;
+                    }
+
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let (dx, dy) = (dest_x as u16, dest_y as u16);
+                    let src_pos = Position::new(original.x + col, original.y + row);
+                    let dst_pos = Position::new(dx, dy);
+
+                    if let Some(src_cell) = temp_buf.cell(src_pos) {
+                        if let Some(dst_cell) = buf.cell_mut(dst_pos) {
+                            dst_cell.set_symbol(src_cell.symbol());
+                            dst_cell.set_style(src_cell.style());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Fill the interior area with the window background style.
     ///
     /// This prevents background bleed-through when children don't cover the full interior.
@@ -600,9 +832,15 @@ impl View for Window {
         // 3. Fill interior with background (prevents bleed-through)
         self.fill_interior(buf, clip);
 
-        // 4. Draw children (clip to interior so children can't draw over frame)
+        // 4. Draw children with scroll offset applied
         let interior_clip = self.frame.interior_area().intersection(clip);
-        self.interior.draw(buf, interior_clip);
+        if self.scroll_offset == (0, 0) {
+            // Fast path: no scrolling, just draw normally
+            self.interior.draw(buf, interior_clip);
+        } else {
+            // Scroll offset: draw children with offset translation
+            self.draw_scrolled_children(buf, interior_clip);
+        }
     }
 
     #[allow(clippy::too_many_lines)]
@@ -662,6 +900,7 @@ impl View for Window {
 
                         // Scrollbar click? Forward to frame scrollbar.
                         if self.frame.handle_scrollbar_click(col, row, event) {
+                            self.sync_offset_from_scrollbars();
                             return;
                         }
 
@@ -693,7 +932,9 @@ impl View for Window {
                             event.clear();
                         } else {
                             // Check if a scrollbar thumb is being dragged
-                            if !self.frame.handle_scrollbar_click(col, row, event) {
+                            if self.frame.handle_scrollbar_click(col, row, event) {
+                                self.sync_offset_from_scrollbars();
+                            } else {
                                 // Forward drag to interior (e.g., other scrollbar-like widgets)
                                 self.interior.handle_event(event);
                             }
@@ -725,18 +966,52 @@ impl View for Window {
                         }
                     }
 
-                    // Other mouse events (scroll, right-click) → interior
+                    // Scroll wheel → adjust scrollbar value
+                    MouseEventKind::ScrollUp => {
+                        if let Some(sb) = self.frame.v_scrollbar_mut() {
+                            let step = sb.arrow_step();
+                            let new_val = sb.value().saturating_sub(step * 3);
+                            sb.set_value(new_val);
+                            self.sync_offset_from_scrollbars();
+                            event.clear();
+                        } else if !self.is_minimized() {
+                            self.interior.handle_event(event);
+                        }
+                    }
+                    MouseEventKind::ScrollDown => {
+                        if let Some(sb) = self.frame.v_scrollbar_mut() {
+                            let step = sb.arrow_step();
+                            let new_val = sb.value().saturating_add(step * 3);
+                            sb.set_value(new_val);
+                            self.sync_offset_from_scrollbars();
+                            event.clear();
+                        } else if !self.is_minimized() {
+                            self.interior.handle_event(event);
+                        }
+                    }
+
+                    // Other mouse events (right-click, etc.) → interior
                     _ => {
-                        self.interior.handle_event(event);
+                        if !self.is_minimized() {
+                            self.interior.handle_event(event);
+                        }
                     }
                 }
             }
 
-            // Key, command, broadcast and resize → delegate to interior
-            EventKind::Key(_)
-            | EventKind::Command(_)
-            | EventKind::Broadcast(_)
-            | EventKind::Resize(_, _) => {
+            // Key, command, and resize → delegate to interior
+            EventKind::Key(_) | EventKind::Command(_) | EventKind::Resize(_, _) => {
+                if !self.is_minimized() {
+                    self.interior.handle_event(event);
+                }
+            }
+
+            // Broadcast commands
+            EventKind::Broadcast(cmd) => {
+                if *cmd == CM_SCROLL_CHANGED && !self.is_minimized() {
+                    // A scrollbar value changed — sync offset
+                    self.sync_offset_from_scrollbars();
+                }
                 if !self.is_minimized() {
                     self.interior.handle_event(event);
                 }
@@ -1592,5 +1867,118 @@ mod tests {
         assert_eq!(win.min_size(), (10, 5));
         assert!(win.frame().closeable());
         assert!(win.frame().resizable());
+    }
+
+    // ── Viewport scrolling tests ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_window_scroll_offset_defaults_to_zero() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 30, 15), "Test");
+        assert_eq!(win.scroll_offset(), (0, 0));
+        assert!(win.content_size().is_none());
+    }
+
+    #[test]
+    fn test_window_set_content_size_updates_scrollbar_params() {
+        setup_theme();
+        let mut win = Window::editor(Rect::new(0, 0, 30, 15), "Test");
+        // Editor preset has vertical scrollbar
+
+        // Set content larger than interior
+        win.set_content_size(Some((100, 50)));
+
+        // Vertical scrollbar max should be content_height - interior_height
+        let interior = win.frame().interior_area();
+        let expected_max_y = 50i32 - i32::from(interior.height);
+        if let Some(sb) = win.frame().v_scrollbar() {
+            assert_eq!(sb.max_val(), expected_max_y.max(0));
+            assert_eq!(sb.value(), 0);
+        }
+    }
+
+    #[test]
+    fn test_window_set_scroll_offset_clamps() {
+        setup_theme();
+        let mut win = Window::editor(Rect::new(0, 0, 30, 15), "Test");
+        win.set_content_size(Some((100, 50)));
+
+        // Set valid offset
+        win.set_scroll_offset(5, 10);
+        assert_eq!(win.scroll_offset(), (5, 10));
+
+        // Try to set negative — should clamp to 0
+        win.set_scroll_offset(-5, -10);
+        assert_eq!(win.scroll_offset(), (0, 0));
+
+        // Try to set beyond max — should clamp
+        win.set_scroll_offset(1000, 1000);
+        let (_max_x, max_y) = {
+            let interior = win.frame().interior_area();
+            (
+                100i32 - i32::from(interior.width),
+                50i32 - i32::from(interior.height),
+            )
+        };
+        // Since no h_scrollbar, x stays at 0 (or max if h_scrollbar exists)
+        assert_eq!(win.scroll_offset().1, max_y.max(0));
+    }
+
+    #[test]
+    fn test_window_resize_updates_scrollbar_params() {
+        setup_theme();
+        let mut win = Window::editor(Rect::new(0, 0, 30, 15), "Test");
+        win.set_content_size(Some((100, 50)));
+
+        // Get initial max
+        let initial_max = win.frame().v_scrollbar().map(|sb| sb.max_val());
+
+        // Resize window (larger) — max should decrease
+        win.set_bounds(Rect::new(0, 0, 30, 25));
+        let new_max = win.frame().v_scrollbar().map(|sb| sb.max_val());
+
+        assert!(
+            new_max < initial_max,
+            "larger window should have smaller scroll max"
+        );
+    }
+
+    #[test]
+    fn test_window_with_content_size_builder() {
+        setup_theme();
+        let win = Window::new(Rect::new(0, 0, 30, 15), "Test")
+            .with_scrollbars(true, true)
+            .with_content_size(100, 50);
+
+        assert_eq!(win.content_size(), Some((100, 50)));
+
+        // Scrollbars should have been updated
+        if let Some(sb) = win.frame().v_scrollbar() {
+            assert!(sb.max_val() > 0, "v_scrollbar should have positive max");
+        }
+        if let Some(sb) = win.frame().h_scrollbar() {
+            assert!(sb.max_val() > 0, "h_scrollbar should have positive max");
+        }
+    }
+
+    #[test]
+    fn test_window_auto_content_size_from_children() {
+        setup_theme();
+        use crate::static_text::StaticText;
+
+        let mut win = Window::editor(Rect::new(0, 0, 20, 10), "Test");
+        // Add a child far from origin
+        let text = StaticText::new(
+            Rect::new(1, 1, 50, 1),
+            "A very long text that exceeds the window",
+        );
+        win.add(Box::new(text));
+
+        // Auto content size should be at least as large as the child's right edge
+        let (cw, _ch) = win.effective_content_size();
+        assert!(
+            cw >= 50,
+            "auto content width should cover the child: got {cw}"
+        );
     }
 }

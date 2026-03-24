@@ -65,6 +65,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - [ ] **F5:** Channel-based external events (`tokio::mpsc` for background → UI)
 - [ ] **F6:** `Application::post_event()` public API
 - [ ] **F7:** Widget validation framework
+- [ ] Once grabbed, the thumb movement should follow the mouse even if outside of scrollbar until the button is released
 
 ---
 

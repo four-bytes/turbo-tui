@@ -237,6 +237,10 @@
       "fg": "White",
       "bg": "Cyan"
     },
+    "track_hover": {
+      "fg": "White",
+      "bg": "Cyan"
+    },
     "track_inactive": {
       "fg": "DarkGray",
       "bg": "Blue"

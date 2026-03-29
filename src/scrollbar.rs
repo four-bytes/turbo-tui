@@ -58,6 +58,8 @@ pub enum ScrollBarHover {
     Arrow,
     /// The thumb is hovered.
     Thumb,
+    /// The track (empty area) is hovered.
+    Track,
 }
 
 /// Scrollbar visibility mode.
@@ -422,7 +424,7 @@ impl ScrollBar {
                             if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
                                 ScrollBarHover::Thumb
                             } else {
-                                ScrollBarHover::None
+                                ScrollBarHover::Track
                             }
                         }
                     }
@@ -435,7 +437,7 @@ impl ScrollBar {
                             if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
                                 ScrollBarHover::Thumb
                             } else {
-                                ScrollBarHover::None
+                                ScrollBarHover::Track
                             }
                         }
                     }
@@ -564,6 +566,7 @@ impl View for ScrollBar {
         self.base.set_bounds(bounds);
     }
 
+    #[allow(clippy::too_many_lines)]
     fn draw(&self, buf: &mut Buffer, area: Rect) {
         // Don't draw if hidden
         if !self.is_visible() {
@@ -596,6 +599,11 @@ impl View for ScrollBar {
                     t.scrollbar_arrows_inactive,
                 );
             }
+            let track = if self.hovered == ScrollBarHover::Track {
+                t.scrollbar_track_hover
+            } else {
+                t.scrollbar_track
+            };
             let thumb = if self.hovered == ScrollBarHover::Thumb {
                 t.scrollbar_thumb_hover
             } else {
@@ -606,7 +614,7 @@ impl View for ScrollBar {
             } else {
                 t.scrollbar_arrows
             };
-            (t.scrollbar_track, thumb, arrows)
+            (track, thumb, arrows)
         });
 
         // Calculate track size

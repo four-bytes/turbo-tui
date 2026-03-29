@@ -167,6 +167,8 @@ pub struct Theme {
     pub scrollbar_thumb: Style,
     /// Scrollbar arrow buttons.
     pub scrollbar_arrows: Style,
+    /// Scrollbar track when hovered.
+    pub scrollbar_track_hover: Style,
     /// Scrollbar track when parent is inactive/unfocused.
     pub scrollbar_track_inactive: Style,
     /// Scrollbar thumb when parent is inactive/unfocused.
@@ -387,6 +389,7 @@ impl Theme {
                 .fg(Color::White)
                 .bg(Color::Green)
                 .add_modifier(Modifier::BOLD),
+            scrollbar_track_hover: Style::default().fg(Color::White).bg(Color::Cyan),
             scrollbar_thumb_hover: Style::default().fg(Color::White).bg(Color::Cyan),
             scrollbar_arrows_hover: Style::default().fg(Color::White).bg(Color::Cyan),
 
@@ -722,6 +725,7 @@ mod tests {
             ("button_disabled", t.button_disabled),
             ("static_text", t.static_text),
             ("scrollbar_track", t.scrollbar_track),
+            ("scrollbar_track_hover", t.scrollbar_track_hover),
             ("scrollbar_thumb", t.scrollbar_thumb),
             ("scrollbar_arrows", t.scrollbar_arrows),
             ("scrollbar_track_inactive", t.scrollbar_track_inactive),

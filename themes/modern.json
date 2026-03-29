@@ -236,6 +236,10 @@
       "fg": "White",
       "bg": "#1e1e26"
     },
+    "track_hover": {
+      "fg": "White",
+      "bg": "#1e1e26"
+    },
     "track_inactive": {
       "fg": "#28282e",
       "bg": "#1e1e26"

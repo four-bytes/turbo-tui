@@ -517,6 +517,9 @@ pub struct ScrollbarSection {
     pub thumb_hover: StyleValue,
     /// Arrow buttons hover style.
     pub arrows_hover: StyleValue,
+    /// Track hover style.
+    #[serde(default = "default_scrollbar_track_hover")]
+    pub track_hover: StyleValue,
     /// Track inactive style (when window not focused).
     #[serde(default = "default_scrollbar_track_inactive")]
     pub track_inactive: StyleValue,
@@ -526,6 +529,10 @@ pub struct ScrollbarSection {
     /// Arrow buttons inactive style.
     #[serde(default = "default_scrollbar_arrows_inactive")]
     pub arrows_inactive: StyleValue,
+}
+
+fn default_scrollbar_track_hover() -> StyleValue {
+    StyleValue::from_style(Style::default().fg(Color::White).bg(Color::Cyan))
 }
 
 fn default_scrollbar_track_inactive() -> StyleValue {
@@ -707,6 +714,7 @@ impl ThemeData {
             static_text: self.static_text.to_style(),
 
             scrollbar_track: self.scrollbar.track.to_style(),
+            scrollbar_track_hover: self.scrollbar.track_hover.to_style(),
             scrollbar_thumb: self.scrollbar.thumb.to_style(),
             scrollbar_arrows: self.scrollbar.arrows.to_style(),
             scrollbar_thumb_hover: self.scrollbar.thumb_hover.to_style(),
@@ -834,6 +842,7 @@ impl ThemeData {
             static_text: StyleValue::from_style(theme.static_text),
             scrollbar: ScrollbarSection {
                 track: StyleValue::from_style(theme.scrollbar_track),
+                track_hover: StyleValue::from_style(theme.scrollbar_track_hover),
                 thumb: StyleValue::from_style(theme.scrollbar_thumb),
                 arrows: StyleValue::from_style(theme.scrollbar_arrows),
                 thumb_hover: StyleValue::from_style(theme.scrollbar_thumb_hover),

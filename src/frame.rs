@@ -1299,9 +1299,9 @@ impl Frame {
             // Left border
             Self::draw_char(buf, b.x, row, styles.v, styles.frame, clip);
 
-            // Right border
-            // Note: If v_scrollbar present, scrollbar is drawn separately
-            if self.v_scrollbar.is_none() {
+            // Right border — draw when no scrollbar, or scrollbar is hidden
+            let sb_visible = self.v_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
+            if !sb_visible {
                 Self::draw_char(buf, b.x + b.width - 1, row, styles.v, styles.frame, clip);
             }
         }
@@ -1344,8 +1344,9 @@ impl Frame {
         // Corner characters
         Self::draw_char(buf, b.x, b.y + b.height - 1, styles.bl, styles.frame, clip);
 
-        // Horizontal line (or scrollbar area handled in draw_scrollbars)
-        if self.h_scrollbar.is_none() {
+        // Horizontal line — draw when no scrollbar, or scrollbar is hidden
+        let h_sb_visible = self.h_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
+        if !h_sb_visible {
             for col in (b.x + 1)..(b.x + b.width - 1) {
                 Self::draw_char(buf, col, b.y + b.height - 1, styles.h, styles.frame, clip);
             }

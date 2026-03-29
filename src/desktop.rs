@@ -385,6 +385,15 @@ impl View for Desktop {
     fn set_bounds(&mut self, bounds: Rect) {
         self.base.set_bounds(bounds);
         self.windows.set_bounds(bounds);
+
+        // Update drag limits on all existing windows
+        for i in 0..self.windows.child_count() {
+            if let Some(child) = self.windows.child_at_mut(i) {
+                if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                    win.set_drag_limits(bounds);
+                }
+            }
+        }
     }
 
     fn draw(&self, buf: &mut Buffer, clip: Rect) {
@@ -1038,5 +1047,25 @@ mod tests {
         desktop.close_all_windows();
         assert_eq!(desktop.window_count(), 0);
         assert_eq!(desktop.task_shelf_height(), 0);
+    }
+
+    #[test]
+    fn test_desktop_set_bounds_updates_drag_limits() {
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        let win = Window::new(Rect::new(5, 5, 30, 10), "Test");
+        desktop.add_window(win);
+
+        // Initial drag limits should be the desktop bounds
+        let child = desktop.windows().child_at(0).unwrap();
+        let win_ref = child.as_any().downcast_ref::<Window>().unwrap();
+        assert_eq!(win_ref.drag_limits(), Some(Rect::new(0, 0, 80, 24)));
+
+        // Resize desktop
+        desktop.set_bounds(Rect::new(0, 0, 120, 40));
+
+        // Drag limits should be updated
+        let child = desktop.windows().child_at(0).unwrap();
+        let win_ref = child.as_any().downcast_ref::<Window>().unwrap();
+        assert_eq!(win_ref.drag_limits(), Some(Rect::new(0, 0, 120, 40)));
     }
 }

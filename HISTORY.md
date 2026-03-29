@@ -223,3 +223,9 @@
 ### Tests
 - 353 tests passing (was 335), clippy pedantic clean
 - New tests: `test_alt_x_falls_through_to_key_code_match`, `test_window_resize_updates_child_bounds`, `test_container_add_auto_focuses_first_focusable_child`, `test_container_add_non_focusable_child_does_not_set_focus`
+
+### Desktop Drag Limits Fix (2026-03-29)
+- **FIX** `Desktop::set_bounds()` now updates `drag_limits` on all existing windows when terminal resizes
+  - Previously, windows created before a terminal resize kept stale drag limits (zero drag range if window filled entire desktop)
+  - New test: `test_desktop_set_bounds_updates_drag_limits`
+- 357 tests passing (was 353), clippy pedantic clean

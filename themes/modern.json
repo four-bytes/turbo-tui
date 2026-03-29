@@ -217,7 +217,7 @@
   },
   "scrollbar": {
     "track": {
-      "fg": "#32323c",
+      "fg": "#6495ed",
       "bg": "#1e1e26"
     },
     "thumb": {
@@ -225,7 +225,7 @@
       "bg": "#1e1e26"
     },
     "arrows": {
-      "fg": "#50505a",
+      "fg": "#6495ed",
       "bg": "#1e1e26"
     },
     "thumb_hover": {

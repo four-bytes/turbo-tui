@@ -1033,7 +1033,7 @@ impl View for Frame {
             };
             let close_style = if is_dragging {
                 Style::default()
-                    .fg(t.window_close_button.fg.unwrap_or(Color::White))
+                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
             } else if self.hovered == FrameHover::CloseButton {
                 t.window_close_button_hover
@@ -1044,7 +1044,7 @@ impl View for Frame {
             };
             let resize_style = if is_dragging {
                 Style::default()
-                    .fg(t.window_resize_handle.fg.unwrap_or(Color::White))
+                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
             } else if self.hovered == FrameHover::ResizeHandle {
                 t.window_resize_handle_hover
@@ -1055,7 +1055,7 @@ impl View for Frame {
             };
             let minimize_style = if is_dragging {
                 Style::default()
-                    .fg(t.window_minimize_button.fg.unwrap_or(Color::White))
+                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
             } else if self.hovered == FrameHover::MinimizeButton {
                 t.window_minimize_button_hover
@@ -1066,7 +1066,7 @@ impl View for Frame {
             };
             let maximize_style = if is_dragging {
                 Style::default()
-                    .fg(t.window_maximize_button.fg.unwrap_or(Color::White))
+                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
                     .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
             } else if self.hovered == FrameHover::MaximizeButton {
                 t.window_maximize_button_hover

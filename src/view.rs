@@ -298,6 +298,17 @@ pub trait View {
         None
     }
 
+    /// Return the logical content size of this view, if known.
+    ///
+    /// Views that contain scrollable content (e.g. text editors, lists) should
+    /// return `Some((width, height))` representing the total content dimensions
+    /// in cells. The owning `Window` uses this to set scrollbar ranges.
+    ///
+    /// Default returns `None` (content size equals view bounds).
+    fn content_size_hint(&self) -> Option<(u16, u16)> {
+        None
+    }
+
     /// Whether this view currently has focus.
     fn is_focused(&self) -> bool {
         self.state() & SF_FOCUSED != 0

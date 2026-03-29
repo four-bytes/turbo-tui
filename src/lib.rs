@@ -57,6 +57,7 @@ pub mod prelude {
     pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
+    pub use crate::scrollbar::{Orientation, ScrollBar, ScrollBarVisibility};
     pub use crate::theme::{self, ButtonSide};
     pub use crate::view::{
         Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS,

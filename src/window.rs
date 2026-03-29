@@ -233,6 +233,21 @@ impl Window {
         self
     }
 
+    /// Set the visibility mode for scrollbars (Builder Lite).
+    #[must_use]
+    pub fn with_scrollbar_visibility(
+        mut self,
+        visibility: crate::scrollbar::ScrollBarVisibility,
+    ) -> Self {
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_visibility(visibility);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_visibility(visibility);
+        }
+        self
+    }
+
     /// Set whether the window is closeable (Builder Lite).
     #[must_use]
     pub fn with_closeable(mut self, yes: bool) -> Self {
@@ -548,6 +563,13 @@ impl Window {
             return size;
         }
 
+        // Query first child for content size hint
+        if let Some(child) = self.interior.child_at(0) {
+            if let Some((w, h)) = child.content_size_hint() {
+                return (w, h);
+            }
+        }
+
         // Auto-calculate from children bounds
         let interior = self.frame.interior_area();
         let mut max_right: u16 = 0;
@@ -635,6 +657,12 @@ impl Window {
         let st = self.base.state();
         self.base.set_state(st | SF_DRAGGING);
         self.frame.set_state(self.frame.state() | SF_DRAGGING);
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_window_dragging(true);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_window_dragging(true);
+        }
     }
 
     /// Continue drag: update window position based on current mouse position.
@@ -665,6 +693,12 @@ impl Window {
         self.base.set_state(st & !(SF_DRAGGING | SF_RESIZING));
         self.frame
             .set_state(self.frame.state() & !(SF_DRAGGING | SF_RESIZING));
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_window_dragging(false);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_window_dragging(false);
+        }
     }
 
     /// Start a resize operation from the given mouse position.
@@ -675,6 +709,12 @@ impl Window {
         let st = self.base.state();
         self.base.set_state(st | SF_RESIZING);
         self.frame.set_state(self.frame.state() | SF_RESIZING);
+        if let Some(sb) = self.frame.v_scrollbar_mut() {
+            sb.set_window_dragging(true);
+        }
+        if let Some(sb) = self.frame.h_scrollbar_mut() {
+            sb.set_window_dragging(true);
+        }
     }
 
     /// Continue resize: update window size based on mouse delta.
@@ -1027,6 +1067,8 @@ impl View for Window {
 
             EventKind::None => {}
         }
+
+        self.update_scrollbar_params();
     }
 
     /// Window can always receive focus.

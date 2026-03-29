@@ -60,6 +60,23 @@ pub enum ScrollBarHover {
     Thumb,
 }
 
+/// Scrollbar visibility mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollBarVisibility {
+    /// Always visible when present.
+    Always,
+    /// Visible only when content exceeds the viewport (max_val > 0).
+    Auto,
+    /// Never visible (hidden).
+    Hidden,
+}
+
+impl Default for ScrollBarVisibility {
+    fn default() -> Self {
+        Self::Always
+    }
+}
+
 // ============================================================================
 // ScrollBar
 // ============================================================================
@@ -107,6 +124,10 @@ pub struct ScrollBar {
     hovered: ScrollBarHover,
     /// Active state (true if owning window is focused).
     active: bool,
+    /// Window-dragging state: when true, scrollbar renders with frame_dragging colors.
+    window_dragging: bool,
+    /// Visibility mode.
+    visibility: ScrollBarVisibility,
 }
 
 impl ScrollBar {
@@ -135,6 +156,8 @@ impl ScrollBar {
             drag_anchor_offset: 0,
             hovered: ScrollBarHover::None,
             active: true,
+            window_dragging: false,
+            visibility: ScrollBarVisibility::Always,
         }
     }
 
@@ -163,6 +186,8 @@ impl ScrollBar {
             drag_anchor_offset: 0,
             hovered: ScrollBarHover::None,
             active: true,
+            window_dragging: false,
+            visibility: ScrollBarVisibility::Always,
         }
     }
 
@@ -235,6 +260,38 @@ impl ScrollBar {
         if self.active != active {
             self.active = active;
             self.base.mark_dirty();
+        }
+    }
+
+    /// Set the window-dragging state (scrollbar renders with frame dragging colors).
+    pub fn set_window_dragging(&mut self, dragging: bool) {
+        if self.window_dragging != dragging {
+            self.window_dragging = dragging;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Get the visibility mode.
+    #[must_use]
+    pub fn visibility(&self) -> ScrollBarVisibility {
+        self.visibility
+    }
+
+    /// Set the visibility mode.
+    pub fn set_visibility(&mut self, visibility: ScrollBarVisibility) {
+        if self.visibility != visibility {
+            self.visibility = visibility;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Whether this scrollbar should currently be rendered.
+    #[must_use]
+    pub fn is_visible(&self) -> bool {
+        match self.visibility {
+            ScrollBarVisibility::Always => true,
+            ScrollBarVisibility::Auto => self.max_val > self.min_val,
+            ScrollBarVisibility::Hidden => false,
         }
     }
 
@@ -513,6 +570,11 @@ impl View for ScrollBar {
     }
 
     fn draw(&self, buf: &mut Buffer, area: Rect) {
+        // Don't draw if hidden
+        if !self.is_visible() {
+            return;
+        }
+
         // Don't draw if area is empty
         if area.width == 0 || area.height == 0 {
             return;
@@ -528,6 +590,10 @@ impl View for ScrollBar {
 
         // Get theme styles
         let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
+            if self.window_dragging {
+                let style = t.window_frame_dragging;
+                return (style, style, style);
+            }
             if !self.active {
                 return (
                     t.scrollbar_track_inactive,

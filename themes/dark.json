@@ -217,23 +217,23 @@
   },
   "scrollbar": {
     "track": {
-      "fg": "#3c3c3c",
+      "fg": "Cyan",
       "bg": "#1e1e1e"
     },
     "thumb": {
-      "fg": "#3c3c3c",
+      "fg": "Cyan",
       "bg": "#1e1e1e"
     },
     "arrows": {
-      "fg": "DarkGray",
+      "fg": "Cyan",
       "bg": "#1e1e1e"
     },
     "thumb_hover": {
-      "fg": "White",
+      "fg": "Cyan",
       "bg": "#1e1e1e"
     },
     "arrows_hover": {
-      "fg": "White",
+      "fg": "Cyan",
       "bg": "#1e1e1e"
     },
     "track_inactive": {

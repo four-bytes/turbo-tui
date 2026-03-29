@@ -76,6 +76,8 @@ pub struct Window {
     /// Current scroll offset (columns scrolled right, rows scrolled down).
     /// Children are drawn translated by `(-scroll_offset.0, -scroll_offset.1)`.
     scroll_offset: (i32, i32),
+    /// Whether the child view handles its own scrolling (set by `scroll_to` return value).
+    self_scrolling: bool,
     /// Logical content size in cells `(width, height)`.
     /// If `None`, content size is auto-calculated from child bounds.
     /// Used to set scrollbar max values.
@@ -105,6 +107,7 @@ impl Window {
             minimized_bounds: None,
             minimized_max_width: 30,
             scroll_offset: (0, 0),
+            self_scrolling: false,
             content_size: None,
         }
     }
@@ -130,6 +133,7 @@ impl Window {
             minimized_bounds: None,
             minimized_max_width: 30,
             scroll_offset: (0, 0),
+            self_scrolling: false,
             content_size: None,
         }
     }
@@ -171,6 +175,7 @@ impl Window {
             minimized_bounds: None,
             minimized_max_width: 30,
             scroll_offset: (0, 0),
+            self_scrolling: false,
             content_size: None,
         }
     }
@@ -647,6 +652,19 @@ impl Window {
         if let Some(sb) = self.frame.h_scrollbar() {
             self.scroll_offset.0 = sb.value();
         }
+
+        // Notify children — if any child is self-scrolling, it handles
+        // the scroll offset internally and we skip bitmap-shifting.
+        let mut any_self_scrolling = false;
+        let (sx, sy) = self.scroll_offset;
+        for i in 0..self.interior.child_count() {
+            if let Some(child) = self.interior.child_at_mut(i) {
+                if child.scroll_to(sx, sy) {
+                    any_self_scrolling = true;
+                }
+            }
+        }
+        self.self_scrolling = any_self_scrolling;
     }
 
     /// Start a drag operation from the given mouse position.
@@ -882,11 +900,11 @@ impl View for Window {
 
         // 4. Draw children with scroll offset applied
         let interior_clip = self.frame.interior_area().intersection(clip);
-        if self.scroll_offset == (0, 0) {
-            // Fast path: no scrolling, just draw normally
+        if self.scroll_offset == (0, 0) || self.self_scrolling {
+            // No scroll offset, or child manages its own scrolling
             self.interior.draw(buf, interior_clip);
         } else {
-            // Scroll offset: draw children with offset translation
+            // Bitmap-shift approach for non-self-scrolling children
             self.draw_scrolled_children(buf, interior_clip);
         }
     }

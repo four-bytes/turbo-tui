@@ -309,6 +309,18 @@ pub trait View {
         None
     }
 
+    /// Notify the view that the owning window's scroll offset has changed.
+    ///
+    /// Self-scrolling views (e.g. text editors, lists) that manage their own
+    /// viewport should override this to update their internal scroll state
+    /// and return `true`. The window will then skip its bitmap-shifting
+    /// scroll approach for this view.
+    ///
+    /// Default returns `false` (view does not manage its own scrolling).
+    fn scroll_to(&mut self, _x: i32, _y: i32) -> bool {
+        false
+    }
+
     /// Whether this view currently has focus.
     fn is_focused(&self) -> bool {
         self.state() & SF_FOCUSED != 0

@@ -17,7 +17,7 @@ use crate::view::{
     OF_SELECTABLE, SF_DRAGGING, SF_RESIZING, SF_VISIBLE,
 };
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Container view that manages child views with Z-order and three-phase event dispatch.
@@ -68,7 +68,14 @@ impl Container {
         let gb = self.base.bounds();
         let cb = child.bounds();
         child.set_bounds(Rect::new(gb.x + cb.x, gb.y + cb.y, cb.width, cb.height));
+        let can_focus = child.can_focus();
         self.children.push(child);
+
+        // Auto-focus the first focusable child
+        if self.focused.is_none() && can_focus {
+            self.focused = Some(self.children.len() - 1);
+        }
+
         self.base.mark_dirty();
         id
     }
@@ -288,6 +295,17 @@ impl Container {
     #[must_use]
     pub fn focused_index(&self) -> Option<usize> {
         self.focused
+    }
+
+    /// Return the cursor position from the focused child, if any.
+    ///
+    /// Delegates to the focused child's `View::cursor_position()`.
+    /// Returns `None` if there is no focused child or the focused child
+    /// returns `None`.
+    #[must_use]
+    pub fn cursor_position(&self) -> Option<Position> {
+        let idx = self.focused?;
+        self.children.get(idx)?.cursor_position()
     }
 }
 
@@ -707,7 +725,7 @@ mod tests {
     fn test_container_focus_next_prev() {
         let mut group = Container::new(Rect::new(0, 0, 80, 40));
 
-        // Non-selectable child
+        // Non-selectable child (idx 0) — does not trigger auto-focus
         group.add(Box::new(TestView::new(Rect::new(0, 0, 10, 2))));
         // Selectable children
         group.add(Box::new(TestView::with_options(
@@ -719,14 +737,13 @@ mod tests {
             OF_SELECTABLE,
         )));
 
-        // No focus initially → focus_next picks first selectable (idx 1)
-        group.focus_next();
+        // Adding the first selectable child (idx 1) auto-focused it.
         assert_eq!(group.focused, Some(1));
-        assert_ne!(group.child_at(1).unwrap().state() & SF_FOCUSED, 0);
 
-        // focus_next again → idx 2
+        // focus_next from idx 1 → idx 2
         group.focus_next();
         assert_eq!(group.focused, Some(2));
+        assert_ne!(group.child_at(2).unwrap().state() & SF_FOCUSED, 0);
 
         // focus_next wraps around → idx 1
         group.focus_next();
@@ -1101,6 +1118,46 @@ mod tests {
         group.add(Box::new(TestView::new(Rect::new(0, 0, 5, 2))));
         assert_eq!(group.child_count(), 1);
         assert!(group.child_at(0).is_some());
+    }
+
+    #[test]
+    fn test_container_add_auto_focuses_first_focusable_child() {
+        let mut group = Container::new(Rect::new(0, 0, 80, 40));
+
+        // First child: focusable (OF_SELECTABLE → can_focus() == true)
+        group.add(Box::new(TestView::with_options(
+            Rect::new(0, 0, 10, 2),
+            OF_SELECTABLE,
+        )));
+        assert_eq!(
+            group.focused_index(),
+            Some(0),
+            "first focusable child must become focused"
+        );
+
+        // Second child: also focusable — focus must stay on the first
+        group.add(Box::new(TestView::with_options(
+            Rect::new(0, 3, 10, 2),
+            OF_SELECTABLE,
+        )));
+        assert_eq!(
+            group.focused_index(),
+            Some(0),
+            "focus must not move away from first child when second is added"
+        );
+    }
+
+    #[test]
+    fn test_container_add_non_focusable_child_does_not_set_focus() {
+        let mut group = Container::new(Rect::new(0, 0, 80, 40));
+
+        // Non-focusable child (no OF_SELECTABLE → can_focus() == false)
+        group.add(Box::new(TestView::new(Rect::new(0, 0, 10, 2))));
+        assert_eq!(
+            group.focused_index(),
+            None,
+            "non-focusable child must not set focused"
+        );
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! the Borland Turbo Vision pattern.
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -285,6 +285,17 @@ pub trait View {
     /// Whether this view can receive focus.
     fn can_focus(&self) -> bool {
         false
+    }
+
+    /// Return the desired terminal cursor position, if any.
+    ///
+    /// Views that need a visible terminal cursor (e.g., text editors) should
+    /// return `Some(Position { x, y })` with absolute screen coordinates.
+    /// The application will call `frame.set_cursor_position()` with this value.
+    ///
+    /// Default returns `None` (no cursor).
+    fn cursor_position(&self) -> Option<Position> {
+        None
     }
 
     /// Whether this view currently has focus.
@@ -829,5 +840,12 @@ mod tests {
         let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
         // Should compile and not panic
         base.on_blur();
+    }
+
+    #[test]
+    fn test_view_base_cursor_position_default_is_none() {
+        // ViewBase uses the default View::cursor_position() which returns None.
+        let base = ViewBase::new(Rect::new(0, 0, 10, 5));
+        assert_eq!(base.cursor_position(), None);
     }
 }

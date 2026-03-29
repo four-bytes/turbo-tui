@@ -267,14 +267,14 @@ impl Window {
 
     // ── Presets ──────────────────────────────────────────────────────────────
 
-    /// Editor window preset — vertical scrollbar, generous min size.
+    /// Editor window preset — vertical and horizontal scrollbars, generous min size.
     ///
-    /// Creates a standard closeable, resizable window with a vertical scrollbar
+    /// Creates a standard closeable, resizable window with both scrollbars
     /// and a minimum size of 20×8. Suitable for text editors, code views, etc.
     #[must_use]
     pub fn editor(bounds: Rect, title: &str) -> Self {
         Self::new(bounds, title)
-            .with_scrollbars(true, false)
+            .with_scrollbars(true, true)
             .with_min_size(20, 8)
     }
 
@@ -526,6 +526,14 @@ impl Window {
         self.frame.set_bounds(new_bounds);
         let interior_rect = self.frame.interior_area();
         self.interior.set_bounds(interior_rect);
+
+        // Resize all children to fill the new interior
+        for i in 0..self.interior.child_count() {
+            if let Some(child) = self.interior.child_at_mut(i) {
+                child.set_bounds(interior_rect);
+            }
+        }
+
         self.update_scrollbar_params();
     }
 
@@ -1024,6 +1032,11 @@ impl View for Window {
     /// Window can always receive focus.
     fn can_focus(&self) -> bool {
         true
+    }
+
+    /// Delegate cursor position to the interior container's focused child.
+    fn cursor_position(&self) -> Option<Position> {
+        self.interior.cursor_position()
     }
 
     fn state(&self) -> u16 {
@@ -1846,7 +1859,7 @@ mod tests {
         setup_theme();
         let win = Window::editor(Rect::new(0, 0, 40, 15), "Editor");
         assert!(win.frame().v_scrollbar().is_some());
-        assert!(win.frame().h_scrollbar().is_none());
+        assert!(win.frame().h_scrollbar().is_some());
         assert_eq!(win.min_size(), (20, 8));
         assert!(win.frame().closeable());
         assert!(win.frame().resizable());
@@ -1979,6 +1992,78 @@ mod tests {
         assert!(
             cw >= 50,
             "auto content width should cover the child: got {cw}"
+        );
+    }
+
+    #[test]
+    fn test_window_resize_updates_child_bounds() {
+        setup_theme();
+        use crate::view::ViewBase;
+
+        struct DummyView {
+            base: ViewBase,
+        }
+
+        impl View for DummyView {
+            fn id(&self) -> ViewId {
+                self.base.id()
+            }
+            fn bounds(&self) -> Rect {
+                self.base.bounds()
+            }
+            fn set_bounds(&mut self, b: Rect) {
+                self.base.set_bounds(b);
+            }
+            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn handle_event(&mut self, _event: &mut Event) {}
+            fn state(&self) -> u16 {
+                self.base.state()
+            }
+            fn set_state(&mut self, s: u16) {
+                self.base.set_state(s);
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+            fn as_any_mut(&mut self) -> &mut dyn Any {
+                self
+            }
+        }
+
+        let mut win = Window::new(Rect::new(5, 5, 40, 20), "Test");
+        let interior_before = win.frame().interior_area();
+
+        // Add a child that fills the initial interior
+        win.add(Box::new(DummyView {
+            base: ViewBase::new(Rect::new(
+                0,
+                0,
+                interior_before.width,
+                interior_before.height,
+            )),
+        }));
+
+        // Verify the child was added with absolute bounds matching the interior
+        let child_bounds_before = win.interior().child_at(0).unwrap().bounds();
+        assert_eq!(
+            child_bounds_before, interior_before,
+            "child should fill the initial interior after add"
+        );
+
+        // Resize the window to new bounds
+        let new_bounds = Rect::new(5, 5, 60, 30);
+        win.set_bounds(new_bounds);
+
+        let interior_after = win.frame().interior_area();
+        let child_bounds_after = win.interior().child_at(0).unwrap().bounds();
+
+        assert_eq!(
+            child_bounds_after, interior_after,
+            "child should fill the new interior after resize"
+        );
+        assert_ne!(
+            child_bounds_after, child_bounds_before,
+            "child bounds should have changed on resize"
         );
     }
 }

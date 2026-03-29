@@ -201,3 +201,25 @@
 - Added `has_close_button()` public accessor on Frame
 - 4 new tests: height=1 draw, no min/max buttons, close button works, title visible
 - 335 tests passing, clippy pedantic clean
+
+## v0.3-dev (2026-03-29)
+
+### Ratatui 0.30 Upgrade
+- Upgraded ratatui 0.29 → 0.30, crossterm 0.28 retained — zero API breaks
+
+### Bug Fixes
+- **Bug 1:** HorizontalBar Alt+Char fallthrough — `Alt+X` (and other Alt+letter combos) now falls through to `handle_key_code_match()` when no hotkey match found. Previously the Alt+Char arm matched but silently dropped the event.
+- **Bug 2:** Window resize propagation — `update_bounds()` now resizes all interior children to fill the new interior rect. Previously `Container::set_bounds()` only propagated position deltas, not size changes.
+- **Bug 3:** Container auto-focus — `Container::add()` now auto-focuses the first focusable child. Previously `self.focused` was never set, so Key events never reached any child.
+
+### Cursor Position Support
+- **View trait:** Added `cursor_position() -> Option<Position>` (default `None`)
+- **Container:** `cursor_position()` queries focused child
+- **Window:** View impl delegates `cursor_position()` to interior container
+- **Desktop:** `cursor_position()` queries windows container
+- **Application:** `draw()` calls `frame.set_cursor_position()` from desktop (only when no overlays active)
+- **Window::editor() preset:** Changed to `with_scrollbars(true, true)` — both vertical and horizontal scrollbars
+
+### Tests
+- 353 tests passing (was 335), clippy pedantic clean
+- New tests: `test_alt_x_falls_through_to_key_code_match`, `test_window_resize_updates_child_bounds`, `test_container_add_auto_focuses_first_focusable_child`, `test_container_add_non_focusable_child_does_not_set_focus`

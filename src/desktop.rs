@@ -343,6 +343,15 @@ impl Desktop {
         self.base.mark_dirty();
     }
 
+    /// Return the cursor position from the currently focused window, if any.
+    ///
+    /// Delegates to the focused window's `View::cursor_position()` via the
+    /// internal [`Container`].
+    #[must_use]
+    pub fn cursor_position(&self) -> Option<Position> {
+        self.windows.cursor_position()
+    }
+
     /// Draw the desktop background.
     ///
     /// Reads the background style and character from the current theme at draw-time

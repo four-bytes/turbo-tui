@@ -42,7 +42,7 @@ use crate::overlay::{calculate_overlay_bounds, Overlay, OverlayManager};
 use crate::status_bar::StatusBar;
 use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 
 /// Application — central orchestrator for a turbo-tui program.
 ///
@@ -275,23 +275,38 @@ impl Application {
     /// 4. Overlays
     pub fn draw(&self, frame: &mut ratatui::Frame) {
         let area = frame.area();
-        let buf = frame.buffer_mut();
 
-        // 1. Desktop (background + windows)
-        self.desktop.draw(buf, area);
+        // Collect cursor position before borrowing the buffer
+        let cursor_pos: Option<Position> = if self.overlay_manager.is_empty() {
+            self.desktop.cursor_position()
+        } else {
+            None
+        };
 
-        // 2. Menu bar (top row)
-        if let Some(ref mb) = self.menu_bar {
-            mb.draw(buf, area);
+        {
+            let buf = frame.buffer_mut();
+
+            // 1. Desktop (background + windows)
+            self.desktop.draw(buf, area);
+
+            // 2. Menu bar (top row)
+            if let Some(ref mb) = self.menu_bar {
+                mb.draw(buf, area);
+            }
+
+            // 3. Status bar (bottom row)
+            if let Some(ref sl) = self.status_bar {
+                sl.draw(buf, area);
+            }
+
+            // 4. Overlays (above everything)
+            self.overlay_manager.draw(buf, area);
         }
 
-        // 3. Status bar (bottom row)
-        if let Some(ref sl) = self.status_bar {
-            sl.draw(buf, area);
+        // 5. Terminal cursor — from focused window's child view
+        if let Some(pos) = cursor_pos {
+            frame.set_cursor_position(pos);
         }
-
-        // 4. Overlays (above everything)
-        self.overlay_manager.draw(buf, area);
     }
 
     // -------------------------------------------------------------------------
@@ -695,7 +710,7 @@ mod tests {
         CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
     };
     use crate::view::{Event, EventKind};
-    use ratatui::layout::Rect;
+    use ratatui::layout::{Position, Rect};
 
     fn screen() -> Rect {
         Rect::new(0, 0, 80, 24)
@@ -1143,6 +1158,75 @@ mod tests {
         assert!(
             b1.x > b0.x || b1.y > b0.y,
             "cascaded windows should be offset"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_desktop_cursor_position_propagates_from_focused_child() {
+        use crate::view::{View, ViewBase, ViewId, OF_SELECTABLE};
+        use ratatui::buffer::Buffer;
+        use std::any::Any;
+
+        // A custom view that always reports a fixed cursor position.
+        struct CursorView {
+            base: ViewBase,
+            pos: Position,
+        }
+
+        impl View for CursorView {
+            fn id(&self) -> ViewId {
+                self.base.id()
+            }
+            fn bounds(&self) -> Rect {
+                self.base.bounds()
+            }
+            fn set_bounds(&mut self, b: Rect) {
+                self.base.set_bounds(b);
+            }
+            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn handle_event(&mut self, _event: &mut Event) {}
+            fn can_focus(&self) -> bool {
+                true
+            }
+            fn options(&self) -> u16 {
+                OF_SELECTABLE
+            }
+            fn state(&self) -> u16 {
+                self.base.state()
+            }
+            fn set_state(&mut self, s: u16) {
+                self.base.set_state(s);
+            }
+            fn cursor_position(&self) -> Option<Position> {
+                Some(self.pos)
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+            fn as_any_mut(&mut self) -> &mut dyn Any {
+                self
+            }
+        }
+
+        let mut app = Application::new(screen());
+
+        // Add a window with a CursorView child
+        let mut win = Window::new(Rect::new(5, 2, 40, 15), "Editor");
+        let cursor_pos = Position::new(10, 5);
+        win.add(Box::new(CursorView {
+            base: ViewBase::new(Rect::new(0, 0, 38, 12)),
+            pos: cursor_pos,
+        }));
+        app.add_window(win);
+
+        // The desktop must propagate the cursor position
+        let reported = app.desktop().cursor_position();
+        assert_eq!(
+            reported,
+            Some(cursor_pos),
+            "desktop.cursor_position() must return the focused child's position"
         );
     }
 }

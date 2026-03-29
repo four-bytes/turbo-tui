@@ -1087,6 +1087,19 @@ impl View for Window {
         }
 
         self.update_scrollbar_params();
+
+        // Sync scroll_offset FROM self-scrolling children, then update scrollbar values
+        if self.self_scrolling {
+            if let Some(child) = self.interior.child_at(0) {
+                let (cx, cy) = child.scroll_position();
+                self.scroll_offset = (cx, cy);
+                // Re-clamp
+                let (max_x, max_y) = self.max_scroll_offset();
+                self.scroll_offset.0 = self.scroll_offset.0.clamp(0, max_x);
+                self.scroll_offset.1 = self.scroll_offset.1.clamp(0, max_y);
+                self.sync_scrollbars_from_offset();
+            }
+        }
     }
 
     /// Window can always receive focus.

@@ -61,20 +61,15 @@ pub enum ScrollBarHover {
 }
 
 /// Scrollbar visibility mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScrollBarVisibility {
     /// Always visible when present.
+    #[default]
     Always,
-    /// Visible only when content exceeds the viewport (max_val > 0).
+    /// Visible only when content exceeds the viewport (`max_val` > 0).
     Auto,
     /// Never visible (hidden).
     Hidden,
-}
-
-impl Default for ScrollBarVisibility {
-    fn default() -> Self {
-        Self::Always
-    }
 }
 
 // ============================================================================
@@ -124,7 +119,7 @@ pub struct ScrollBar {
     hovered: ScrollBarHover,
     /// Active state (true if owning window is focused).
     active: bool,
-    /// Window-dragging state: when true, scrollbar renders with frame_dragging colors.
+    /// Window-dragging state: when true, scrollbar renders with `frame_dragging` colors.
     window_dragging: bool,
     /// Visibility mode.
     visibility: ScrollBarVisibility,

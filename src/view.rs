@@ -321,6 +321,17 @@ pub trait View {
         false
     }
 
+    /// Return the current scroll position of this view.
+    ///
+    /// Self-scrolling views should override this to return their internal
+    /// scroll state as `(x, y)`. The owning Window uses this to sync
+    /// scrollbar thumb position after keyboard scrolling.
+    ///
+    /// Default returns `(0, 0)` (no scroll).
+    fn scroll_position(&self) -> (i32, i32) {
+        (0, 0)
+    }
+
     /// Whether this view currently has focus.
     fn is_focused(&self) -> bool {
         self.state() & SF_FOCUSED != 0

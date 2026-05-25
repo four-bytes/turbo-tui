@@ -160,6 +160,12 @@ pub struct Theme {
     /// Static text label.
     pub static_text: Style,
 
+    // ── Input Line ─────────────────────────────────────────────────────
+    /// Input line: normal (unfocused) state.
+    pub input_line_normal: Style,
+    /// Input line: focused state.
+    pub input_line_focused: Style,
+
     // ── Scrollbar ──────────────────────────────────────────────────────
     /// Scrollbar track (empty area).
     pub scrollbar_track: Style,
@@ -167,6 +173,8 @@ pub struct Theme {
     pub scrollbar_thumb: Style,
     /// Scrollbar arrow buttons.
     pub scrollbar_arrows: Style,
+    /// Scrollbar track when hovered.
+    pub scrollbar_track_hover: Style,
     /// Scrollbar track when parent is inactive/unfocused.
     pub scrollbar_track_inactive: Style,
     /// Scrollbar thumb when parent is inactive/unfocused.
@@ -224,6 +232,12 @@ pub struct Theme {
     pub window_maximize_button_hover: Style,
     /// Maximize button style when window is inactive.
     pub window_maximize_button_inactive: Style,
+
+    // ── ListBox ────────────────────────────────────────────────────────
+    /// `ListBox`: normal (unselected) item style.
+    pub list_box_normal: Style,
+    /// `ListBox`: selected/highlighted item style.
+    pub list_box_selected: Style,
 
     // ── Resize Grip Character ──────────────────────────────────────────
     /// Resize grip character (default: '◢').
@@ -364,6 +378,18 @@ impl Theme {
             // In window context: 0x1E = Yellow on Blue
             static_text: Style::default().fg(Color::Yellow).bg(Color::Blue),
 
+            // ── Input Line ─────────────────────────────────────────────
+            // Normal: Black on Gray (editable field appearance)
+            input_line_normal: Style::default().fg(Color::Black).bg(Color::Gray),
+            // Focused: Black on Cyan (highlighted input field)
+            input_line_focused: Style::default().fg(Color::Black).bg(Color::Cyan),
+
+            // ── ListBox ──────────────────────────────────────────────────
+            // Normal: Yellow on Blue (matches window interior)
+            list_box_normal: Style::default().fg(Color::Yellow).bg(Color::Blue),
+            // Selected: Black on Green (matches menu_box_selected)
+            list_box_selected: Style::default().fg(Color::Black).bg(Color::Green),
+
             // ── Scrollbar ──────────────────────────────────────────────
             // TV original: 0x31 = Blue on Cyan for all scrollbar parts
             scrollbar_track: Style::default().fg(Color::Blue).bg(Color::Cyan),
@@ -387,6 +413,7 @@ impl Theme {
                 .fg(Color::White)
                 .bg(Color::Green)
                 .add_modifier(Modifier::BOLD),
+            scrollbar_track_hover: Style::default().fg(Color::White).bg(Color::Cyan),
             scrollbar_thumb_hover: Style::default().fg(Color::White).bg(Color::Cyan),
             scrollbar_arrows_hover: Style::default().fg(Color::White).bg(Color::Cyan),
 
@@ -721,7 +748,12 @@ mod tests {
             ("button_focused", t.button_focused),
             ("button_disabled", t.button_disabled),
             ("static_text", t.static_text),
+            ("input_line_normal", t.input_line_normal),
+            ("input_line_focused", t.input_line_focused),
+            ("list_box_normal", t.list_box_normal),
+            ("list_box_selected", t.list_box_selected),
             ("scrollbar_track", t.scrollbar_track),
+            ("scrollbar_track_hover", t.scrollbar_track_hover),
             ("scrollbar_thumb", t.scrollbar_thumb),
             ("scrollbar_arrows", t.scrollbar_arrows),
             ("scrollbar_track_inactive", t.scrollbar_track_inactive),

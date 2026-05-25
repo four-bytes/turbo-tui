@@ -4,7 +4,7 @@
 //! the Borland Turbo Vision pattern.
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -74,6 +74,10 @@ pub const OF_POST_PROCESS: u16 = 0x0004;
 pub const OF_TOP_SELECT: u16 = 0x0008;
 /// View can be tiled (for window managers).
 pub const OF_TILEABLE: u16 = 0x0010;
+/// View is a drop target for drag-and-drop operations.
+/// When a mouse release occurs over a view with this flag,
+/// `handle_drop()` is called with the drag payload.
+pub const OF_DROP_TARGET: u16 = 0x0100;
 
 // ============================================================================
 // Event
@@ -280,11 +284,69 @@ pub trait View {
     /// call `event.clear()` when the event is consumed.
     fn handle_event(&mut self, event: &mut Event);
 
+    /// Handle a drop event with a drag payload.
+    ///
+    /// Called when the user releases a drag over a view that has `OF_DROP_TARGET`
+    /// set in its option flags. The `payload` contains the dragged data as a
+    /// type-erased `Box<dyn Any>`. Override this to extract the payload via
+    /// downcast and handle the drop.
+    ///
+    /// Return `true` if the drop was accepted and handled, `false` to ignore.
+    /// Default returns `false`.
+    fn handle_drop(&mut self, _payload: Box<dyn Any>) -> bool {
+        false
+    }
+
     // --- Focus ---
 
     /// Whether this view can receive focus.
     fn can_focus(&self) -> bool {
         false
+    }
+
+    /// Return the desired terminal cursor position, if any.
+    ///
+    /// Views that need a visible terminal cursor (e.g., text editors) should
+    /// return `Some(Position { x, y })` with absolute screen coordinates.
+    /// The application will call `frame.set_cursor_position()` with this value.
+    ///
+    /// Default returns `None` (no cursor).
+    fn cursor_position(&self) -> Option<Position> {
+        None
+    }
+
+    /// Return the logical content size of this view, if known.
+    ///
+    /// Views that contain scrollable content (e.g. text editors, lists) should
+    /// return `Some((width, height))` representing the total content dimensions
+    /// in cells. The owning `Window` uses this to set scrollbar ranges.
+    ///
+    /// Default returns `None` (content size equals view bounds).
+    fn content_size_hint(&self) -> Option<(u16, u16)> {
+        None
+    }
+
+    /// Notify the view that the owning window's scroll offset has changed.
+    ///
+    /// Self-scrolling views (e.g. text editors, lists) that manage their own
+    /// viewport should override this to update their internal scroll state
+    /// and return `true`. The window will then skip its bitmap-shifting
+    /// scroll approach for this view.
+    ///
+    /// Default returns `false` (view does not manage its own scrolling).
+    fn scroll_to(&mut self, _x: i32, _y: i32) -> bool {
+        false
+    }
+
+    /// Return the current scroll position of this view.
+    ///
+    /// Self-scrolling views should override this to return their internal
+    /// scroll state as `(x, y)`. The owning Window uses this to sync
+    /// scrollbar thumb position after keyboard scrolling.
+    ///
+    /// Default returns `(0, 0)` (no scroll).
+    fn scroll_position(&self) -> (i32, i32) {
+        (0, 0)
     }
 
     /// Whether this view currently has focus.
@@ -829,5 +891,12 @@ mod tests {
         let mut base = ViewBase::new(Rect::new(0, 0, 10, 1));
         // Should compile and not panic
         base.on_blur();
+    }
+
+    #[test]
+    fn test_view_base_cursor_position_default_is_none() {
+        // ViewBase uses the default View::cursor_position() which returns None.
+        let base = ViewBase::new(Rect::new(0, 0, 10, 5));
+        assert_eq!(base.cursor_position(), None);
     }
 }

@@ -148,7 +148,7 @@
   "menu_box": {
     "normal": {
       "fg": "Black",
-      "bg": "#c0c0c0"
+      "bg": "#f0f0f0"
     },
     "selected": {
       "fg": "White",
@@ -156,15 +156,15 @@
     },
     "disabled": {
       "fg": "#808080",
-      "bg": "#c0c0c0"
+      "bg": "#f0f0f0"
     },
     "separator": {
       "fg": "#808080",
-      "bg": "#c0c0c0"
+      "bg": "#f0f0f0"
     },
     "hotkey": {
       "fg": "Red",
-      "bg": "#c0c0c0",
+      "bg": "#f0f0f0",
       "bold": true
     },
     "hotkey_selected": {
@@ -234,6 +234,10 @@
       "bg": "#000080"
     },
     "arrows_hover": {
+      "fg": "White",
+      "bg": "#000080"
+    },
+    "track_hover": {
       "fg": "White",
       "bg": "#000080"
     },

@@ -630,6 +630,10 @@ impl HorizontalBar {
                             event.handled = true;
                         }
                     }
+                } else {
+                    // No hotkey match — fall through to key-code matching
+                    // (e.g., Alt+X with KB_ALT_X key code on the entry)
+                    self.handle_key_code_match(event);
                 }
             }
 
@@ -1250,5 +1254,31 @@ mod tests {
             .deferred
             .iter()
             .any(|e| matches!(e.kind, EventKind::Command(cmd) if cmd == CM_DROPDOWN_CLOSED)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Alt+key fall-through to key-code matching
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_alt_x_falls_through_to_key_code_match() {
+        use crate::status_bar::KB_ALT_X;
+
+        // Status-bar-style entry: label hotkey is 'a' (first char between ~),
+        // but the actual trigger is KB_ALT_X via key_code.
+        let entries = vec![BarEntry::Action {
+            label: "~Alt+X~ Quit".into(),
+            command: CM_QUIT,
+            key_code: KB_ALT_X,
+        }];
+        let mut bar = HorizontalBar::status_bar(Rect::new(0, 23, 80, 1), entries);
+
+        // Alt+X — hotkey lookup finds no 'x' match, must fall through to
+        // handle_key_code_match which checks KB_ALT_X.
+        let mut event = make_key_event(KeyCode::Char('x'), KeyModifiers::ALT);
+        bar.handle_event(&mut event);
+
+        assert!(event.is_command(), "event should be a command");
+        assert_eq!(event.command_id(), Some(CM_QUIT));
     }
 }

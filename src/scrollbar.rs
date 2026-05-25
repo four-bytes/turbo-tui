@@ -58,6 +58,20 @@ pub enum ScrollBarHover {
     Arrow,
     /// The thumb is hovered.
     Thumb,
+    /// The track (empty area) is hovered.
+    Track,
+}
+
+/// Scrollbar visibility mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollBarVisibility {
+    /// Always visible when present.
+    #[default]
+    Always,
+    /// Visible only when content exceeds the viewport (`max_val` > 0).
+    Auto,
+    /// Never visible (hidden).
+    Hidden,
 }
 
 // ============================================================================
@@ -100,12 +114,17 @@ pub struct ScrollBar {
     arrow_step: i32,
     /// Whether the thumb is currently being dragged.
     dragging_thumb: bool,
-    /// Value at drag start (for proportional tracking).
-    drag_start_value: i32,
+    /// Offset within the thumb where drag started (track cells from thumb top/left).
+    /// Used to keep the thumb anchored under the mouse during drag.
+    drag_anchor_offset: usize,
     /// Currently hovered element.
     hovered: ScrollBarHover,
     /// Active state (true if owning window is focused).
     active: bool,
+    /// Window-dragging state: when true, scrollbar renders with `frame_dragging` colors.
+    window_dragging: bool,
+    /// Visibility mode.
+    visibility: ScrollBarVisibility,
 }
 
 impl ScrollBar {
@@ -131,9 +150,11 @@ impl ScrollBar {
             page_step: 10,
             arrow_step: 1,
             dragging_thumb: false,
-            drag_start_value: 0,
+            drag_anchor_offset: 0,
             hovered: ScrollBarHover::None,
             active: true,
+            window_dragging: false,
+            visibility: ScrollBarVisibility::Always,
         }
     }
 
@@ -159,9 +180,11 @@ impl ScrollBar {
             page_step: 10,
             arrow_step: 1,
             dragging_thumb: false,
-            drag_start_value: 0,
+            drag_anchor_offset: 0,
             hovered: ScrollBarHover::None,
             active: true,
+            window_dragging: false,
+            visibility: ScrollBarVisibility::Always,
         }
     }
 
@@ -205,6 +228,18 @@ impl ScrollBar {
         self.max_val
     }
 
+    /// Get the page step size.
+    #[must_use]
+    pub fn page_step(&self) -> i32 {
+        self.page_step
+    }
+
+    /// Get the arrow step size.
+    #[must_use]
+    pub fn arrow_step(&self) -> i32 {
+        self.arrow_step
+    }
+
     /// Get the scrollbar orientation.
     #[must_use]
     pub fn orientation(&self) -> Orientation {
@@ -225,6 +260,38 @@ impl ScrollBar {
         }
     }
 
+    /// Set the window-dragging state (scrollbar renders with frame dragging colors).
+    pub fn set_window_dragging(&mut self, dragging: bool) {
+        if self.window_dragging != dragging {
+            self.window_dragging = dragging;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Get the visibility mode.
+    #[must_use]
+    pub fn visibility(&self) -> ScrollBarVisibility {
+        self.visibility
+    }
+
+    /// Set the visibility mode.
+    pub fn set_visibility(&mut self, visibility: ScrollBarVisibility) {
+        if self.visibility != visibility {
+            self.visibility = visibility;
+            self.base.mark_dirty();
+        }
+    }
+
+    /// Whether this scrollbar should currently be rendered.
+    #[must_use]
+    pub fn is_visible(&self) -> bool {
+        match self.visibility {
+            ScrollBarVisibility::Always => true,
+            ScrollBarVisibility::Auto => self.max_val > self.min_val,
+            ScrollBarVisibility::Hidden => false,
+        }
+    }
+
     /// Calculate thumb position (pixel/cell coordinate).
     ///
     /// Returns the position of the thumb in track cells from the start.
@@ -236,22 +303,23 @@ impl ScrollBar {
 
         match self.orientation {
             Orientation::Vertical => {
-                // Height - 2 (arrows) = track size
                 let track_size = i32::from(bounds.height.saturating_sub(2));
                 if track_size <= 0 {
                     return 0;
                 }
+                // Use track_size for good roundtrip precision, clamp to last valid position
                 let pos = (self.value - self.min_val) * track_size / range;
-                usize::try_from(pos.max(0)).unwrap_or(0)
+                let clamped = pos.clamp(0, track_size - 1);
+                usize::try_from(clamped).unwrap_or(0)
             }
             Orientation::Horizontal => {
-                // Width - 2 (arrows) = track size
                 let track_size = i32::from(bounds.width.saturating_sub(2));
                 if track_size <= 0 {
                     return 0;
                 }
                 let pos = (self.value - self.min_val) * track_size / range;
-                usize::try_from(pos.max(0)).unwrap_or(0)
+                let clamped = pos.clamp(0, track_size - 1);
+                usize::try_from(clamped).unwrap_or(0)
             }
         }
     }
@@ -356,7 +424,7 @@ impl ScrollBar {
                             if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
                                 ScrollBarHover::Thumb
                             } else {
-                                ScrollBarHover::None
+                                ScrollBarHover::Track
                             }
                         }
                     }
@@ -369,7 +437,7 @@ impl ScrollBar {
                             if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
                                 ScrollBarHover::Thumb
                             } else {
-                                ScrollBarHover::None
+                                ScrollBarHover::Track
                             }
                         }
                     }
@@ -404,16 +472,12 @@ impl ScrollBar {
                     let (thumb_pos, thumb_len) = self.thumb_range();
 
                     if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
-                        // Click on thumb - start drag
+                        // Click on thumb - start drag, remember grab offset within thumb
                         self.dragging_thumb = true;
-                        self.drag_start_value = self.value;
-                    } else if track_pos < thumb_pos {
-                        // Click above thumb - page up
-                        self.set_value(self.value.saturating_sub(self.page_step));
-                        Self::broadcast_change(event);
+                        self.drag_anchor_offset = track_pos - thumb_pos;
                     } else {
-                        // Click below thumb - page down
-                        self.set_value(self.value.saturating_add(self.page_step));
+                        // Click on track - position thumb directly at clicked position
+                        self.update_value_from_position(track_pos);
                         Self::broadcast_change(event);
                     }
                 }
@@ -434,16 +498,12 @@ impl ScrollBar {
                     let (thumb_pos, thumb_len) = self.thumb_range();
 
                     if track_pos >= thumb_pos && track_pos < thumb_pos + thumb_len {
-                        // Click on thumb - start drag
+                        // Click on thumb - start drag, remember grab offset within thumb
                         self.dragging_thumb = true;
-                        self.drag_start_value = self.value;
-                    } else if track_pos < thumb_pos {
-                        // Click left of thumb - page left
-                        self.set_value(self.value.saturating_sub(self.page_step));
-                        Self::broadcast_change(event);
+                        self.drag_anchor_offset = track_pos - thumb_pos;
                     } else {
-                        // Click right of thumb - page right
-                        self.set_value(self.value.saturating_add(self.page_step));
+                        // Click on track - position thumb directly at clicked position
+                        self.update_value_from_position(track_pos);
                         Self::broadcast_change(event);
                     }
                 }
@@ -459,14 +519,16 @@ impl ScrollBar {
 
         match self.orientation {
             Orientation::Vertical => {
-                // Subtract 1 for the up arrow, then calculate position
+                // Subtract 1 for the up arrow, then apply anchor offset
                 let track_pos = rel_row.saturating_sub(1) as usize;
-                self.update_value_from_position(track_pos);
+                let effective_pos = track_pos.saturating_sub(self.drag_anchor_offset);
+                self.update_value_from_position(effective_pos);
             }
             Orientation::Horizontal => {
-                // Subtract 1 for the left arrow, then calculate position
+                // Subtract 1 for the left arrow, then apply anchor offset
                 let track_pos = rel_col.saturating_sub(1) as usize;
-                self.update_value_from_position(track_pos);
+                let effective_pos = track_pos.saturating_sub(self.drag_anchor_offset);
+                self.update_value_from_position(effective_pos);
             }
         }
 
@@ -496,7 +558,13 @@ impl View for ScrollBar {
         self.base.set_bounds(bounds);
     }
 
+    #[allow(clippy::too_many_lines)]
     fn draw(&self, buf: &mut Buffer, area: Rect) {
+        // Don't draw if hidden
+        if !self.is_visible() {
+            return;
+        }
+
         // Don't draw if area is empty
         if area.width == 0 || area.height == 0 {
             return;
@@ -512,6 +580,10 @@ impl View for ScrollBar {
 
         // Get theme styles
         let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
+            if self.window_dragging {
+                let style = t.window_frame_dragging;
+                return (style, style, style);
+            }
             if !self.active {
                 return (
                     t.scrollbar_track_inactive,
@@ -519,6 +591,11 @@ impl View for ScrollBar {
                     t.scrollbar_arrows_inactive,
                 );
             }
+            let track = if self.hovered == ScrollBarHover::Track {
+                t.scrollbar_track_hover
+            } else {
+                t.scrollbar_track
+            };
             let thumb = if self.hovered == ScrollBarHover::Thumb {
                 t.scrollbar_thumb_hover
             } else {
@@ -529,7 +606,7 @@ impl View for ScrollBar {
             } else {
                 t.scrollbar_arrows
             };
-            (t.scrollbar_track, thumb, arrows)
+            (track, thumb, arrows)
         });
 
         // Calculate track size
@@ -698,14 +775,17 @@ mod tests {
         // Height 12: 1 up arrow + 10 track + 1 down arrow
 
         scrollbar.set_params(0, 0, 100, 10, 1);
+        // track_size = 10, valid positions: 0..=9 (track_size - 1 = 9)
+        // value=0: 0 * 10 / 100 = 0
         assert_eq!(scrollbar.thumb_position(), 0);
 
         scrollbar.set_value(50);
+        // value=50: 50 * 10 / 100 = 5
         assert_eq!(scrollbar.thumb_position(), 5);
 
         scrollbar.set_value(100);
-        // Track size = 10, so max position = 9
-        assert_eq!(scrollbar.thumb_position(), 10);
+        // value=100: 100 * 10 / 100 = 10 → clamped to 9
+        assert_eq!(scrollbar.thumb_position(), 9);
     }
 
     #[test]
@@ -806,10 +886,9 @@ mod tests {
         // At value 0, thumb is at position 0
         assert_eq!(scrollbar.thumb_position(), 0);
 
-        // At value 50, track_pos 4
+        // At value 50, track_pos = 50 * 8 / 100 = 4
         scrollbar.set_value(50);
         let pos = scrollbar.thumb_position();
-        // pos = (50 - 0) * 8 / 100 = 4
         assert_eq!(pos, 4);
     }
 }

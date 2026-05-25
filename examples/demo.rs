@@ -1,6 +1,6 @@
 //! turbo-tui interactive demo.
 //!
-//! Demonstrates the full turbo-tui v0.2.1 widget set:
+//! Demonstrates the full turbo-tui v0.2.3 widget set:
 //! - Application event loop
 //! - Desktop with blue background
 //! - Overlapping windows with drag and resize
@@ -10,13 +10,16 @@
 //! - Builder Lite pattern for window construction
 //! - Window presets (editor, tool)
 //! - Focus-dependent scrollbar styling (active/inactive)
+//! - Drag-and-drop between windows
 //!
 //! Controls:
 //! - Alt+X: Quit
 //! - F10: Activate menu bar
 //! - Mouse: Click, drag, resize windows
+//! - Right-click: Context menu
 //! - F2: Cycle themes
 //! - Tab: Cycle focus within a window
+//! - Left-click drag: Start drag operation (drop targets accept items)
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
@@ -29,12 +32,15 @@ use std::time::Duration;
 use turbo_tui::{
     application::Application,
     button::Button,
-    command::{CM_CLOSE, CM_NEXT_THEME, CM_OK, CM_QUIT},
+    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DRAG_START, CM_NEXT_THEME, CM_OK, CM_QUIT,
+              CM_TILE},
     horizontal_bar::{BarEntry, HorizontalBar},
+    listbox::ListBox,
     menu_bar::{menu_bar_from_menus, Menu, MenuItem},
     static_text::StaticText,
     status_bar::{KB_ALT_X, KB_F10, KB_F2},
     theme,
+    view::OF_DROP_TARGET,
     window::Window,
 };
 
@@ -100,6 +106,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Add demo windows
     add_demo_windows(&mut app);
 
+    // Setup context menu (right-click to open)
+    app.set_context_menu_items(vec![
+        MenuItem::new("~N~ew", 1001),
+        MenuItem::new("~O~pen", 1002),
+        MenuItem::separator(),
+        MenuItem::new("~Q~uit", CM_QUIT),
+    ]);
+
     // ── Event loop ─────────────────────────────────────────────────────
     // Draw once before entering the loop so the initial frame is visible.
     terminal.draw(|frame| {
@@ -137,6 +151,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     if let Some(name) = theme_names.get(idx) {
                         let _ = theme::set_by_name(name);
                     }
+                } else if cmd == CM_DRAG_START {
+                    // Left mouse button down — start a drag with a payload
+                    let pos = app.last_mouse_pos();
+                    app.start_drag(pos, Box::new("Dragged Item".to_string()));
                 }
             }
 
@@ -159,10 +177,11 @@ fn setup_menu_bar(app: &mut Application, theme_names: &[String]) {
 
     // Build theme menu items dynamically from registered theme names
     let mut window_items = vec![
-        MenuItem::new("~T~ile", 1020),
-        MenuItem::new("~C~ascade", 1021),
+        MenuItem::new("~T~ile", CM_TILE),
+        MenuItem::new("~C~ascade", CM_CASCADE),
         MenuItem::separator(),
         MenuItem::new("~C~lose", CM_CLOSE),
+        MenuItem::new("Close ~A~ll", CM_CLOSE_ALL),
     ];
 
     if !theme_names.is_empty() {
@@ -237,7 +256,7 @@ fn setup_status_bar(app: &mut Application) {
 fn add_demo_windows(app: &mut Application) {
     // Window 1: Welcome — uses Window::editor() preset (vertical scrollbar, min 20×8)
     let mut win1 = Window::editor(Rect::new(5, 3, 35, 12), "Welcome");
-    let text = StaticText::new(Rect::new(1, 1, 31, 1), "turbo-tui v0.2.1 Demo");
+    let text = StaticText::new(Rect::new(1, 1, 31, 1), "turbo-tui v0.2.3 Demo");
     win1.add(Box::new(text));
 
     let text2 = StaticText::new(Rect::new(1, 3, 31, 1), "Drag title bar to move");
@@ -249,7 +268,10 @@ fn add_demo_windows(app: &mut Application) {
     let text4 = StaticText::new(Rect::new(1, 6, 31, 1), "Focus changes scrollbar style");
     win1.add(Box::new(text4));
 
-    let ok_btn = Button::new(Rect::new(12, 8, 10, 1), "~O~K", CM_OK, true);
+    let text5 = StaticText::new(Rect::new(1, 7, 31, 1), "Mouse wheel scrolls content");
+    win1.add(Box::new(text5));
+
+    let ok_btn = Button::new(Rect::new(12, 9, 10, 1), "~O~K", CM_OK, true);
     win1.add(Box::new(ok_btn));
 
     app.add_window(win1);
@@ -267,18 +289,36 @@ fn add_demo_windows(app: &mut Application) {
 
     app.add_window(win2);
 
-    // Window 3: Scroll Demo — both scrollbars via Builder Lite
+    // Window 3: Scroll Demo — both scrollbars, content larger than window
+    // Demonstrates viewport scrolling: mouse wheel, scrollbar click/drag
     let mut win3 = Window::new(Rect::new(45, 2, 30, 12), "Scroll Demo")
         .with_scrollbars(true, true)
-        .with_min_size(20, 8);
-    let info = StaticText::new(Rect::new(1, 1, 24, 1), "Both scrollbars active");
-    win3.add(Box::new(info));
+        .with_min_size(20, 8)
+        .with_content_size(60, 30);
 
-    let info2 = StaticText::new(Rect::new(1, 3, 24, 1), "Click to focus — watch");
-    win3.add(Box::new(info2));
-
-    let info3 = StaticText::new(Rect::new(1, 4, 24, 1), "scrollbar style change");
-    win3.add(Box::new(info3));
+    // Add many lines of content that extend beyond the visible area
+    win3.add(Box::new(StaticText::new(
+        Rect::new(1, 1, 55, 1),
+        "Scroll with mouse wheel or click scrollbar",
+    )));
+    win3.add(Box::new(StaticText::new(
+        Rect::new(1, 2, 55, 1),
+        "Drag scrollbar thumb to scroll quickly",
+    )));
+    win3.add(Box::new(StaticText::new(
+        Rect::new(1, 3, 55, 1),
+        "Click arrows for single-line scroll",
+    )));
+    win3.add(Box::new(StaticText::new(
+        Rect::new(1, 4, 55, 1),
+        "Click track for page scroll",
+    )));
+    for i in 5..28 {
+        win3.add(Box::new(StaticText::new(
+            Rect::new(1, i, 55, 1),
+            &format!("Line {i:>2} — Scrollable content extends beyond window"),
+        )));
+    }
 
     app.add_window(win3);
 
@@ -288,4 +328,46 @@ fn add_demo_windows(app: &mut Application) {
     win4.add(Box::new(tool_info));
 
     app.add_window(win4);
+
+    // Window 5: ListBox demo — selectable list with scrollbar
+    let list_items = vec![
+        "Apple".into(),
+        "Banana".into(),
+        "Cherry".into(),
+        "Date".into(),
+        "Elderberry".into(),
+        "Fig".into(),
+        "Grape".into(),
+        "Honeydew".into(),
+        "Kiwi".into(),
+        "Lemon".into(),
+        "Mango".into(),
+        "Nectarine".into(),
+        "Orange".into(),
+        "Papaya".into(),
+        "Quince".into(),
+    ];
+    let mut win5 = Window::new(Rect::new(35, 10, 22, 12), "ListBox Demo")
+        .with_min_size(18, 6);
+    let list_label = StaticText::new(Rect::new(1, 0, 18, 1), "Fruits:");
+    win5.add(Box::new(list_label));
+    let list_box = ListBox::new(Rect::new(1, 1, 18, 8))
+        .with_items(list_items)
+        .with_selected(0);
+    win5.add(Box::new(list_box));
+    app.add_window(win5);
+
+    // Window 6: Drop target ListBox — accepts dropped items via drag-and-drop
+    let drop_items = vec![
+        "Drop Items Here".to_string(),
+        "Left-drag from any window".to_string(),
+    ];
+    let mut win6 = Window::new(Rect::new(5, 17, 24, 10), "Drop Target")
+        .with_min_size(18, 6);
+    let drop_label = StaticText::new(Rect::new(1, 0, 20, 1), "Drag items onto list:");
+    win6.add(Box::new(drop_label));
+    let mut drop_list = ListBox::new(Rect::new(1, 1, 20, 6)).with_items(drop_items);
+    drop_list.set_options(drop_list.get_options() | OF_DROP_TARGET);
+    win6.add(Box::new(drop_list));
+    app.add_window(win6);
 }

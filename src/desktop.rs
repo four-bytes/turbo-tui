@@ -13,7 +13,7 @@ use crate::container::Container;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
 use crate::window::Window;
-use crossterm::event::MouseEventKind;
+use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use std::any::Any;
@@ -78,6 +78,17 @@ impl Desktop {
             self.recalculate_shelf();
         }
         removed
+    }
+
+    /// Close (remove) all windows from the desktop.
+    ///
+    /// Clears the task shelf since no minimized windows remain.
+    pub fn close_all_windows(&mut self) {
+        while self.windows.child_count() > 0 {
+            self.windows.remove(0);
+        }
+        self.task_shelf_height = 0;
+        self.base.mark_dirty();
     }
 
     /// Get the current task shelf height in rows.
@@ -332,6 +343,15 @@ impl Desktop {
         self.base.mark_dirty();
     }
 
+    /// Return the cursor position from the currently focused window, if any.
+    ///
+    /// Delegates to the focused window's `View::cursor_position()` via the
+    /// internal [`Container`].
+    #[must_use]
+    pub fn cursor_position(&self) -> Option<Position> {
+        self.windows.cursor_position()
+    }
+
     /// Draw the desktop background.
     ///
     /// Reads the background style and character from the current theme at draw-time
@@ -365,6 +385,15 @@ impl View for Desktop {
     fn set_bounds(&mut self, bounds: Rect) {
         self.base.set_bounds(bounds);
         self.windows.set_bounds(bounds);
+
+        // Update drag limits on all existing windows
+        for i in 0..self.windows.child_count() {
+            if let Some(child) = self.windows.child_at_mut(i) {
+                if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                    win.set_drag_limits(bounds);
+                }
+            }
+        }
     }
 
     fn draw(&self, buf: &mut Buffer, clip: Rect) {
@@ -382,6 +411,11 @@ impl View for Desktop {
         if let EventKind::Mouse(mouse) = &event.kind.clone() {
             let col = mouse.column;
             let row = mouse.row;
+
+            // Right-click anywhere → post CM_CONTEXT_MENU if items are configured
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
+                event.post(Event::command(crate::command::CM_CONTEXT_MENU));
+            }
 
             // Click-to-front: on MouseDown, find hit window and bring to front
             if matches!(mouse.kind, MouseEventKind::Down(_)) {
@@ -973,5 +1007,70 @@ mod tests {
             Rect::new(0, 1, 80, 21),
             "effective area shrinks by shelf height"
         );
+    }
+
+    #[test]
+    fn test_desktop_close_all_windows() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+        desktop.add_window(Window::new(Rect::new(15, 15, 30, 10), "W3"));
+        assert_eq!(desktop.window_count(), 3);
+
+        desktop.close_all_windows();
+        assert_eq!(desktop.window_count(), 0);
+        assert_eq!(desktop.task_shelf_height(), 0);
+    }
+
+    #[test]
+    fn test_desktop_close_all_empty_is_noop() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        assert_eq!(desktop.window_count(), 0);
+
+        desktop.close_all_windows(); // Should not panic
+        assert_eq!(desktop.window_count(), 0);
+    }
+
+    #[test]
+    fn test_desktop_close_all_with_minimized() {
+        setup_theme();
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        desktop.add_window(Window::new(Rect::new(5, 5, 30, 10), "W1"));
+        desktop.add_window(Window::new(Rect::new(10, 10, 30, 10), "W2"));
+
+        // Minimize one
+        if let Some(child) = desktop.windows_mut().child_at_mut(0) {
+            if let Some(win) = child.as_any_mut().downcast_mut::<Window>() {
+                win.minimize();
+            }
+        }
+        desktop.recalculate_shelf();
+        assert_eq!(desktop.task_shelf_height(), 1);
+
+        desktop.close_all_windows();
+        assert_eq!(desktop.window_count(), 0);
+        assert_eq!(desktop.task_shelf_height(), 0);
+    }
+
+    #[test]
+    fn test_desktop_set_bounds_updates_drag_limits() {
+        let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
+        let win = Window::new(Rect::new(5, 5, 30, 10), "Test");
+        desktop.add_window(win);
+
+        // Initial drag limits should be the desktop bounds
+        let child = desktop.windows().child_at(0).unwrap();
+        let win_ref = child.as_any().downcast_ref::<Window>().unwrap();
+        assert_eq!(win_ref.drag_limits(), Some(Rect::new(0, 0, 80, 24)));
+
+        // Resize desktop
+        desktop.set_bounds(Rect::new(0, 0, 120, 40));
+
+        // Drag limits should be updated
+        let child = desktop.windows().child_at(0).unwrap();
+        let win_ref = child.as_any().downcast_ref::<Window>().unwrap();
+        assert_eq!(win_ref.drag_limits(), Some(Rect::new(0, 0, 120, 40)));
     }
 }

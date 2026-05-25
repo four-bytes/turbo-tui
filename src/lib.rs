@@ -35,6 +35,8 @@ pub mod overlay;
 
 // Level 5: Widgets
 pub mod button;
+pub mod input_line;
+pub mod listbox;
 pub mod menu_bar;
 pub mod menu_box;
 pub mod scrollbar;
@@ -55,13 +57,16 @@ pub mod prelude {
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
     pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
+    pub use crate::input_line::InputLine;
+    pub use crate::listbox::ListBox;
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
+    pub use crate::scrollbar::{Orientation, ScrollBar, ScrollBarVisibility};
     pub use crate::theme::{self, ButtonSide};
     pub use crate::view::{
-        Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS,
-        OF_SELECTABLE, OF_TILEABLE, OF_TOP_SELECT, SF_ACTIVE, SF_DISABLED, SF_DRAGGING, SF_FOCUSED,
-        SF_MINIMIZED, SF_MODAL, SF_RESIZING, SF_SHADOW, SF_VISIBLE,
+        Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_DROP_TARGET, OF_POST_PROCESS,
+        OF_PRE_PROCESS, OF_SELECTABLE, OF_TILEABLE, OF_TOP_SELECT, SF_ACTIVE, SF_DISABLED,
+        SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_MODAL, SF_RESIZING, SF_SHADOW, SF_VISIBLE,
     };
     pub use crate::window::Window;
 }

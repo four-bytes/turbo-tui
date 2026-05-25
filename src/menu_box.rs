@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use std::any::Any;
 
-use crate::command::{CommandId, CM_DROPDOWN_NAVIGATE};
+use crate::command::{CommandId, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE};
 use crate::menu_bar::MenuItem;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
@@ -194,10 +194,13 @@ impl MenuBox {
                 let cmd = self.items[idx].command;
                 self.result = Some(cmd);
                 // When owned by a bar, emit the command through the event
+                // and close the dropdown
                 if self.owner_bar_id.is_some() {
                     if let Some(ev) = event {
                         ev.kind = EventKind::Command(cmd);
                         ev.handled = true;
+                        // Post deferred close so the overlay is dismissed
+                        ev.post(Event::command(CM_DROPDOWN_CLOSED));
                     }
                 }
             }

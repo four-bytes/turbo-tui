@@ -100,6 +100,8 @@ pub const CM_CASCADE: CommandId = 144;
 pub const CM_NEXT_THEME: CommandId = 145;
 /// Minimize the active window.
 pub const CM_MINIMIZE: CommandId = 146;
+/// Close all windows on the desktop.
+pub const CM_CLOSE_ALL: CommandId = 147;
 
 /// Commands >= `INTERNAL_COMMAND_BASE` are internal view commands
 /// and will NOT close modal dialogs.
@@ -117,6 +119,27 @@ pub const CM_DROPDOWN_CLOSED: CommandId = INTERNAL_COMMAND_BASE + 11;
 /// Internal: Navigate to an adjacent dropdown (Left/Right arrow in an open menu).
 /// The bar stores the navigation direction in `pending_dropdown_navigate`.
 pub const CM_DROPDOWN_NAVIGATE: CommandId = INTERNAL_COMMAND_BASE + 12;
+
+/// Internal: Right-click context menu requested.
+/// Data contains the click position as `(u16, u16)` packed in a tuple.
+pub const CM_CONTEXT_MENU: CommandId = INTERNAL_COMMAND_BASE + 13;
+
+// Drag-and-drop commands (internal, >= INTERNAL_COMMAND_BASE)
+/// Internal: A drag operation has started (Left mouse button Down).
+/// Application stores the origin and any payload set via `Application::start_drag()`.
+pub const CM_DRAG_START: CommandId = INTERNAL_COMMAND_BASE + 20;
+
+/// Internal: A drag operation is in progress (Left mouse button Drag).
+/// Posted as a deferred event during mouse drag so drop targets can react.
+pub const CM_DRAG_MOVE: CommandId = INTERNAL_COMMAND_BASE + 21;
+
+/// Internal: A drag operation has ended (Left mouse button Up).
+/// Application clears the drag state; the view that was dragged handles the drop.
+pub const CM_DRAG_END: CommandId = INTERNAL_COMMAND_BASE + 22;
+
+/// Internal: Drop event — a drag payload was released over a drop target.
+/// The payload is delivered via `View::handle_drop()`.
+pub const CM_DROP: CommandId = INTERNAL_COMMAND_BASE + 23;
 
 #[cfg(test)]
 mod tests {

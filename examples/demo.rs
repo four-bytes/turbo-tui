@@ -10,13 +10,16 @@
 //! - Builder Lite pattern for window construction
 //! - Window presets (editor, tool)
 //! - Focus-dependent scrollbar styling (active/inactive)
+//! - Drag-and-drop between windows
 //!
 //! Controls:
 //! - Alt+X: Quit
 //! - F10: Activate menu bar
 //! - Mouse: Click, drag, resize windows
+//! - Right-click: Context menu
 //! - F2: Cycle themes
 //! - Tab: Cycle focus within a window
+//! - Left-click drag: Start drag operation (drop targets accept items)
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
@@ -29,12 +32,15 @@ use std::time::Duration;
 use turbo_tui::{
     application::Application,
     button::Button,
-    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT, CM_TILE},
+    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DRAG_START, CM_NEXT_THEME, CM_OK, CM_QUIT,
+              CM_TILE},
     horizontal_bar::{BarEntry, HorizontalBar},
+    listbox::ListBox,
     menu_bar::{menu_bar_from_menus, Menu, MenuItem},
     static_text::StaticText,
     status_bar::{KB_ALT_X, KB_F10, KB_F2},
     theme,
+    view::OF_DROP_TARGET,
     window::Window,
 };
 
@@ -100,6 +106,14 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Add demo windows
     add_demo_windows(&mut app);
 
+    // Setup context menu (right-click to open)
+    app.set_context_menu_items(vec![
+        MenuItem::new("~N~ew", 1001),
+        MenuItem::new("~O~pen", 1002),
+        MenuItem::separator(),
+        MenuItem::new("~Q~uit", CM_QUIT),
+    ]);
+
     // ── Event loop ─────────────────────────────────────────────────────
     // Draw once before entering the loop so the initial frame is visible.
     terminal.draw(|frame| {
@@ -137,6 +151,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                     if let Some(name) = theme_names.get(idx) {
                         let _ = theme::set_by_name(name);
                     }
+                } else if cmd == CM_DRAG_START {
+                    // Left mouse button down — start a drag with a payload
+                    let pos = app.last_mouse_pos();
+                    app.start_drag(pos, Box::new("Dragged Item".to_string()));
                 }
             }
 
@@ -310,4 +328,46 @@ fn add_demo_windows(app: &mut Application) {
     win4.add(Box::new(tool_info));
 
     app.add_window(win4);
+
+    // Window 5: ListBox demo — selectable list with scrollbar
+    let list_items = vec![
+        "Apple".into(),
+        "Banana".into(),
+        "Cherry".into(),
+        "Date".into(),
+        "Elderberry".into(),
+        "Fig".into(),
+        "Grape".into(),
+        "Honeydew".into(),
+        "Kiwi".into(),
+        "Lemon".into(),
+        "Mango".into(),
+        "Nectarine".into(),
+        "Orange".into(),
+        "Papaya".into(),
+        "Quince".into(),
+    ];
+    let mut win5 = Window::new(Rect::new(35, 10, 22, 12), "ListBox Demo")
+        .with_min_size(18, 6);
+    let list_label = StaticText::new(Rect::new(1, 0, 18, 1), "Fruits:");
+    win5.add(Box::new(list_label));
+    let list_box = ListBox::new(Rect::new(1, 1, 18, 8))
+        .with_items(list_items)
+        .with_selected(0);
+    win5.add(Box::new(list_box));
+    app.add_window(win5);
+
+    // Window 6: Drop target ListBox — accepts dropped items via drag-and-drop
+    let drop_items = vec![
+        "Drop Items Here".to_string(),
+        "Left-drag from any window".to_string(),
+    ];
+    let mut win6 = Window::new(Rect::new(5, 17, 24, 10), "Drop Target")
+        .with_min_size(18, 6);
+    let drop_label = StaticText::new(Rect::new(1, 0, 20, 1), "Drag items onto list:");
+    win6.add(Box::new(drop_label));
+    let mut drop_list = ListBox::new(Rect::new(1, 1, 20, 6)).with_items(drop_items);
+    drop_list.set_options(drop_list.get_options() | OF_DROP_TARGET);
+    win6.add(Box::new(drop_list));
+    app.add_window(win6);
 }

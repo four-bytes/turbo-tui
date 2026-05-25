@@ -13,7 +13,7 @@ use crate::container::Container;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
 use crate::window::Window;
-use crossterm::event::MouseEventKind;
+use crossterm::event::{MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use std::any::Any;
@@ -411,6 +411,11 @@ impl View for Desktop {
         if let EventKind::Mouse(mouse) = &event.kind.clone() {
             let col = mouse.column;
             let row = mouse.row;
+
+            // Right-click anywhere → post CM_CONTEXT_MENU if items are configured
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
+                event.post(Event::command(crate::command::CM_CONTEXT_MENU));
+            }
 
             // Click-to-front: on MouseDown, find hit window and bring to front
             if matches!(mouse.kind, MouseEventKind::Down(_)) {

@@ -475,13 +475,9 @@ impl ScrollBar {
                         // Click on thumb - start drag, remember grab offset within thumb
                         self.dragging_thumb = true;
                         self.drag_anchor_offset = track_pos - thumb_pos;
-                    } else if track_pos < thumb_pos {
-                        // Click above thumb - page up
-                        self.set_value(self.value.saturating_sub(self.page_step));
-                        Self::broadcast_change(event);
                     } else {
-                        // Click below thumb - page down
-                        self.set_value(self.value.saturating_add(self.page_step));
+                        // Click on track - position thumb directly at clicked position
+                        self.update_value_from_position(track_pos);
                         Self::broadcast_change(event);
                     }
                 }
@@ -505,13 +501,9 @@ impl ScrollBar {
                         // Click on thumb - start drag, remember grab offset within thumb
                         self.dragging_thumb = true;
                         self.drag_anchor_offset = track_pos - thumb_pos;
-                    } else if track_pos < thumb_pos {
-                        // Click left of thumb - page left
-                        self.set_value(self.value.saturating_sub(self.page_step));
-                        Self::broadcast_change(event);
                     } else {
-                        // Click right of thumb - page right
-                        self.set_value(self.value.saturating_add(self.page_step));
+                        // Click on track - position thumb directly at clicked position
+                        self.update_value_from_position(track_pos);
                         Self::broadcast_change(event);
                     }
                 }

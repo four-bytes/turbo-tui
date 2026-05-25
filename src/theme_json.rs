@@ -42,6 +42,10 @@
 //!   "status_bar": { ... },
 //!   "button": { ... },
 //!   "static_text": { "fg": "Yellow", "bg": "Blue" },
+//!   "list_box": {
+//!     "normal": { "fg": "Yellow", "bg": "Blue" },
+//!     "selected": { "fg": "Black", "bg": "Green" }
+//!   },
 //!   "scrollbar": { ... }
 //! }
 //! ```
@@ -531,6 +535,55 @@ pub struct ScrollbarSection {
     pub arrows_inactive: StyleValue,
 }
 
+/// Input line styles (single-line text input).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputLineSection {
+    /// Normal (unfocused) state.
+    pub normal: StyleValue,
+    /// Focused state.
+    pub focused: StyleValue,
+}
+
+impl Default for InputLineSection {
+    fn default() -> Self {
+        Self {
+            normal: StyleValue::from_style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            focused: StyleValue::from_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
+        }
+    }
+}
+
+/// `ListBox` styles (scrollable selectable list).
+///
+/// # JSON Example
+///
+/// ```json
+/// {
+///   "normal": { "fg": "Yellow", "bg": "Blue" },
+///   "selected": { "fg": "Black", "bg": "Green" }
+/// }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListBoxSection {
+    /// Normal (unselected) item style.
+    pub normal: StyleValue,
+    /// Selected/highlighted item style.
+    pub selected: StyleValue,
+}
+
+impl Default for ListBoxSection {
+    fn default() -> Self {
+        Self {
+            normal: StyleValue::from_style(
+                Style::default().fg(Color::Yellow).bg(Color::Blue),
+            ),
+            selected: StyleValue::from_style(
+                Style::default().fg(Color::Black).bg(Color::Green),
+            ),
+        }
+    }
+}
+
 fn default_scrollbar_track_hover() -> StyleValue {
     StyleValue::from_style(Style::default().fg(Color::White).bg(Color::Cyan))
 }
@@ -581,6 +634,12 @@ pub struct ThemeData {
     pub static_text: StyleValue,
     /// Scrollbar styles.
     pub scrollbar: ScrollbarSection,
+    /// Input line styles.
+    #[serde(default)]
+    pub input_line: InputLineSection,
+    /// `ListBox` styles.
+    #[serde(default)]
+    pub list_box: ListBoxSection,
 }
 
 // ============================================================================
@@ -713,6 +772,12 @@ impl ThemeData {
 
             static_text: self.static_text.to_style(),
 
+            input_line_normal: self.input_line.normal.to_style(),
+            input_line_focused: self.input_line.focused.to_style(),
+
+            list_box_normal: self.list_box.normal.to_style(),
+            list_box_selected: self.list_box.selected.to_style(),
+
             scrollbar_track: self.scrollbar.track.to_style(),
             scrollbar_track_hover: self.scrollbar.track_hover.to_style(),
             scrollbar_thumb: self.scrollbar.thumb.to_style(),
@@ -840,6 +905,14 @@ impl ThemeData {
                 hover: StyleValue::from_style(theme.button_hover),
             },
             static_text: StyleValue::from_style(theme.static_text),
+            input_line: InputLineSection {
+                normal: StyleValue::from_style(theme.input_line_normal),
+                focused: StyleValue::from_style(theme.input_line_focused),
+            },
+            list_box: ListBoxSection {
+                normal: StyleValue::from_style(theme.list_box_normal),
+                selected: StyleValue::from_style(theme.list_box_selected),
+            },
             scrollbar: ScrollbarSection {
                 track: StyleValue::from_style(theme.scrollbar_track),
                 track_hover: StyleValue::from_style(theme.scrollbar_track_hover),

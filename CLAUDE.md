@@ -5,12 +5,12 @@
 **turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.2.2 — Released (v0.2 merged to `main`)
+- **Status:** v0.2.3 — Released
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui
 - **Consumer:** `four-code` terminal IDE (`~/four-code`)
-- **Deps:** ratatui 0.29, crossterm 0.28
+- **Deps:** ratatui 0.30, crossterm 0.28
 
 ## Architecture
 
@@ -50,7 +50,7 @@ examples/
 
 ```bash
 cargo check                     # Quick syntax check (fastest)
-cargo test                      # Run all 284 tests
+cargo test                      # Run all 357 tests
 cargo clippy -- -D warnings     # Lint (pedantic enabled)
 cargo fmt                       # Format
 cargo run --example demo        # Run the interactive demo
@@ -122,7 +122,7 @@ These principles guide ALL development:
 | Add commands | `src/command.rs` (CM_* constants) |
 | Demo changes | `examples/demo.rs` |
 
-## v0.2 Rebuild — Current State (v0.2.0 complete, v0.2.1 in progress)
+## v0.2 Rebuild — Current State
 
 **Branch:** `v0.2-rebuild` | **Plan:** [`docs/PLAN-v0.2.md`](docs/PLAN-v0.2.md)
 
@@ -162,22 +162,27 @@ These principles guide ALL development:
 - 321 tests passing, clippy pedantic clean
 - **v0.2.1 released and tagged**
 
-### v0.2.1 In Progress (see `docs/PLAN-v0.2.1.md`)
-- All phases complete — **released as v0.2.1**
+### v0.2.1 Released
+- All phases complete — released as v0.2.1
 
-### v0.2.2 In Progress
-- **F1: MenuBar → Overlay dropdown refactor** — move dropdown rendering from HorizontalBar self-draw to OverlayManager + MenuBox
-  - Phase 1: MenuBox command emission
-  - Phase 2: HorizontalBar simplification (remove ~170 lines self-draw)
-  - Phase 3: Application orchestration (CM_OPEN_DROPDOWN coordination)
-  - Phase 4: OverlayManager dismiss callback
-  - Phase 5: Demo + integration tests
-  - Plan: `docs/PLAN-v0.2.2.md`
+### v0.2.2 Released
+- **F1: MenuBar → Overlay dropdown refactor** — completed
+  - Dropdown rendering moved from `HorizontalBar` self-draw to `OverlayManager` + `MenuBox`
+  - `MenuBox` command emission with `owner_bar_id` support
+  - `HorizontalBar` simplified (~170 lines self-draw removed)
+  - Application orchestration for `CM_OPEN_DROPDOWN` / `CM_DROPDOWN_CLOSED` / `CM_DROPDOWN_NAVIGATE`
+  - OverlayManager dismiss callback posts `CM_DROPDOWN_CLOSED`
+  - **F2: Minimized Window Tray Fix** — Frame draws at `height=1`, buttons suppressed correctly
+  - 335 tests passing, clippy pedantic clean
 
-### Remaining (Deferred to v0.2.3+)
-- Step 9b: MenuBar→Overlay dropdown refactor (MenuBar currently self-draws dropdown — works but can't extend beyond clip area)
-- Step 9a/c/d: Widget adaptations (minor — existing widgets work but don't use v0.2 patterns fully)
-- **Scrollbar thumb positioning fix** — mouse click should map to middle of thumb positions; only the area between arrow buttons counts for thumb positioning (not full track length)
+### v0.2.3 Released
+- **Scrollbar thumb positioning fix** — mouse click now correctly maps to the middle of thumb positions; only the area between arrow buttons counts for thumb positioning
+- **`Application::post_event()`** — background thread can inject events into the running application loop
+- **Ratatui 0.30 upgrade** — zero API breaks
+- **Demo updated** — showcases scrollbar fix and `post_event()` usage
+- 357 tests passing, clippy pedantic clean
+
+### Remaining (Deferred to v0.2.4+)
 - **Partial invalidation system** — dirty-region tracking that allows partial window redraws instead of full-screen repaint, reducing SSH bandwidth for remote usage
 - Future: Gauge/ProgressBar, ListView, TachyonFX integration, channel-based events (see PLAN-v0.2.1.md Future Phases)
 
@@ -207,28 +212,26 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | #6 Alt+letter inactive menu | Events not routed | HorizontalBar handles Alt+letter directly via OF_PRE_PROCESS dispatch |
 | #7 Resize grip invisible | `"◘"` in DarkGray | Changed to `'◢'` (U+25E2), theme-configurable via `resize_grip_char` |
 
-## Known Issues (v0.2.0)
+## Known Issues (v0.2.3)
 
-### Issue 1: MenuBar dropdown is self-drawn (Step 9b)
-- **File:** `src/horizontal_bar.rs` (`draw_dropdown` method)
-- **Issue:** MenuBar draws its dropdown box directly instead of using the OverlayManager. This works correctly but dropdowns can't extend beyond the bar's clip area if windows overlap.
-- **Plan:** Refactor to delegate dropdown rendering to OverlayManager + MenuBox (v0.2.1).
+### Issue 1: Full-screen repaint on every event
+- **File:** `src/application.rs`, `src/view.rs`
+- **Issue:** Every event triggers a full-screen redraw. No dirty-region tracking exists for partial invalidation.
+- **Impact:** Wasted bandwidth over SSH; could be optimized with per-view dirty rectangles.
+- **Plan:** Partial invalidation system — dirty-region tracking for partial window redraws in v0.2.4+.
 
-### Issue 2: JSON theme rendering may feel slower than TV built-in
-- **Cause:** NOT disk I/O — themes are loaded once at startup into in-memory registry. The `with_current()` call is a cheap thread-local RefCell borrow. Perceived difference is because JSON themes use `Color::Rgb(r,g,b)` (24-bit) which some terminals render slower than CGA 16-color palette used by the Turbo Vision theme.**Mitigation:** None needed at library level. Terminal emulator choice (e.g., Alacritty/WezTerm vs. Windows Terminal) affects 24-bit color performance.
+### Issue 2: Missing widgets
+- **Issue:** No Gauge/ProgressBar, ListView, or TachyonFX integration yet.
+- **Plan:** Future phases — see `docs/PLAN-v0.2.1.md` Future Phases and `ROADMAP.md`.
 
-### Issue 3: FrameStyles clones close_button_text every draw (FIXED)
-- Replaced `String` heap allocation with stack-allocated `[char; 8]` array in `FrameStyles`. Zero heap allocations during frame drawing now.
+### Resolved: Scrollbar thumb positioning
+- **Status:** ✅ **Fixed in v0.2.3**
+- **File:** `src/scrollbar.rs`, `src/frame.rs`
+- **Fix:** Mouse click on scrollbar track now correctly maps to the middle of thumb positions. Only the area between arrow buttons counts for thumb positioning.
 
-### Issue 4: Minimized windows invisible (v0.2.1 — Phase 3)
-- **File:** `src/window.rs` (`minimize()`), `src/desktop.rs`
-- **Issue:** Minimized windows collapse to height=1 but position under status line, overlapping each other. Essentially invisible and unclickable.
-- **Plan:** Desktop task bar shelf — minimized windows tile at bottom of desktop area. See `docs/PLAN-v0.2.1.md` Phase 3.
-
-### Issue 5: Window creation verbose (v0.2.1 — Phase 4)
-- **Files:** `src/window.rs`, `src/frame.rs`
-- **Issue:** Creating a configured window requires 5-8 separate setter calls. No fluent API.
-- **Plan:** Builder Lite pattern + FrameConfig struct + widget presets. See `docs/PLAN-v0.2.1.md` Phase 4a-4c.
+### Note: JSON theme rendering speed
+- **Cause:** NOT disk I/O — themes are loaded once at startup into in-memory registry. Perceived difference is because JSON themes use `Color::Rgb(r,g,b)` (24-bit) which some terminals render slower than CGA 16-color palette.
+- **Mitigation:** Terminal emulator choice (e.g., Alacritty/WezTerm vs. Windows Terminal) affects 24-bit color performance.
 
 ## Agent Strategy
 

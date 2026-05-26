@@ -589,11 +589,11 @@ pub struct ThemeData {
 
 impl ThemeData {
     /// Convert this JSON data model into a `Theme`.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
     #[must_use]
     pub fn to_theme(&self) -> Theme {
-        let (wtl, wtr, wbl, wbr, wh, wv) = self.borders.window.chars();
-        let (mtl, mtr, mbl, mbr, mh, mv) = self.borders.menu.chars.chars();
+        let (win_tl, win_tr, win_bl, win_br, win_h, win_v) = self.borders.window.chars();
+        let (menu_tl, menu_tr, menu_bl, menu_br, menu_h, menu_v) = self.borders.menu.chars.chars();
         let menu_sep_l = self.borders.menu.sep_l.chars().next().unwrap_or('├');
         let menu_sep_r = self.borders.menu.sep_r.chars().next().unwrap_or('┤');
 
@@ -668,18 +668,18 @@ impl ThemeData {
                 .unwrap_or(&self.window.close_button_inactive)
                 .to_style(),
 
-            border_tl: wtl,
-            border_tr: wtr,
-            border_bl: wbl,
-            border_br: wbr,
-            border_h: wh,
-            border_v: wv,
-            menu_border_tl: mtl,
-            menu_border_tr: mtr,
-            menu_border_bl: mbl,
-            menu_border_br: mbr,
-            menu_border_h: mh,
-            menu_border_v: mv,
+            border_tl: win_tl,
+            border_tr: win_tr,
+            border_bl: win_bl,
+            border_br: win_br,
+            border_h: win_h,
+            border_v: win_v,
+            menu_border_tl: menu_tl,
+            menu_border_tr: menu_tr,
+            menu_border_bl: menu_bl,
+            menu_border_br: menu_br,
+            menu_border_h: menu_h,
+            menu_border_v: menu_v,
             menu_sep_l,
             menu_sep_r,
 
@@ -922,6 +922,7 @@ impl std::error::Error for ThemeLoadError {
 // Helper: detect border preset from characters
 // ============================================================================
 
+#[allow(clippy::similar_names)]
 fn detect_border_preset(tl: char, tr: char, bl: char, br: char, h: char, v: char) -> BorderChars {
     for preset in [
         BorderPreset::Double,
@@ -930,8 +931,8 @@ fn detect_border_preset(tl: char, tr: char, bl: char, br: char, h: char, v: char
         BorderPreset::Round,
         BorderPreset::None,
     ] {
-        let (ptl, ptr, pbl, pbr, ph, pv) = preset.chars();
-        if tl == ptl && tr == ptr && bl == pbl && br == pbr && h == ph && v == pv {
+        let (preset_tl, preset_tr, preset_bl, preset_br, preset_h, preset_v) = preset.chars();
+        if tl == preset_tl && tr == preset_tr && bl == preset_bl && br == preset_br && h == preset_h && v == preset_v {
             return BorderChars::Preset(preset);
         }
     }

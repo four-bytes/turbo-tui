@@ -495,6 +495,10 @@ pub struct ViewBase {
     end_state: CommandId,
     /// Whether this view needs redrawing.
     dirty: bool,
+    /// Specific rectangle that needs redrawing (for partial invalidation).
+    /// `None` means no partial region is tracked; full redraw may still be needed
+    /// based on the `dirty` flag.
+    dirty_rect: Option<Rect>,
 }
 
 impl ViewBase {
@@ -511,6 +515,7 @@ impl ViewBase {
             owner_type: OwnerType::None,
             end_state: 0,
             dirty: true,
+            dirty_rect: Some(bounds),
         }
     }
 
@@ -525,6 +530,7 @@ impl ViewBase {
             owner_type: OwnerType::None,
             end_state: 0,
             dirty: true,
+            dirty_rect: Some(bounds),
         }
     }
 
@@ -579,11 +585,46 @@ impl ViewBase {
     /// Mark this view as needing redraw.
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
+        self.dirty_rect = Some(self.bounds);
     }
 
     /// Mark this view as clean (drawn).
     pub fn mark_clean(&mut self) {
         self.dirty = false;
+        self.dirty_rect = None;
+    }
+
+    /// Get the currently dirty rectangle, if any.
+    ///
+    /// Returns `Some(rect)` if a specific region has been marked as needing
+    /// redrawing via [`invalidate_rect`], or `None` if no partial region is
+    /// tracked.
+    ///
+    /// [`invalidate_rect`]: ViewBase::invalidate_rect
+    #[must_use]
+    pub fn dirty_rect(&self) -> Option<Rect> {
+        self.dirty_rect
+    }
+
+    /// Invalidate a specific rectangle for redrawing.
+    ///
+    /// Unions the given `rect` with any existing dirty rectangle so that
+    /// the combined area will be redrawn on the next frame.
+    ///
+    /// This is used for partial invalidation: only the affected region
+    /// needs to be re-rendered, not the entire view.
+    pub fn invalidate_rect(&mut self, rect: Rect) {
+        self.dirty = true;
+        self.dirty_rect = Some(match self.dirty_rect {
+            Some(existing) => {
+                let x = existing.x.min(rect.x);
+                let y = existing.y.min(rect.y);
+                let right = (existing.x + existing.width).max(rect.x + rect.width);
+                let bottom = (existing.y + existing.height).max(rect.y + rect.height);
+                Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+            }
+            None => rect,
+        });
     }
 
     /// Set the option flags.
@@ -602,8 +643,31 @@ impl View for ViewBase {
 
     fn set_bounds(&mut self, bounds: Rect) {
         if self.bounds != bounds {
+            // Invalidate both old and new bounds
+            let old = self.bounds;
             self.bounds = bounds;
             self.dirty = true;
+            let union_rect = if old == Rect::default() {
+                bounds
+            } else {
+                let x = old.x.min(bounds.x);
+                let y = old.y.min(bounds.y);
+                let right = (old.x + old.width).max(bounds.x + bounds.width);
+                let bottom = (old.y + old.height).max(bounds.y + bounds.height);
+                Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+            };
+            self.dirty_rect = Some(match self.dirty_rect {
+                Some(existing) => {
+                    let x = existing.x.min(union_rect.x);
+                    let y = existing.y.min(union_rect.y);
+                    let right = (existing.x + existing.width)
+                        .max(union_rect.x + union_rect.width);
+                    let bottom = (existing.y + existing.height)
+                        .max(union_rect.y + union_rect.height);
+                    Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+                }
+                None => union_rect,
+            });
         }
     }
 
@@ -624,6 +688,7 @@ impl View for ViewBase {
         if self.state != state {
             self.state = state;
             self.dirty = true;
+            self.dirty_rect = Some(self.bounds);
         }
     }
 
@@ -898,5 +963,113 @@ mod tests {
         // ViewBase uses the default View::cursor_position() which returns None.
         let base = ViewBase::new(Rect::new(0, 0, 10, 5));
         assert_eq!(base.cursor_position(), None);
+    }
+
+    // -------------------------------------------------------------------------
+    // Partial invalidation tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_view_base_dirty_rect_initialized_from_bounds() {
+        let base = ViewBase::new(Rect::new(5, 10, 30, 20));
+        assert_eq!(base.dirty_rect(), Some(Rect::new(5, 10, 30, 20)));
+    }
+
+    #[test]
+    fn test_view_base_mark_clean_clears_dirty_rect() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 10));
+        assert!(base.dirty_rect().is_some());
+        base.mark_clean();
+        assert_eq!(base.dirty_rect(), None);
+        assert!(!base.is_dirty());
+    }
+
+    #[test]
+    fn test_view_base_mark_dirty_sets_dirty_rect() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 10));
+        base.mark_clean();
+        assert_eq!(base.dirty_rect(), None);
+        base.mark_dirty();
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 10, 10)));
+        assert!(base.is_dirty());
+    }
+
+    #[test]
+    fn test_view_base_invalidate_rect_sets_initial() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 100, 100));
+        base.mark_clean();
+        assert_eq!(base.dirty_rect(), None);
+
+        base.invalidate_rect(Rect::new(10, 20, 30, 40));
+        assert_eq!(base.dirty_rect(), Some(Rect::new(10, 20, 30, 40)));
+        assert!(base.is_dirty());
+    }
+
+    #[test]
+    fn test_view_base_invalidate_rect_unions() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 100, 100));
+        base.mark_clean();
+
+        base.invalidate_rect(Rect::new(0, 0, 10, 10));
+        base.invalidate_rect(Rect::new(20, 20, 10, 10));
+        // Union should cover both rects: (0,0) to (30,30)
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 30, 30)));
+    }
+
+    #[test]
+    fn test_view_base_invalidate_rect_unions_non_overlapping() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 200, 200));
+        base.mark_clean();
+
+        base.invalidate_rect(Rect::new(10, 10, 20, 20));
+        base.invalidate_rect(Rect::new(100, 100, 30, 30));
+        // Union: x=10,y=10 to x=130,y=130 → width=120, height=120
+        assert_eq!(base.dirty_rect(), Some(Rect::new(10, 10, 120, 120)));
+    }
+
+    #[test]
+    fn test_view_base_set_bounds_tracks_dirty_rect() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 10, 10));
+        base.mark_clean();
+        assert_eq!(base.dirty_rect(), None);
+
+        base.set_bounds(Rect::new(5, 5, 15, 15));
+        // Should invalidate both old and new bounds
+        let dr = base.dirty_rect().unwrap();
+        assert!(dr.x <= 0);
+        assert!(dr.y <= 0);
+        assert!(dr.x + dr.width >= 20);
+        assert!(dr.y + dr.height >= 20);
+    }
+
+    #[test]
+    fn test_view_base_set_state_invalidates() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 50, 10));
+        base.mark_clean();
+        assert_eq!(base.dirty_rect(), None);
+
+        base.set_state(SF_FOCUSED);
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 50, 10)));
+    }
+
+    #[test]
+    fn test_view_base_invalidate_rect_union_after_mark_dirty() {
+        let mut base = ViewBase::new(Rect::new(0, 0, 50, 50));
+        base.mark_clean();
+
+        // Start with a small rect
+        base.invalidate_rect(Rect::new(0, 0, 5, 5));
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 5, 5)));
+
+        // mark_dirty should expand to full bounds
+        base.mark_dirty();
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 50, 50)));
+    }
+
+    #[test]
+    fn test_view_base_invalidate_rect_empty_then_union() {
+        let base = ViewBase::new(Rect::new(0, 0, 100, 100));
+        // New views have dirty_rect = Some(bounds), no need to mark_clean
+        assert_eq!(base.dirty_rect(), Some(Rect::new(0, 0, 100, 100)));
     }
 }

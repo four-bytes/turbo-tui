@@ -29,12 +29,17 @@ use std::time::Duration;
 use turbo_tui::{
     application::Application,
     button::Button,
-    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT, CM_TILE},
+    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT,
+              CM_TILE},
+    editor::Editor,
     horizontal_bar::{BarEntry, HorizontalBar},
+    listbox::ListBox,
     menu_bar::{menu_bar_from_menus, Menu, MenuItem},
     static_text::StaticText,
     status_bar::{KB_ALT_X, KB_F10, KB_F2},
+    syntax::RustHighlighter,
     theme,
+    view::OF_DROP_TARGET,
     window::Window,
 };
 
@@ -310,4 +315,60 @@ fn add_demo_windows(app: &mut Application) {
     win4.add(Box::new(tool_info));
 
     app.add_window(win4);
+    // Window 5: ListBox demo — selectable list with scrollbar
+    let list_items = vec![
+        "Apple".into(),
+        "Banana".into(),
+        "Cherry".into(),
+        "Date".into(),
+        "Elderberry".into(),
+        "Fig".into(),
+        "Grape".into(),
+        "Honeydew".into(),
+        "Kiwi".into(),
+        "Lemon".into(),
+        "Mango".into(),
+        "Nectarine".into(),
+        "Orange".into(),
+        "Papaya".into(),
+        "Quince".into(),
+    ];
+    let mut win5 = Window::new(Rect::new(35, 10, 22, 12), "ListBox Demo")
+        .with_min_size(18, 6);
+    let list_label = StaticText::new(Rect::new(1, 0, 18, 1), "Fruits:");
+    win5.add(Box::new(list_label));
+    let list_box = ListBox::new(Rect::new(1, 1, 18, 8))
+        .with_items(list_items)
+        .with_selected(0);
+    win5.add(Box::new(list_box));
+    app.add_window(win5);
+
+    // Window 6: Drop target ListBox — accepts dropped items via drag-and-drop
+    let drop_items = vec![
+        "Drop Items Here".to_string(),
+        "Left-drag from any window".to_string(),
+    ];
+    let mut win6 = Window::new(Rect::new(5, 17, 24, 10), "Drop Target")
+        .with_min_size(18, 6);
+    let drop_label = StaticText::new(Rect::new(1, 0, 20, 1), "Drag items onto list:");
+    win6.add(Box::new(drop_label));
+    let mut drop_list = ListBox::new(Rect::new(1, 1, 20, 6)).with_items(drop_items);
+    drop_list.set_options(drop_list.get_options() | OF_DROP_TARGET);
+    win6.add(Box::new(drop_list));
+    // Window 7: Editor — text editor with Rust syntax highlighting
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let demo_path = manifest_dir.join("examples").join("demo.rs");
+    let mut editor = Editor::new(Rect::new(0, 0, 55, 16))
+        .with_file(demo_path.to_str().unwrap_or(""))
+        .unwrap_or_else(|_| Editor::new(Rect::new(0, 0, 55, 16)));
+    editor.set_highlighter(Box::new(RustHighlighter));
+
+    let mut win7 = Window::new(Rect::new(1, 5, 58, 18), "Editor — demo.rs")
+        .with_scrollbars(true, true)
+        .with_min_size(30, 8)
+        .with_content_size(55, 16);
+    win7.add(Box::new(editor));
+    app.add_window(win7);
+
+    app.add_window(win6);
 }

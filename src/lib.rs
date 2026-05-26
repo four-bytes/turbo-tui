@@ -49,6 +49,11 @@ pub mod msgbox;
 // Unified horizontal bar (menu bar + status bar)
 pub mod horizontal_bar;
 
+// Level 6: Text editor
+pub mod memo;
+pub mod syntax;
+pub mod editor;
+
 /// Prelude — import this for quick access to common types.
 pub mod prelude {
     pub use crate::application::Application;
@@ -56,12 +61,15 @@ pub mod prelude {
     pub use crate::container::Container;
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
+    pub use crate::editor::Editor;
     pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
     pub use crate::input_line::InputLine;
     pub use crate::listbox::ListBox;
+    pub use crate::memo::Memo;
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
     pub use crate::scrollbar::{Orientation, ScrollBar, ScrollBarVisibility};
+    pub use crate::syntax::{PlainTextHighlighter, RustHighlighter, SyntaxHighlighter};
     pub use crate::theme::{self, ButtonSide};
     pub use crate::view::{
         Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_DROP_TARGET, OF_POST_PROCESS,

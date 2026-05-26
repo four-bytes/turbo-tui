@@ -97,6 +97,12 @@ impl Desktop {
         self.task_shelf_height
     }
 
+    /// Get the desktop's dirty rectangle for partial invalidation.
+    #[must_use]
+    pub fn dirty_rect(&self) -> Option<Rect> {
+        self.base.dirty_rect()
+    }
+
     /// Recalculate the task shelf: position minimized windows at the bottom of the desktop.
     ///
     /// Minimized windows tile left-to-right in the shelf area. If they overflow

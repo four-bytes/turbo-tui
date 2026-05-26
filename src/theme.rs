@@ -239,6 +239,12 @@ pub struct Theme {
     /// `ListBox`: selected/highlighted item style.
     pub list_box_selected: Style,
 
+    // ── Memo (text editor) ─────────────────────────────────────────────
+    /// `Memo`: normal (unfocused) text style.
+    pub memo_normal: Style,
+    /// `Memo`: focused text style.
+    pub memo_focused: Style,
+
     // ── Resize Grip Character ──────────────────────────────────────────
     /// Resize grip character (default: '◢').
     pub resize_grip_char: char,
@@ -445,6 +451,12 @@ impl Theme {
                 .bg(Color::Blue)
                 .add_modifier(Modifier::BOLD),
             window_maximize_button_inactive: Style::default().fg(Color::Gray).bg(Color::Blue),
+            // ── Memo ──────────────────────────────────────────────────────────
+            memo_normal: Style::default().fg(Color::Yellow).bg(Color::Blue),
+            memo_focused: Style::default()
+                .fg(Color::White)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::BOLD),
             // ── Resize grip ─────────────────────────────────────────────
             resize_grip_char: '◢',
         }
@@ -752,6 +764,8 @@ mod tests {
             ("input_line_focused", t.input_line_focused),
             ("list_box_normal", t.list_box_normal),
             ("list_box_selected", t.list_box_selected),
+            ("memo_normal", t.memo_normal),
+            ("memo_focused", t.memo_focused),
             ("scrollbar_track", t.scrollbar_track),
             ("scrollbar_track_hover", t.scrollbar_track_hover),
             ("scrollbar_thumb", t.scrollbar_thumb),

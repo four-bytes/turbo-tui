@@ -1,6 +1,6 @@
 # turbo-tui — Roadmap
 
-> Last updated: 2026-03-22
+> Last updated: 2026-05-26
 
 ## Version History
 
@@ -10,6 +10,8 @@
 | v0.2.0-dev | ✅ Complete | 280 | Architecture rebuild: Container, Frame, Window, Desktop, Overlay, Application, Dialog, HorizontalBar, MsgBox, JSON themes |
 | v0.2.1 | ✅ Released | 321 | Scrollbar fixes, window handling, Builder Lite, task shelf, lifecycle hooks, title centering |
 | v0.2.2 | ✅ Released | 335 | MenuBar → Overlay dropdown refactor, minimized window tray fix |
+| v0.2.3 | ✅ Released | 357 | Scrollbar thumb positioning fix, `post_event()`, Ratatui 0.30 upgrade |
+| v0.2.4 | ✅ Released | 435 | Drag-and-drop state machine (`CM_DRAG_START`, `CM_DRAG_MOVE`, `CM_DRAG_END`) |
 
 ---
 
@@ -27,7 +29,7 @@
 - [x] **Phase 4c:** Widget presets (Window::editor, ::palette, ::tool)
 - [x] **Phase 5:** View lifecycle hooks (on_focus, on_blur)
 - [x] **Phase 6:** Demo update
-- [x] **Phase 7:** JSON theme files update
+- [x] **Phase 7:** JSON themes update
 
 ### Dependencies
 ```
@@ -58,25 +60,105 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 ---
 
-## v0.2.3 — Scrollbar Fix + Integration (PLANNED)
+## v0.2.3 — Scrollbar Fix + Integration (RELEASED)
 
-- [ ] **F3:** Scrollbar thumb positioning fix — mouse click maps to middle of positions; only area between arrow buttons counts for thumb calculation
-- [ ] **F4:** TachyonFX integration point (`Application::draw()` + optional `EffectManager`)
-- [ ] **F5:** Channel-based external events (`tokio::mpsc` for background → UI)
-- [ ] **F6:** `Application::post_event()` public API
-- [ ] **F7:** Widget validation framework
-- [ ] Once grabbed, the thumb movement should follow the mouse even if outside of scrollbar until the button is released
+- [x] **F3:** Scrollbar thumb positioning fix — mouse click maps to middle of positions; only area between arrow buttons counts for thumb calculation
+- [x] **F6:** `Application::post_event()` public API
+- [x] Ratatui 0.30 upgrade
 
 ---
 
-## v0.3.0 — Advanced Widgets + Invalidation (FUTURE)
+## v0.2.4 — Drag-and-Drop (RELEASED)
 
-- [ ] **F8:** Partial invalidation system — dirty-region tracking for partial window redraws instead of full-screen repaint (reduces SSH bandwidth for remote usage)
-- [ ] **F9:** Tree widget (hierarchical list/tree view)
-- [ ] Drag-and-drop between windows
-- [ ] Multi-document interface (MDI) patterns
-- [ ] Clipboard integration (copy/paste between views)
-- [ ] **Community Controls pattern** — documented extension pattern for community-contributed View implementations (guide + example)
+- [x] **Drag-and-drop state machine:** `CM_DRAG_START`, `CM_DRAG_MOVE`, `CM_DRAG_END` commands
+- [x] `Application::start_drag()`, `end_drag()`, `drag_payload()`, `is_dragging()`, `drag_origin()`
+- [x] `Container::dispatch_event()` posts drag events on Left mouse button interactions
+
+---
+
+## v0.4.0 — SSH Optimization & Animations (PLANNED)
+
+### 1. Partial Invalidation (SSH Optimization)
+**Problem:** Full-screen repaint on every event wastes bandwidth over SSH.
+**Solution:** Track dirty regions and redraw only changed areas.
+
+**Tasks**:
+- Add `dirty_rect: Option<Rect>` to `ViewBase`.
+- Modify `Application::draw()` to clip rendering to dirty regions.
+- Update `View::draw()` to set `dirty_rect` when content changes.
+- Add `invalidate_rect(&mut self, rect: Rect)` to `Application`.
+
+**Files**:
+- `src/view.rs` (add `dirty_rect` to `ViewBase`)
+- `src/application.rs` (clip rendering to dirty regions)
+
+**Verification**:
+- Test with `cargo run --example demo` over SSH (reduced bandwidth).
+- Ensure `cargo test` passes.
+
+### 2. TachyonFX Integration (Animations)
+**Problem:** No support for animations or visual effects.
+**Solution:** Add post-render effects via `EffectManager`.
+
+**Tasks**:
+- Add `EffectManager` trait and implementations (fade, slide, pulse).
+- Add `effect_manager: Option<Box<dyn EffectManager>>` to `Application`.
+- Modify `Application::draw()` to apply effects after rendering.
+- Add `with_effect(&mut self, effect: Box<dyn EffectManager>)` to `Application`.
+
+**Files**:
+- `src/effect.rs` (new file, `EffectManager` trait + implementations)
+- `src/application.rs` (add `effect_manager` field + methods)
+
+**Verification**:
+- Test with `cargo run --example demo` (animations visible).
+- Ensure `cargo test` passes.
+
+### 3. Clipboard Integration
+**Problem:** No copy/paste support between views.
+**Solution:** Add `Clipboard` trait and platform backends.
+
+**Tasks**:
+- Add `Clipboard` trait (`get_text()`, `set_text()`).
+- Add platform backends (`ArboardClipboard`, `NullClipboard`).
+- Add `clipboard: Box<dyn Clipboard>` to `Application`.
+- Add `with_clipboard(&mut self, clipboard: Box<dyn Clipboard>)` to `Application`.
+
+**Files**:
+- `src/clipboard.rs` (new file, `Clipboard` trait + backends)
+- `src/application.rs` (add `clipboard` field + methods)
+
+**Verification**:
+- Test copy/paste in input widgets.
+- Ensure `cargo test` passes.
+
+### 4. Gauge/ProgressBar
+**Problem:** No progress indicators for background tasks.
+**Solution:** Add `Gauge` widget with theme integration.
+
+**Tasks**:
+- Add `Gauge` widget with `percent: u16` and optional label.
+- Theme fields: `gauge_track`, `gauge_fill`, `gauge_label`.
+- Builder Lite: `with_percent()`, `with_label()`, `with_direction(Horizontal/Vertical)`.
+
+**Files**:
+- `src/gauge.rs` (new file)
+- `src/theme.rs` (add gauge theme fields)
+- `src/lib.rs` (module + prelude export)
+
+**Verification**:
+- Test in demo with simulated background task.
+- Ensure `cargo test` passes.
+
+---
+
+## Future
+
+- **Tree widget:** Hierarchical list/tree view with expand/collapse.
+- **Multi-document interface (MDI):** Tabbed windows support.
+- **Channel-Based Events:** Async UI updates via `tokio::mpsc`.
+- **Runtime Theme Editor:** Edit themes at runtime.
+- **Community Controls pattern:** Documented extension pattern for community-contributed View implementations (guide + example).
 
 ---
 
@@ -86,7 +168,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 2. **Builder Lite for construction** — `self`-consuming methods returning `Self`. No separate Builder struct.
 3. **Deferred events over Action returns** — Keep deferred event queue. Action enum doesn't support three-phase dispatch.
 4. **Frame owns scrollbars** — `Option<ScrollBar>` on Frame, not Container children. Scrollbars sit on the border.
-5. **Post-render effects = future** — TachyonFX-style transforms. Not yet, but design must not prevent it.
+5. **Post-render effects = future** — TachyonFX-style transforms. Design must not prevent it.
 6. **Centralized catch + three-phase dispatch** — Three-phase: PreProcess → Focused → PostProcess.
 
 ---

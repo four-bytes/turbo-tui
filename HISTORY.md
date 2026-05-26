@@ -279,3 +279,88 @@
 
 ### Tests
 - 360+ tests passing, clippy pedantic clean
+
+## [0.2.2] - 2026-03-22
+
+### Added
+- **MenuBar → Overlay dropdown refactor:** Dropdown rendering moved from `HorizontalBar` self-draw to `OverlayManager` + `MenuBox`.
+  - Dropdowns now render above all windows and are not clipped by the bar's clip area.
+  - New commands: `CM_OPEN_DROPDOWN` (1010), `CM_DROPDOWN_CLOSED` (1011), `CM_DROPDOWN_NAVIGATE` (1012).
+  - `MenuBox` emits commands via the event system when owned by a bar; supports Left/Right arrow navigation across dropdowns.
+  - `OverlayManager` dismiss callback posts `CM_DROPDOWN_CLOSED` on outside-click.
+  - ~170–200 lines of duplicate drawing/event code removed from `HorizontalBar`.
+- 335 tests passing, clippy pedantic clean.
+
+### Fixed
+- **Minimized window tray visibility:** `Frame::draw()` now renders at `height = 1` (changed guard from `height < 2` to `height < 1`); draws top border, corners, close button, and title at 1-row height.
+- **Minimized window buttons:** `ButtonTray` suppresses minimize/maximize buttons when `height ≤ 1`; hit-test methods (`is_minimize_button`, `is_maximize_button`, `is_resize_handle`) return `false` at `height ≤ 1`.
+- **Close button on minimized windows:** `is_close_button()` remains functional at any height; `has_close_button()` accessor added to `Frame`.
+
+[0.1.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.1.0
+[0.2.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.0
+[0.2.1]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.1
+[0.2.2]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.2
+
+## [0.2.3] - 2026-05-25
+
+### Added
+- `Application::post_event()` for background thread event injection into the running application loop.
+- Updated demo to showcase scrollbar fix and `post_event()` usage.
+
+### Fixed
+- **Scrollbar thumb positioning:** mouse click now correctly maps to the middle of thumb positions; only the area between arrow buttons counts for thumb positioning.
+- **Ratatui 0.30 upgrade:** upgraded from 0.29 to 0.30 with zero API breaks.
+
+[0.2.3]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.3
+
+## [0.2.4] - 2026-05-26
+
+### Added
+- **Drag-and-drop state machine:** New drag-and-drop support with `CM_DRAG_START`, `CM_DRAG_MOVE`, `CM_DRAG_END` commands for tracking drag operations.
+  - `Application::start_drag(origin, payload)` — starts a drag with an arbitrary `Box<dyn Any>` payload.
+  - `Application::end_drag()` — ends the current drag and clears payload.
+  - `Application::drag_payload()` — returns a reference to the current drag payload.
+  - `Application::is_dragging()` — returns `true` while a drag is in progress.
+  - `Application::drag_origin()` — returns the position where the drag started.
+  - `Container::dispatch_event()` posts `CM_DRAG_START`/`CM_DRAG_MOVE`/`CM_DRAG_END` as deferred events on Left mouse button interactions.
+  - 435 tests passing, clippy pedantic clean.
+
+[0.2.4]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.4
+
+## [0.3.0] - 2026-05-26
+
+### Added
+- **Memo widget:** Multi-line text editor (`src/memo.rs`) with full keyboard navigation
+  - Text insertion/deletion, Enter for newlines, Backspace/Delete
+  - Cursor movement: Up/Down/Left/Right, Home/End, PageUp/PageDown
+  - Mouse click to place cursor, auto-scrolling to keep cursor visible
+  - `content_size_hint()` for parent window scrollbar support
+  - `scroll_to()` / `scroll_position()` for external scrollbar sync
+  - Terminal cursor placement via `cursor_position()` when focused
+  - 22 tests, 0 unsafe code
+- **Syntax highlighting system:** (`src/syntax.rs`)
+  - `SyntaxHighlighter` trait with `highlight(&self, line) -> Vec<(Style, &str)>`
+  - `PlainTextHighlighter` — no styling (default)
+  - `RustHighlighter` — basic highlighting for Rust keywords, strings, comments,
+    character literals, numbers, attributes, and built-in types
+  - 8 tests, 0 unsafe code
+- **Editor widget:** (`src/editor.rs`) — combines Memo + syntax + file I/O
+  - `Editor::new(bounds)` — empty editor with default PlainTextHighlighter
+  - `Editor::with_file(path)` — Builder Lite load from file
+  - `load(path)` / `save()` / `save_as(path)` — file I/O operations
+  - `set_highlighter(Box<dyn SyntaxHighlighter>)` — configurable highlighting
+  - `search(query)` — find all occurrences, returns `Vec<(line, col)>`
+  - `replace(query, replacement)` — replace all, returns count
+  - Ctrl+S shortcut for save, delegates all other events to Memo
+  - `content_size_hint()`, `scroll_to()`, `scroll_position()` forwarded to Memo
+  - 10 tests, 0 unsafe code
+- **Theme memo styles:** `memo_normal` (Yellow on Blue) and `memo_focused` (White on Blue, Bold)
+  - Added to Theme struct with default Turbo Vision colors
+  - Added to style-bg test to ensure no bleed-through
+- **Demo updated:** Added editor window loading `examples/demo.rs` with RustHighlighter
+  - Editor placed in scrollable window with both scrollbars
+- **Public exports:** `pub mod memo`, `pub mod syntax`, `pub mod editor` in lib.rs
+  - Prelude exports: `Memo`, `Editor`, `SyntaxHighlighter`, `PlainTextHighlighter`, `RustHighlighter`
+- 397 tests passing, clippy pedantic clean, zero unsafe code
+
+[0.3.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.3.0

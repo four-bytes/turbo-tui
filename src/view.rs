@@ -74,6 +74,10 @@ pub const OF_POST_PROCESS: u16 = 0x0004;
 pub const OF_TOP_SELECT: u16 = 0x0008;
 /// View can be tiled (for window managers).
 pub const OF_TILEABLE: u16 = 0x0010;
+/// View is a drop target for drag-and-drop operations.
+/// When a mouse release occurs over a view with this flag,
+/// `handle_drop()` is called with the drag payload.
+pub const OF_DROP_TARGET: u16 = 0x0100;
 
 // ============================================================================
 // Event
@@ -279,6 +283,19 @@ pub trait View {
     /// Implementations should set `event.handled = true` and optionally
     /// call `event.clear()` when the event is consumed.
     fn handle_event(&mut self, event: &mut Event);
+
+    /// Handle a drop event with a drag payload.
+    ///
+    /// Called when the user releases a drag over a view that has `OF_DROP_TARGET`
+    /// set in its option flags. The `payload` contains the dragged data as a
+    /// type-erased `Box<dyn Any>`. Override this to extract the payload via
+    /// downcast and handle the drop.
+    ///
+    /// Return `true` if the drop was accepted and handled, `false` to ignore.
+    /// Default returns `false`.
+    fn handle_drop(&mut self, _payload: Box<dyn Any>) -> bool {
+        false
+    }
 
     // --- Focus ---
 

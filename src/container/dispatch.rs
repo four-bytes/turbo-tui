@@ -1,8 +1,10 @@
 //! Event dispatch for `Container`.
 
 use super::Container;
+use crate::command::{CM_DRAG_END, CM_DRAG_MOVE, CM_DRAG_START};
 use crate::view::{
-    Event, EventKind, OF_POST_PROCESS, OF_PRE_PROCESS, SF_DRAGGING, SF_RESIZING, SF_VISIBLE,
+    Event, EventKind, OF_DROP_TARGET, OF_POST_PROCESS, OF_PRE_PROCESS, SF_DRAGGING, SF_RESIZING,
+    SF_VISIBLE,
 };
 
 impl Container {
@@ -12,6 +14,7 @@ impl Container {
     /// - **Mouse:** Mouse-capture (Drag/Up to focused if dragging/resizing),
     ///   then reverse Z-order hit-test.
     /// - **Broadcast/Resize:** All children.
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn dispatch_event(&mut self, event: &mut Event) {
         if event.is_cleared() {
             return;
@@ -75,6 +78,32 @@ impl Container {
                     }
                 }
 
+                // Drop target handling: on Left mouse Up, check for drop targets
+                // under the cursor before normal hit-testing.
+                if matches!(
+                    mouse.kind,
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left)
+                ) && !event.is_cleared()
+                {
+                    for i in (0..self.children.len()).rev() {
+                        if event.is_cleared() {
+                            break;
+                        }
+                        let b = self.children[i].bounds();
+                        if self.children[i].state() & SF_VISIBLE != 0
+                            && col >= b.x
+                            && col < b.x + b.width
+                            && row >= b.y
+                            && row < b.y + b.height
+                            && self.children[i].options() & OF_DROP_TARGET != 0
+                        {
+                            self.children[i].handle_drop(Box::new(()));
+                            event.clear();
+                            return;
+                        }
+                    }
+                }
+
                 // MouseMoved: broadcast to ALL visible children so each can
                 // update or clear its hover state based on the mouse position.
                 if matches!(mouse.kind, crossterm::event::MouseEventKind::Moved) {
@@ -101,6 +130,22 @@ impl Container {
                         self.children[i].handle_event(event);
                         break; // Only topmost gets the mouse event
                     }
+                }
+
+                // Post drag-and-drop commands as deferred events so they are
+                // processed after the main dispatch cycle. This allows views to
+                // react to drag state changes (e.g. drop target highlighting).
+                match mouse.kind {
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                        event.post(Event::command(CM_DRAG_START));
+                    }
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left) => {
+                        event.post(Event::command(CM_DRAG_MOVE));
+                    }
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left) => {
+                        event.post(Event::command(CM_DRAG_END));
+                    }
+                    _ => {}
                 }
             }
 

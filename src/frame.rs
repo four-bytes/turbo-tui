@@ -1638,9 +1638,8 @@ mod tests {
         // Title must start at col 5 or later — cols 2-4 must be close button only
         // Collect the top row from col 5 onwards
         let title_area: String = (5..12)
-            .filter_map(|col| {
-                let sym = buf.cell(Position::new(col, 0)).unwrap().symbol();
-                Some(sym.to_string())
+            .map(|col| {
+                buf.cell(Position::new(col, 0)).unwrap().symbol().to_string()
             })
             .collect();
 

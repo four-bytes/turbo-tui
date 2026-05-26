@@ -232,6 +232,7 @@ impl View for Dialog {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::items_after_statements)]
 mod tests {
     use super::*;
     use crate::command::{CM_CANCEL, CM_OK};

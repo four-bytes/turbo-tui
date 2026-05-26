@@ -563,7 +563,7 @@ mod tests {
         let win1 = Window::new(Rect::new(5, 5, 30, 10), "Window 1");
         let id1 = desktop.add_window(win1);
         let win2 = Window::new(Rect::new(10, 10, 30, 10), "Window 2");
-        let _id2 = desktop.add_window(win2);
+        let id2 = desktop.add_window(win2);
 
         // Window 2 should be in front (last added)
         assert_eq!(desktop.windows().focused_index(), Some(1));
@@ -573,7 +573,7 @@ mod tests {
 
         // Now window 1 should be in front and focused
         assert_eq!(desktop.windows().focused_index(), Some(1)); // focused is at back (now front after bring_to_front)
-        assert_eq!(desktop.windows().child_at(0).unwrap().id(), _id2); // win2 at back
+        assert_eq!(desktop.windows().child_at(0).unwrap().id(), id2); // win2 at back
         assert_eq!(desktop.windows().child_at(1).unwrap().id(), id1); // win1 at front
     }
 

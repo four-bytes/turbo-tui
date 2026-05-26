@@ -722,6 +722,10 @@ impl ThemeData {
             scrollbar_track_inactive: self.scrollbar.track_inactive.to_style(),
             scrollbar_thumb_inactive: self.scrollbar.thumb_inactive.to_style(),
             scrollbar_arrows_inactive: self.scrollbar.arrows_inactive.to_style(),
+            input_line_normal: self.static_text.to_style(),
+            input_line_focused: self.static_text.to_style(),
+            list_box_normal: self.static_text.to_style(),
+            list_box_selected: self.static_text.to_style(),
         }
     }
 
@@ -1194,8 +1198,10 @@ mod tests {
         }
         assert!(
             errors.is_empty(),
-            "Theme loading errors:\n{}",
-            errors.join("\n")
+            "Theme loading errors:
+{}",
+            errors.join("
+")
         );
         assert!(
             loaded >= 1,

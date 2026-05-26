@@ -230,116 +230,43 @@
   - New test: `test_desktop_set_bounds_updates_drag_limits`
 - 357 tests passing (was 353), clippy pedantic clean
 
-## [0.1.0] - 2026-03-21
+## v0.3.1 (2026-05-26)
 
-### Added
-- Initial release with full widget library for Borland Turbo Vision windowing patterns on Ratatui.
-- Command system: `CommandId` (u16), `CommandSet` (bitfield), and 25+ standard command constants (`CM_QUIT`, `CM_OK`, `CM_CANCEL`, `CM_CLOSE`, etc.).
-- `View` trait with `ViewId`, `StateFlags`, `OptionFlags`, and Event system.
-- `Container` (originally `Group`) with Z-order management and three-phase event dispatch.
-- `Frame` with Smart Border and optional `ScrollBar` integration.
-- `Window` with drag, resize, and zoom toggle support.
-- `Desktop` window manager with tile, cascade, and click-to-focus.
-- `Dialog` for modal windows with Escape/Enter handling.
-- `MenuBar`, `MenuBox`, and `StatusLine` widgets.
-- `Scrollbar` (vertical/horizontal) with draggable thumb.
-- `Button`, `StaticText`, and `MsgBox` factory functions.
-- 157 tests passing, clippy pedantic clean, zero unsafe code.
+### Ratatui 0.30 Upgrade
+- Upgraded ratatui 0.29 → 0.30, crossterm 0.28 retained — zero API breaks
 
-### Known Issues
-- Background noise caused by `'░'` desktop character.
-- Interior bleed-through: windows did not fill their interior area.
-- Resize only shrinks: no mouse capture during resize operations.
-- Drag lag due to 50 ms poll interval.
-- Escape quits application instead of Alt+X (Borland convention).
-- Alt+letter inactive for menus.
-- Resize grip invisible in some terminals.
+### Scrollbar Auto-Visibility
+- **NEW** `content_size_hint()` — View trait method for reporting content dimensions vs viewport size
+- **NEW** `content_size` field on `Window` — stores interior content size hint
+- **NEW** `Window::set_content_size()` / `content_size()` — set/get content dimensions for scrollbar auto-visibility
+- **Auto-hide:** Scrollbars automatically hide when content fits within viewport (content_size ≤ bounds)
+- **Show on scroll:** Scrollbars appear/pulse when content overflows and view scrolls
 
-## [0.2.0] - 2026-03-22
+### Scrollbar Hover States
+- **NEW** `scrollbar_track_hover` theme field — hover state for scrollbar track
+- **Track hover state** — entire track shows hover state when mouse is over it (not just thumb)
+- **Thumb drag support** — dragging thumb via mouse already implemented
 
-### Added
-- Architecture rebuild across 10 implementation steps.
-- `Container` renamed from `Group`, split into submodules (`mod.rs`, `dispatch.rs`, `draw.rs`).
-- `View` trait extensions: deferred event queue (`Event::post()`), lifecycle hooks (`on_insert`, `on_remove`, `on_resize`).
-- `Frame` (Smart Border) with hit-testing and stack-allocated `FrameStyles`.
-- `Window` drag/resize state machine, zoom toggle, and interior fill.
-- `OverlayManager` for dropdowns and tooltips above all windows.
-- `Application` orchestrator: dispatch chain, deferred events, screen resize handling.
-- `HorizontalBar` unification: single struct replacing separate `MenuBar` and `StatusLine` via `BarEntry` (Action/Dropdown).
-- `MsgBox` factory functions (`message_box`, `confirm_box`, `confirm_cancel_box`, `error_box`).
-- JSON theme serialization with `ThemeLoadReport` and per-file error tracking.
-- Demo application (`examples/demo.rs`) showcasing windows, menus, buttons, and status line.
-- 284 tests passing, clippy pedantic clean.
+### Scrollbar Thumb Sync
+- **NEW** `View::scroll_position() -> Option<Position>` — queries current scroll position from interior view
+- **NEW** `View::scroll_to()` — commands interior view to scroll to a specific position
 
-### Fixed
-- **Background noise:** Changed desktop fill from `'░'` to `' '` with dark RGB background via theme.
-- **Interior bleed-through:** `Window` now calls `fill_interior()` to paint the interior with the theme background color.
-- **Resize only shrinks:** `Container::dispatch.rs` routes `Drag`/`Up` to the focused child using `SF_DRAGGING`/`SF_RESIZING` flags with mouse capture.
-- **Drag lag:** Reduced poll interval to 16 ms and switched to event-driven redraw.
-- **Escape quits:** Changed quit key to Alt+X (Borland convention).
-- **Alt+letter inactive:** `HorizontalBar` handles Alt+letter directly via `OF_PRE_PROCESS` dispatch.
-- **Resize grip invisible:** Changed default grip character to `'◢'` (U+25E2), theme-configurable via `resize_grip_char`.
+### Windowing System Improvements
+- **Desktop `set_bounds()` fix** — updates drag_limits on all existing windows on terminal resize
+- **Frame auto-visibility** — frame border now draws (height=1) when scrollbars force visibility
 
-## [0.2.1] - 2026-03-22
+### Bug Fixes
+- **Bug 1:** HorizontalBar Alt+Char fallthrough — `Alt+X` falls through to `handle_key_code_match()` when no hotkey
+- **Bug 2:** Window resize propagation — `update_bounds()` resizes all interior children to fill new interior rect
+- **Bug 3:** Container auto-focus — `Container::add()` auto-focuses first focusable child
+- **Bug 4:** Cursor position support — all views propagate `cursor_position()`
 
-### Added
-- **Scrollbar inactive styling:** 3 new theme fields (`scrollbar_track_inactive`, `scrollbar_thumb_inactive`, `scrollbar_arrows_inactive`) and `ScrollBar::set_active(bool)`; focus state propagates from `Window` to frame scrollbars.
-- **Scrollbar hover fix:** `Frame::update_scrollbar_hover()`, `handle_scrollbar_click()`, `clear_scrollbar_hover()`; `Window` routes `Moved`/`Down`/`Drag` events to frame scrollbars.
-- **Task bar shelf:** `Desktop::recalculate_shelf()` positions minimized windows left-to-right at the desktop bottom; `effective_area()` excludes shelf rows; `tile()` and `cascade()` skip minimized windows.
-- **Window Builder Lite pattern:** Self-consuming methods on `Window` (`with_min_size`, `with_drag_limits`, `with_scrollbars`, `with_closeable`, `with_resizable`) and `FrameConfig` struct (`FrameConfig::window()`, `dialog()`, `panel()`).
-- **Window presets:** `Window::editor()`, `Window::palette()`, `Window::tool()` for common window configurations.
-- **View lifecycle hooks:** `on_focus()` and `on_blur()` on `View` trait; `Container::set_focus_to()` calls blur on old child and focus on new child.
-- Frame title centering within full width with `'…'` ellipsis truncation.
-- 321 tests passing, clippy pedantic clean.
+### Dropdown Close on Mouse
+- Dropdown menus now close when clicking outside (via OverlayManager outside-click dismiss)
 
-### Fixed
-- Scrollbar inactive colors in JSON themes: added proper inactive scrollbar colors to all 6 JSON theme files (was using hard-coded Turbo Vision colors via serde defaults).
-- Color typos in `dark.json` (`#3c3c3cOD`) and `matrix.json` (`#ff505`).
-- Minimized windows no longer overlap or hide under the status line; Desktop manages shelf positioning via `recalculate_shelf()`.
+### Draw Border When Scrollbar Hidden (Auto Visibility)
+- Frame now draws border even when scrollbar is hidden (respects auto-visibility state)
+- Previously hidden scrollbar caused no border to be drawn
 
-## [0.2.2] - 2026-03-22
-
-### Added
-- **MenuBar → Overlay dropdown refactor:** Dropdown rendering moved from `HorizontalBar` self-draw to `OverlayManager` + `MenuBox`.
-  - Dropdowns now render above all windows and are not clipped by the bar's clip area.
-  - New commands: `CM_OPEN_DROPDOWN` (1010), `CM_DROPDOWN_CLOSED` (1011), `CM_DROPDOWN_NAVIGATE` (1012).
-  - `MenuBox` emits commands via the event system when owned by a bar; supports Left/Right arrow navigation across dropdowns.
-  - `OverlayManager` dismiss callback posts `CM_DROPDOWN_CLOSED` on outside-click.
-  - ~170–200 lines of duplicate drawing/event code removed from `HorizontalBar`.
-- 335 tests passing, clippy pedantic clean.
-
-### Fixed
-- **Minimized window tray visibility:** `Frame::draw()` now renders at `height = 1` (changed guard from `height < 2` to `height < 1`); draws top border, corners, close button, and title at 1-row height.
-- **Minimized window buttons:** `ButtonTray` suppresses minimize/maximize buttons when `height ≤ 1`; hit-test methods (`is_minimize_button`, `is_maximize_button`, `is_resize_handle`) return `false` at `height ≤ 1`.
-- **Close button on minimized windows:** `is_close_button()` remains functional at any height; `has_close_button()` accessor added to `Frame`.
-
-[0.1.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.1.0
-[0.2.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.0
-[0.2.1]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.1
-[0.2.2]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.2
-
-## [0.2.3] - 2026-05-25
-
-### Added
-- `Application::post_event()` for background thread event injection into the running application loop.
-- Updated demo to showcase scrollbar fix and `post_event()` usage.
-
-### Fixed
-- **Scrollbar thumb positioning:** mouse click now correctly maps to the middle of thumb positions; only the area between arrow buttons counts for thumb positioning.
-- **Ratatui 0.30 upgrade:** upgraded from 0.29 to 0.30 with zero API breaks.
-
-[0.2.3]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.3
-
-## [0.2.4] - 2026-05-26
-
-### Added
-- **Drag-and-drop state machine:** New drag-and-drop support with `CM_DRAG_START`, `CM_DRAG_MOVE`, `CM_DRAG_END` commands for tracking drag operations.
-  - `Application::start_drag(origin, payload)` — starts a drag with an arbitrary `Box<dyn Any>` payload.
-  - `Application::end_drag()` — ends the current drag and clears payload.
-  - `Application::drag_payload()` — returns a reference to the current drag payload.
-  - `Application::is_dragging()` — returns `true` while a drag is in progress.
-  - `Application::drag_origin()` — returns the position where the drag started.
-  - `Container::dispatch_event()` posts `CM_DRAG_START`/`CM_DRAG_MOVE`/`CM_DRAG_END` as deferred events on Left mouse button interactions.
-  - 435 tests passing, clippy pedantic clean.
-
-[0.2.4]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.2.4
+### Tests
+- 360+ tests passing, clippy pedantic clean

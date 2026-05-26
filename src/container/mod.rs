@@ -19,6 +19,7 @@ use crate::view::{
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use std::any::Any;
+use std::cmp::Ordering;
 
 /// Container view that manages child views with Z-order and three-phase event dispatch.
 ///
@@ -193,10 +194,10 @@ impl Container {
         self.children[index..].rotate_left(1);
         // Adjust focused index
         if let Some(f) = self.focused {
-            if f == index {
-                self.focused = Some(last);
-            } else if f > index {
-                self.focused = Some(f - 1);
+            match f.cmp(&index) {
+                Ordering::Equal => self.focused = Some(last),
+                Ordering::Greater => self.focused = Some(f - 1),
+                Ordering::Less => {}
             }
         }
         self.base.mark_dirty();
@@ -212,10 +213,10 @@ impl Container {
         self.children[..=index].rotate_right(1);
         // Adjust focused index
         if let Some(f) = self.focused {
-            if f == index {
-                self.focused = Some(0);
-            } else if f < index {
-                self.focused = Some(f + 1);
+            match f.cmp(&index) {
+                Ordering::Equal => self.focused = Some(0),
+                Ordering::Less => self.focused = Some(f + 1),
+                Ordering::Greater => {}
             }
         }
         self.base.mark_dirty();

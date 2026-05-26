@@ -32,22 +32,17 @@
 //! 6. Process deferred event queue
 
 use crate::command::{
-    CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DROPDOWN_CLOSED,
-    CM_DROPDOWN_NAVIGATE, CM_DRAG_END, CM_DRAG_MOVE, CM_DRAG_START, CM_OPEN_DROPDOWN, CM_QUIT,
-    CM_TILE,
+    CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE,
+    CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
 };
 use crate::desktop::Desktop;
-use crate::menu_bar::{MenuItem, MenuBar};
+use crate::menu_bar::MenuBar;
 use crate::menu_box::MenuBox;
-use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
+use crate::overlay::{calculate_overlay_bounds, Overlay, OverlayManager};
 use crate::status_bar::StatusBar;
 use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
 use ratatui::layout::{Position, Rect};
-use std::any::Any;
-use std::collections::VecDeque;
-use std::sync::mpsc::{channel, Sender};
-use std::sync::{Arc, Mutex};
 
 /// Application — central orchestrator for a turbo-tui program.
 ///
@@ -107,16 +102,6 @@ pub struct Application {
     running: bool,
     /// Last unhandled command (for the consumer to read).
     last_unhandled_command: Option<CommandId>,
-    /// Thread-safe queue for externally posted events (from background tasks).
-    deferred_events: Arc<Mutex<VecDeque<Event>>>,
-    /// Items to display in a context menu.
-    context_menu_items: Vec<MenuItem>,
-    /// Last known mouse position (for context menu placement).
-    last_mouse_pos: Position,
-    /// Origin position where the current drag operation started, if any.
-    drag_origin: Option<Position>,
-    /// Arbitrary payload data associated with the current drag operation.
-    drag_payload: Option<Box<dyn Any>>,
 }
 
 impl Application {
@@ -138,11 +123,6 @@ impl Application {
             overlay_manager: OverlayManager::new(screen_size.width, screen_size.height),
             running: true,
             last_unhandled_command: None,
-            deferred_events: Arc::new(Mutex::new(VecDeque::new())),
-            context_menu_items: Vec::new(),
-            last_mouse_pos: Position::ORIGIN,
-            drag_origin: None,
-            drag_payload: None,
         }
     }
 
@@ -235,91 +215,6 @@ impl Application {
     /// Get a mutable reference to the overlay manager.
     pub fn overlay_manager_mut(&mut self) -> &mut OverlayManager {
         &mut self.overlay_manager
-    }
-
-    /// Set the items shown in the context menu when `CM_CONTEXT_MENU` is
-    /// dispatched.
-    ///
-    /// The context menu appears as a `MenuBox` overlay at the last known mouse
-    /// position. Call with an empty vector to disable context menus.
-    pub fn set_context_menu_items(&mut self, items: Vec<MenuItem>) {
-        self.context_menu_items = items;
-    }
-
-    // -------------------------------------------------------------------------
-    // Drag-and-drop state
-    // -------------------------------------------------------------------------
-
-    /// Start a drag operation with the given origin and payload.
-    ///
-    /// Called by a view that initiates a drag (typically on receiving a Left
-    /// mouse button Down event). The payload can be any type wrapped in
-    /// `Box<dyn Any>` and is retrievable via [`drag_payload`] for the duration
-    /// of the drag.
-    ///
-    /// The view is responsible for setting [`SF_DRAGGING`] on itself and for
-    /// calling [`end_drag`] when the drag completes.
-    ///
-    /// [`drag_payload`]: Application::drag_payload
-    /// [`SF_DRAGGING`]: crate::view::SF_DRAGGING
-    /// [`end_drag`]: Application::end_drag
-    pub fn start_drag(&mut self, origin: Position, payload: Box<dyn Any>) {
-        self.drag_origin = Some(origin);
-        self.drag_payload = Some(payload);
-    }
-
-    /// End the current drag operation and clear the payload.
-    ///
-    /// Called when a drag completes (typically on Left mouse button Up).
-    /// After this call, [`is_dragging`] will return `false` and
-    /// [`drag_payload`] will return `None`.
-    ///
-    /// [`is_dragging`]: Application::is_dragging
-    /// [`drag_payload`]: Application::drag_payload
-    pub fn end_drag(&mut self) {
-        self.drag_origin = None;
-        self.drag_payload = None;
-    }
-
-    /// Return a reference to the current drag payload, if any.
-    ///
-    /// Returns `None` if no drag is in progress or if no payload was set
-    /// via [`start_drag`].
-    ///
-    /// [`start_drag`]: Application::start_drag
-    #[must_use]
-    pub fn drag_payload(&self) -> Option<&dyn Any> {
-        self.drag_payload.as_deref()
-    }
-
-    /// Check whether a drag operation is currently in progress.
-    ///
-    /// Returns `true` between [`start_drag`] / `CM_DRAG_START` and
-    /// [`end_drag`] / `CM_DRAG_END`.
-    ///
-    /// [`start_drag`]: Application::start_drag
-    /// [`end_drag`]: Application::end_drag
-    #[must_use]
-    pub fn is_dragging(&self) -> bool {
-        self.drag_origin.is_some()
-    }
-
-    /// Return the origin of the current drag operation, if any.
-    ///
-    /// Returns the position where the drag started (typically the mouse
-    /// position on Left button Down).
-    #[must_use]
-    pub fn drag_origin(&self) -> Option<Position> {
-        self.drag_origin
-    }
-
-    /// Return the last known mouse position.
-    ///
-    /// This is the most recent mouse position recorded by a `Mouse` event
-    /// processed through the application event loop.
-    #[must_use]
-    pub fn last_mouse_pos(&self) -> Position {
-        self.last_mouse_pos
     }
 
     // -------------------------------------------------------------------------
@@ -441,7 +336,6 @@ impl Application {
                 }
             }
             crossterm::event::Event::Mouse(mouse) => {
-                self.last_mouse_pos = Position::new(mouse.column, mouse.row);
                 let mut event = Event::mouse(*mouse);
                 self.dispatch(&mut event);
             }
@@ -465,10 +359,6 @@ impl Application {
     /// 5. Application-level command handling (`CM_QUIT`, `CM_CLOSE`)
     /// 6. Deferred event queue processing
     pub fn dispatch(&mut self, event: &mut Event) {
-        // 0. Process externally posted events (from background threads) before
-        //    the current event.
-        self.process_external_events(event);
-
         // 1. Overlay layer — if it consumed the event, stop here
         if self.overlay_manager.handle_event(event) && event.is_cleared() {
             self.process_deferred(event);
@@ -677,43 +567,6 @@ impl Application {
         1
     }
 
-    /// Open a context menu overlay at the last known mouse position.
-    ///
-    /// Creates a `MenuBox` positioned at `self.last_mouse_pos` with the items
-    /// previously set via [`set_context_menu_items`]. If no items have been set,
-    /// this is a no-op.
-    ///
-    /// [`set_context_menu_items`]: Application::set_context_menu_items
-    fn handle_context_menu(&mut self) {
-        if self.context_menu_items.is_empty() {
-            return;
-        }
-
-        let items = self.context_menu_items.clone();
-        let menu_bounds = MenuBox::calculate_bounds(
-            self.last_mouse_pos.x,
-            self.last_mouse_pos.y,
-            &items,
-        );
-        let screen = Rect::new(0, 0, self.screen_size.width, self.screen_size.height);
-
-        let (overlay_rect, _actual_dir) = calculate_overlay_bounds(
-            (self.last_mouse_pos.x, self.last_mouse_pos.y),
-            (menu_bounds.width, menu_bounds.height),
-            screen,
-            DropDirection::Down,
-        );
-
-        let menu_box = MenuBox::new(overlay_rect, items);
-
-        self.overlay_manager.push(Overlay {
-            view: Box::new(menu_box),
-            owner_id: ViewId::new(),
-            dismiss_on_outside_click: true,
-            dismiss_on_escape: true,
-        });
-    }
-
     /// Handle application-level commands.
     ///
     /// Currently handles:
@@ -751,109 +604,11 @@ impl Application {
                     self.desktop.cascade();
                     event.clear();
                 }
-                CM_CONTEXT_MENU => {
-                    self.handle_context_menu();
-                    event.clear();
-                }
-                CM_DRAG_START => {
-                    // Store the origin at the current mouse position.
-                    // The view that initiated the drag may also call
-                    // start_drag() to attach payload data.
-                    self.drag_origin = Some(self.last_mouse_pos);
-                    event.clear();
-                }
-                CM_DRAG_MOVE => {
-                    // Drag in progress — the origin is already set.
-                    // Drop targets can check `is_dragging()` / `drag_payload()`
-                    // to react to the drag entering their area.
-                    event.clear();
-                }
-                CM_DRAG_END => {
-                    // Clear all drag state.
-                    self.drag_origin = None;
-                    self.drag_payload = None;
-                    event.clear();
-                }
                 other => {
                     // Unknown command — store for consumer to handle
                     self.last_unhandled_command = Some(other);
                 }
             }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // External event injection (for background tasks)
-    // -------------------------------------------------------------------------
-
-    /// Post an event from a background task.
-    ///
-    /// The event will be dispatched during the next [`dispatch`] cycle, before
-    /// any new crossterm event is processed. This is thread-safe and can be
-    /// called from any thread.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the internal mutex is poisoned. A mutex becomes
-    /// poisoned when a thread panics while holding the lock. This is typically
-    /// indicative of a bug in the application or a thread that failed to properly
-    /// release the lock.
-    pub fn post_event(&self, event: Event) {
-        self.deferred_events.lock().unwrap().push_back(event);
-    }
-
-    /// Return a [`Sender<Event>`] for async event injection from background
-    /// threads.
-    ///
-    /// Spawns a single listener thread that receives events over a channel and
-    /// forwards them to [`post_event`]. The thread exits when all senders are
-    /// dropped.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the internal mutex is poisoned. A mutex becomes
-    /// poisoned when a thread panics while holding the lock. This is typically
-    /// indicative of a bug in the application or a thread that failed to properly
-    /// release the lock.
-    ///
-    /// [`post_event`]: Application::post_event
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let app = Application::new(screen_size);
-    /// let tx = app.event_sender();
-    ///
-    /// // Spawn a background task that sends events:
-    /// std::thread::spawn(move || {
-    ///     tx.send(Event::command(CM_QUIT)).unwrap();
-    /// });
-    /// ```
-    #[must_use]
-    pub fn event_sender(&self) -> Sender<Event> {
-        let (tx, rx) = channel();
-        let deferred = Arc::clone(&self.deferred_events);
-        std::thread::spawn(move || {
-            while let Ok(event) = rx.recv() {
-                deferred.lock().unwrap().push_back(event);
-            }
-        });
-        tx
-    }
-
-    /// Drain the external event queue and dispatch each event through the
-    /// single-pass dispatch chain (`dispatch_single`).
-    ///
-    /// Any deferred events generated by external events are appended to
-    /// `event.deferred` so they are processed in the main deferred loop.
-    fn process_external_events(&mut self, event: &mut Event) {
-        let external = {
-            let mut guard = self.deferred_events.lock().unwrap();
-            guard.drain(..).collect::<Vec<Event>>()
-        };
-        for mut ext_event in external {
-            self.dispatch_single(&mut ext_event);
-            event.deferred.append(&mut ext_event.deferred);
         }
     }
 
@@ -1404,143 +1159,6 @@ mod tests {
             b1.x > b0.x || b1.y > b0.y,
             "cascaded windows should be offset"
         );
-    }
-
-    // -------------------------------------------------------------------------
-    // External event injection tests
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_event_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<Event>();
-    }
-
-    #[test]
-    fn test_post_event_direct() {
-        let mut app = Application::new(screen());
-        assert!(app.is_running());
-
-        // Post a quit event directly
-        app.post_event(Event::command(CM_QUIT));
-
-        // Dispatch a dummy event to trigger external event processing
-        let mut dummy = Event::new(EventKind::None);
-        app.dispatch(&mut dummy);
-
-        assert!(
-            !app.is_running(),
-            "post_event with CM_QUIT must stop the application"
-        );
-    }
-
-    #[test]
-    fn test_post_event_preserves_deferred() {
-        let mut app = Application::new(screen());
-
-        // Post a quit event externally
-        app.post_event(Event::command(CM_QUIT));
-
-        // Create a carrier that also has its own deferred event
-        let mut carrier = Event::command(CM_TILE);
-        carrier.post(Event::command(CM_CLOSE_ALL));
-
-        app.dispatch(&mut carrier);
-
-        // Both the external event and the internal deferred event should be processed
-        assert!(!app.is_running(), "external CM_QUIT must stop the app");
-        assert!(carrier.is_cleared(), "CM_TILE must be consumed");
-
-        // CM_CLOSE_ALL was also processed (no windows to close, no crash)
-        assert!(
-            app.desktop().window_count() == 0,
-            "CM_CLOSE_ALL should not panic"
-        );
-    }
-
-    #[test]
-    fn test_event_sender_via_channel() {
-        let mut app = Application::new(screen());
-        assert!(app.is_running());
-
-        let tx = app.event_sender();
-
-        // Send quit event via the mpsc channel from the main thread.
-        tx.send(Event::command(CM_QUIT)).unwrap();
-
-        // Give the background listener thread time to receive and push.
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let mut dummy = Event::new(EventKind::None);
-        app.dispatch(&mut dummy);
-
-        assert!(
-            !app.is_running(),
-            "event_sender channel with CM_QUIT must stop the application"
-        );
-    }
-
-    #[test]
-    fn test_event_sender_from_thread() {
-        let mut app = Application::new(screen());
-        assert!(app.is_running());
-
-        let tx = app.event_sender();
-
-        // Spawn a background thread that sends CM_QUIT
-        let handle = std::thread::spawn(move || {
-            // Give the main thread time to reach dispatch
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            tx.send(Event::command(CM_QUIT)).unwrap();
-        });
-
-        // Wait for the thread to send the event
-        handle.join().expect("background thread must not panic");
-
-        // Dispatch to process the external event
-        let mut dummy = Event::new(EventKind::None);
-        app.dispatch(&mut dummy);
-
-        assert!(
-            !app.is_running(),
-            "event_sender from thread with CM_QUIT must stop the application"
-        );
-    }
-
-    #[test]
-    fn test_post_event_noop_when_empty() {
-        let mut app = Application::new(screen());
-        assert!(app.is_running());
-
-        // Dispatch without posting anything — must not crash
-        let mut dummy = Event::new(EventKind::None);
-        app.dispatch(&mut dummy);
-
-        assert!(app.is_running(), "app must still run after empty dispatch");
-    }
-
-    #[test]
-    fn test_multiple_external_events_processed_in_order() {
-        use crate::command::CM_CLOSE;
-
-        let mut app = Application::new(screen());
-        app.add_window(Window::new(Rect::new(0, 0, 20, 8), "W1"));
-        app.add_window(Window::new(Rect::new(5, 5, 20, 8), "W2"));
-
-        // Post events in order: CM_CLOSE (removes focused), CM_CLOSE (removes last), CM_QUIT
-        app.post_event(Event::command(CM_CLOSE));
-        app.post_event(Event::command(CM_CLOSE));
-        app.post_event(Event::command(CM_QUIT));
-
-        let mut dummy = Event::new(EventKind::None);
-        app.dispatch(&mut dummy);
-
-        assert_eq!(
-            app.desktop().window_count(),
-            0,
-            "both CM_CLOSE events must remove windows"
-        );
-        assert!(!app.is_running(), "CM_QUIT must stop the application");
     }
 
     // -------------------------------------------------------------------------

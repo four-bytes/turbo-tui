@@ -42,10 +42,6 @@
 //!   "status_bar": { ... },
 //!   "button": { ... },
 //!   "static_text": { "fg": "Yellow", "bg": "Blue" },
-//!   "list_box": {
-//!     "normal": { "fg": "Yellow", "bg": "Blue" },
-//!     "selected": { "fg": "Black", "bg": "Green" }
-//!   },
 //!   "scrollbar": { ... }
 //! }
 //! ```
@@ -535,55 +531,6 @@ pub struct ScrollbarSection {
     pub arrows_inactive: StyleValue,
 }
 
-/// Input line styles (single-line text input).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InputLineSection {
-    /// Normal (unfocused) state.
-    pub normal: StyleValue,
-    /// Focused state.
-    pub focused: StyleValue,
-}
-
-impl Default for InputLineSection {
-    fn default() -> Self {
-        Self {
-            normal: StyleValue::from_style(Style::default().fg(Color::Black).bg(Color::Gray)),
-            focused: StyleValue::from_style(Style::default().fg(Color::Black).bg(Color::Cyan)),
-        }
-    }
-}
-
-/// `ListBox` styles (scrollable selectable list).
-///
-/// # JSON Example
-///
-/// ```json
-/// {
-///   "normal": { "fg": "Yellow", "bg": "Blue" },
-///   "selected": { "fg": "Black", "bg": "Green" }
-/// }
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListBoxSection {
-    /// Normal (unselected) item style.
-    pub normal: StyleValue,
-    /// Selected/highlighted item style.
-    pub selected: StyleValue,
-}
-
-impl Default for ListBoxSection {
-    fn default() -> Self {
-        Self {
-            normal: StyleValue::from_style(
-                Style::default().fg(Color::Yellow).bg(Color::Blue),
-            ),
-            selected: StyleValue::from_style(
-                Style::default().fg(Color::Black).bg(Color::Green),
-            ),
-        }
-    }
-}
-
 fn default_scrollbar_track_hover() -> StyleValue {
     StyleValue::from_style(Style::default().fg(Color::White).bg(Color::Cyan))
 }
@@ -634,12 +581,6 @@ pub struct ThemeData {
     pub static_text: StyleValue,
     /// Scrollbar styles.
     pub scrollbar: ScrollbarSection,
-    /// Input line styles.
-    #[serde(default)]
-    pub input_line: InputLineSection,
-    /// `ListBox` styles.
-    #[serde(default)]
-    pub list_box: ListBoxSection,
 }
 
 // ============================================================================
@@ -648,11 +589,11 @@ pub struct ThemeData {
 
 impl ThemeData {
     /// Convert this JSON data model into a `Theme`.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::similar_names)]
     #[must_use]
     pub fn to_theme(&self) -> Theme {
-        let (wtl, wtr, wbl, wbr, wh, wv) = self.borders.window.chars();
-        let (mtl, mtr, mbl, mbr, mh, mv) = self.borders.menu.chars.chars();
+        let (win_tl, win_tr, win_bl, win_br, win_h, win_v) = self.borders.window.chars();
+        let (menu_tl, menu_tr, menu_bl, menu_br, menu_h, menu_v) = self.borders.menu.chars.chars();
         let menu_sep_l = self.borders.menu.sep_l.chars().next().unwrap_or('├');
         let menu_sep_r = self.borders.menu.sep_r.chars().next().unwrap_or('┤');
 
@@ -727,18 +668,18 @@ impl ThemeData {
                 .unwrap_or(&self.window.close_button_inactive)
                 .to_style(),
 
-            border_tl: wtl,
-            border_tr: wtr,
-            border_bl: wbl,
-            border_br: wbr,
-            border_h: wh,
-            border_v: wv,
-            menu_border_tl: mtl,
-            menu_border_tr: mtr,
-            menu_border_bl: mbl,
-            menu_border_br: mbr,
-            menu_border_h: mh,
-            menu_border_v: mv,
+            border_tl: win_tl,
+            border_tr: win_tr,
+            border_bl: win_bl,
+            border_br: win_br,
+            border_h: win_h,
+            border_v: win_v,
+            menu_border_tl: menu_tl,
+            menu_border_tr: menu_tr,
+            menu_border_bl: menu_bl,
+            menu_border_br: menu_br,
+            menu_border_h: menu_h,
+            menu_border_v: menu_v,
             menu_sep_l,
             menu_sep_r,
 
@@ -772,12 +713,6 @@ impl ThemeData {
 
             static_text: self.static_text.to_style(),
 
-            input_line_normal: self.input_line.normal.to_style(),
-            input_line_focused: self.input_line.focused.to_style(),
-
-            list_box_normal: self.list_box.normal.to_style(),
-            list_box_selected: self.list_box.selected.to_style(),
-
             scrollbar_track: self.scrollbar.track.to_style(),
             scrollbar_track_hover: self.scrollbar.track_hover.to_style(),
             scrollbar_thumb: self.scrollbar.thumb.to_style(),
@@ -787,6 +722,10 @@ impl ThemeData {
             scrollbar_track_inactive: self.scrollbar.track_inactive.to_style(),
             scrollbar_thumb_inactive: self.scrollbar.thumb_inactive.to_style(),
             scrollbar_arrows_inactive: self.scrollbar.arrows_inactive.to_style(),
+            input_line_normal: self.static_text.to_style(),
+            input_line_focused: self.static_text.to_style(),
+            list_box_normal: self.static_text.to_style(),
+            list_box_selected: self.static_text.to_style(),
         }
     }
 
@@ -905,14 +844,6 @@ impl ThemeData {
                 hover: StyleValue::from_style(theme.button_hover),
             },
             static_text: StyleValue::from_style(theme.static_text),
-            input_line: InputLineSection {
-                normal: StyleValue::from_style(theme.input_line_normal),
-                focused: StyleValue::from_style(theme.input_line_focused),
-            },
-            list_box: ListBoxSection {
-                normal: StyleValue::from_style(theme.list_box_normal),
-                selected: StyleValue::from_style(theme.list_box_selected),
-            },
             scrollbar: ScrollbarSection {
                 track: StyleValue::from_style(theme.scrollbar_track),
                 track_hover: StyleValue::from_style(theme.scrollbar_track_hover),
@@ -995,6 +926,7 @@ impl std::error::Error for ThemeLoadError {
 // Helper: detect border preset from characters
 // ============================================================================
 
+#[allow(clippy::similar_names)]
 fn detect_border_preset(tl: char, tr: char, bl: char, br: char, h: char, v: char) -> BorderChars {
     for preset in [
         BorderPreset::Double,
@@ -1003,8 +935,8 @@ fn detect_border_preset(tl: char, tr: char, bl: char, br: char, h: char, v: char
         BorderPreset::Round,
         BorderPreset::None,
     ] {
-        let (ptl, ptr, pbl, pbr, ph, pv) = preset.chars();
-        if tl == ptl && tr == ptr && bl == pbl && br == pbr && h == ph && v == pv {
+        let (preset_tl, preset_tr, preset_bl, preset_br, preset_h, preset_v) = preset.chars();
+        if tl == preset_tl && tr == preset_tr && bl == preset_bl && br == preset_br && h == preset_h && v == preset_v {
             return BorderChars::Preset(preset);
         }
     }
@@ -1266,8 +1198,10 @@ mod tests {
         }
         assert!(
             errors.is_empty(),
-            "Theme loading errors:\n{}",
-            errors.join("\n")
+            "Theme loading errors:
+{}",
+            errors.join("
+")
         );
         assert!(
             loaded >= 1,

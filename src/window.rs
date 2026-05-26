@@ -1152,12 +1152,17 @@ impl View for Window {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(
+    clippy::items_after_statements,
+    clippy::semicolon_if_nothing_returned
+)]
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
     use crate::frame::{FrameConfig, FrameType};
     use crate::theme::Theme;
     use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING};
+    use crate::scrollbar::ScrollBar;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn setup_theme() {
@@ -2017,11 +2022,10 @@ mod tests {
         win.set_content_size(Some((100, 50)));
 
         // Get initial max
-        let initial_max = win.frame().v_scrollbar().map(|sb| sb.max_val());
-
+        let initial_max = win.frame().v_scrollbar().map(ScrollBar::max_val);
         // Resize window (larger) — max should decrease
         win.set_bounds(Rect::new(0, 0, 30, 25));
-        let new_max = win.frame().v_scrollbar().map(|sb| sb.max_val());
+        let new_max = win.frame().v_scrollbar().map(ScrollBar::max_val);
 
         assert!(
             new_max < initial_max,

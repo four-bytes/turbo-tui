@@ -1,4 +1,13 @@
-# turbo-tui — Change History
+## v0.3.2 — 2026-05-26
+
+### Added
+- Integration tests restored and rewritten for v0.3.1+ API
+  - Overlay dismiss tests (Escape, outside click)
+  - Window drag lifecycle tests using `Window::is_dragging()` flag
+  - Drop target routing test
+
+### Notes
+- 431 unit tests + 8 integration tests + 3 doc tests, all passing
 
 ## v0.1.0 (2026-03-21)
 

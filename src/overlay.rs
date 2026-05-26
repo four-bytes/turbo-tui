@@ -367,7 +367,7 @@ mod tests {
         MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: col,
-            row: row,
+            row,
             modifiers: crossterm::event::KeyModifiers::NONE,
         }
     }

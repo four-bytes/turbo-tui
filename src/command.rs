@@ -174,9 +174,12 @@ mod tests {
 
     #[test]
     fn test_internal_command_base() {
-        assert!(CM_OK < INTERNAL_COMMAND_BASE);
-        assert!(CM_SAVE < INTERNAL_COMMAND_BASE);
-        // Internal commands should be >= 1000
-        assert!(1500 >= INTERNAL_COMMAND_BASE);
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(CM_OK < INTERNAL_COMMAND_BASE);
+            assert!(CM_SAVE < INTERNAL_COMMAND_BASE);
+            // Internal commands should be >= 1000
+            assert!(1500 >= INTERNAL_COMMAND_BASE);
+        }
     }
 }

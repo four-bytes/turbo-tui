@@ -784,7 +784,7 @@ mod tests {
     // Event dispatch tests
     // -----------------------------------------------------------------------
 
-    /// A non-consuming TestView that records events but does NOT clear them.
+    /// A non-consuming `TestView` that records events but does NOT clear them.
     struct RecordingView {
         base: ViewBase,
         log: RefCell<Vec<String>>,

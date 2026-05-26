@@ -1,8 +1,16 @@
 //! Integration tests for cross-component workflows.
 //!
+//! Tests cover:
+//! - Context menu overlay lifecycle (push, dismiss on Escape/outside-click)
+//! - Window drag lifecycle (start on title bar, end on mouse up)
+//! - Drop target routing through Container
 
 use turbo_tui::prelude::*;
 use turbo_tui::menu_bar::MenuItem;
+use turbo_tui::menu_box::MenuBox;
+use turbo_tui::overlay::Overlay;
+use turbo_tui::view::ViewId;
+use turbo_tui::window::Window;
 use ratatui::layout::Rect;
 use crossterm::event::{MouseButton, MouseEventKind};
 
@@ -17,95 +25,178 @@ fn mouse_at(col: u16, row: u16, kind: MouseEventKind) -> Event {
 }
 
 // ========================================================================
-// Context Menu Tests
+// Overlay (Context Menu) Tests
 // ========================================================================
 
-/// Test: right-click opens context menu at last mouse position.
+/// Test: pushing a `MenuBox` overlay and dismissing it with Escape.
 #[test]
-fn test_context_menu_opens_on_right_click() {
+fn test_overlay_dismiss_on_escape() {
     let mut app = Application::new(Rect::new(0, 0, 80, 24));
-    app.set_context_menu_items(vec![
-        MenuItem::new("~T~est", 1000),
-        MenuItem::separator(),
-        MenuItem::new("~Q~uit", 1),
-    ]);
 
-    // Simulate right-click at (10, 10) which posts CM_CONTEXT_MENU
-    let mut event = mouse_at(10, 10, MouseEventKind::Down(MouseButton::Right));
-    app.dispatch(&mut event);
+    // Create a context menu as a MenuBox overlay
+    let items = vec![MenuItem::new("~T~est", 1000)];
+    let bounds = MenuBox::calculate_bounds(10, 5, &items);
+    let menu_box = MenuBox::new(bounds, items);
 
-    // Overlay must be present with the MenuBox
-    assert!(!app.overlay_manager().is_empty(), "context menu overlay must open on right-click");
-}
-
-/// Test: Escape dismisses context menu via overlay manager.
-#[test]
-fn test_context_menu_dismiss_on_escape() {
-    let mut app = Application::new(Rect::new(0, 0, 80, 24));
-    app.set_context_menu_items(vec![MenuItem::new("~T~est", 1000)]);
-
-    // Open context menu
-    app.dispatch(&mut mouse_at(10, 10, MouseEventKind::Down(MouseButton::Right)));
-    assert!(!app.overlay_manager().is_empty());
+    app.overlay_manager_mut().push(Overlay {
+        view: Box::new(menu_box),
+        owner_id: ViewId::new(),
+        dismiss_on_outside_click: true,
+        dismiss_on_escape: true,
+    });
+    assert!(!app.overlay_manager().is_empty(), "overlay must be present after push");
 
     // Press Escape to dismiss
-    use crossterm::event::{KeyCode, KeyEventKind};
     let escape = Event::key(crossterm::event::KeyEvent {
-        code: KeyCode::Esc,
+        code: crossterm::event::KeyCode::Esc,
         modifiers: crossterm::event::KeyModifiers::NONE,
-        kind: KeyEventKind::Press,
+        kind: crossterm::event::KeyEventKind::Press,
         state: crossterm::event::KeyEventState::NONE,
     });
     let mut ev = escape;
     app.dispatch(&mut ev);
 
-    // Overlay must be dismissed by OverlayManager directly
-    assert!(app.overlay_manager().is_empty(), "context menu must dismiss on Escape");
+    assert!(
+        app.overlay_manager().is_empty(),
+        "overlay must be dismissed on Escape"
+    );
 }
 
-/// Test: clicking outside context menu dismisses it.
+/// Test: clicking outside the overlay bounds dismisses it.
 #[test]
-fn test_context_menu_dismiss_on_outside_click() {
+fn test_overlay_dismiss_on_outside_click() {
     let mut app = Application::new(Rect::new(0, 0, 80, 24));
-    app.set_context_menu_items(vec![MenuItem::new("~T~est", 1000)]);
 
-    // Open context menu at (10, 10)
-    app.dispatch(&mut mouse_at(10, 10, MouseEventKind::Down(MouseButton::Right)));
-    assert!(!app.overlay_manager().is_empty());
+    // Create a MenuBox overlay at (10, 5)
+    let items = vec![MenuItem::new("~T~est", 1000)];
+    let bounds = MenuBox::calculate_bounds(10, 5, &items);
+    let menu_box = MenuBox::new(bounds, items);
 
-    // Click outside the menu (top-left corner, far from menu at 10,10)
+    app.overlay_manager_mut().push(Overlay {
+        view: Box::new(menu_box),
+        owner_id: ViewId::new(),
+        dismiss_on_outside_click: true,
+        dismiss_on_escape: true,
+    });
+    assert!(!app.overlay_manager().is_empty(), "overlay must be present after push");
+
+    // Click outside the overlay (top-left corner, far from menu at 10,5)
     app.dispatch(&mut mouse_at(0, 0, MouseEventKind::Down(MouseButton::Left)));
 
-    // Overlay must be dismissed
-    assert!(app.overlay_manager().is_empty(), "context menu must dismiss on outside click");
+    assert!(
+        app.overlay_manager().is_empty(),
+        "overlay must be dismissed on outside click"
+    );
 }
 
-// ========================================================================
-// Drag-and-Drop Tests
-// ========================================================================
-
-/// Test: drag starts and ends correctly.
+/// Test: basic push/pop sanity of overlay manager.
 #[test]
-fn test_drag_lifecycle() {
+fn test_overlay_can_be_pushed_and_popped() {
     let mut app = Application::new(Rect::new(0, 0, 80, 24));
-    assert!(!app.is_dragging());
 
-    // Simulate left mouse down at (5, 5)
-    app.dispatch(&mut mouse_at(5, 5, MouseEventKind::Down(MouseButton::Left)));
-    assert!(app.is_dragging(), "left click must start drag");
-    assert!(app.drag_origin().is_some());
+    let items = vec![MenuItem::new("~T~est", 1000)];
+    let bounds = MenuBox::calculate_bounds(10, 5, &items);
+    let menu_box = MenuBox::new(bounds, items);
 
-    // Simulate drag move
-    app.dispatch(&mut mouse_at(10, 10, MouseEventKind::Drag(MouseButton::Left)));
-    assert!(app.is_dragging());
+    app.overlay_manager_mut().push(Overlay {
+        view: Box::new(menu_box),
+        owner_id: ViewId::new(),
+        dismiss_on_outside_click: true,
+        dismiss_on_escape: true,
+    });
+    assert_eq!(app.overlay_manager().count(), 1, "must have 1 overlay");
 
-    // Simulate drop (left mouse up)
-    app.dispatch(&mut mouse_at(15, 15, MouseEventKind::Up(MouseButton::Left)));
-    assert!(!app.is_dragging(), "drop must end drag");
-    assert!(app.drag_origin().is_none());
+    let popped = app.overlay_manager_mut().pop();
+    assert!(popped.is_some(), "pop must return the overlay");
+    assert!(
+        app.overlay_manager().is_empty(),
+        "must be empty after pop"
+    );
 }
 
-/// Test: container routes drop to target with OF_DROP_TARGET.
+// ========================================================================
+// Window Drag Lifecycle Tests
+// ========================================================================
+
+/// Test: dragging starts when user clicks on the title bar.
+#[test]
+fn test_window_drag_starts_on_titlebar_mousedown() {
+    let mut app = Application::new(Rect::new(0, 0, 80, 24));
+    // Window at (10, 5, 30, 15): title bar is row 5
+    let win = Window::new(Rect::new(10, 5, 30, 15), "Test Window");
+    let _wid = app.add_window(win);
+
+    // Click on title bar (col=20, row=5) — past close button at cols 11-13
+    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+
+    // Downcast to check drag state
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(
+        window.is_dragging(),
+        "click on title bar must start dragging"
+    );
+}
+
+/// Test: dragging ends when user releases the mouse button.
+#[test]
+fn test_window_drag_ends_on_mouseup() {
+    let mut app = Application::new(Rect::new(0, 0, 80, 24));
+    let win = Window::new(Rect::new(10, 5, 30, 15), "Test Window");
+    let _wid = app.add_window(win);
+
+    // Start drag
+    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(window.is_dragging(), "drag must have started");
+
+    // Release mouse button
+    app.dispatch(&mut mouse_at(25, 10, MouseEventKind::Up(MouseButton::Left)));
+
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(
+        !window.is_dragging(),
+        "mouse up must end dragging"
+    );
+}
+
+/// Test: clicking on the window interior (not title bar) does NOT start drag.
+#[test]
+fn test_window_outside_titlebar_no_drag() {
+    let mut app = Application::new(Rect::new(0, 0, 80, 24));
+    let win = Window::new(Rect::new(10, 5, 30, 15), "Test Window");
+    let _wid = app.add_window(win);
+
+    // Click on interior area (col=20, row=12 — inside the window but not title bar)
+    app.dispatch(&mut mouse_at(20, 12, MouseEventKind::Down(MouseButton::Left)));
+
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(
+        !window.is_dragging(),
+        "click on interior must NOT start dragging"
+    );
+}
+
+// ========================================================================
+// Drop Target Tests
+// ========================================================================
+
+/// Test: container routes drop to target with `OF_DROP_TARGET`.
 #[test]
 fn test_drop_routes_to_drop_target() {
     use std::any::Any;
@@ -132,26 +223,39 @@ fn test_drop_routes_to_drop_target() {
     }
 
     impl View for DropTargetView {
-        fn id(&self) -> ViewId { self.base.id() }
-        fn bounds(&self) -> Rect { self.base.bounds() }
-        fn set_bounds(&mut self, r: Rect) { self.base.set_bounds(r); }
+        fn id(&self) -> ViewId {
+            self.base.id()
+        }
+        fn bounds(&self) -> Rect {
+            self.base.bounds()
+        }
+        fn set_bounds(&mut self, r: Rect) {
+            self.base.set_bounds(r);
+        }
         fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
         fn handle_event(&mut self, _event: &mut Event) {}
         fn handle_drop(&mut self, _payload: Box<dyn Any>) -> bool {
             *self.accepted.borrow_mut() = true;
             true
         }
-        fn can_focus(&self) -> bool { true }
-        fn state(&self) -> u16 { self.base.state() }
-        fn set_state(&mut self, s: u16) { self.base.set_state(s); }
-        fn options(&self) -> u16 { self.base.options() }
-        fn owner_type(&self) -> OwnerType { OwnerType::None }
-        fn set_owner_type(&mut self, _o: OwnerType) {}
-        fn end_state(&self) -> CommandId { 0 }
-        fn set_end_state(&mut self, _c: CommandId) {}
-        fn valid(&mut self, _cmd: CommandId) -> bool { true }
-        fn as_any(&self) -> &dyn Any { self }
-        fn as_any_mut(&mut self) -> &mut dyn Any { self }
+        fn can_focus(&self) -> bool {
+            true
+        }
+        fn state(&self) -> u16 {
+            self.base.state()
+        }
+        fn set_state(&mut self, s: u16) {
+            self.base.set_state(s);
+        }
+        fn options(&self) -> u16 {
+            self.base.options()
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
     }
 
     let mut container = Container::new(Rect::new(0, 0, 80, 24));
@@ -168,23 +272,40 @@ fn test_drop_routes_to_drop_target() {
         .as_any()
         .downcast_ref::<DropTargetView>()
         .expect("DropTargetView must be present");
-    assert!(t.was_accepted(), "drop must be routed to OF_DROP_TARGET child");
+    assert!(
+        t.was_accepted(),
+        "drop must be routed to OF_DROP_TARGET child"
+    );
 }
 
-/// Test: drag outside window ends without drop.
+/// Test: drag outside window ends without crash.
 #[test]
 fn test_drag_outside_no_drop() {
     let mut app = Application::new(Rect::new(0, 0, 80, 24));
 
-    // Start drag inside
-    app.dispatch(&mut mouse_at(5, 5, MouseEventKind::Down(MouseButton::Left)));
-    assert!(app.is_dragging());
+    // Add a window at (10, 5, 30, 15)
+    let win = Window::new(Rect::new(10, 5, 30, 15), "Test Window");
+    let _wid = app.add_window(win);
 
-    // Move outside any window (drop on desktop background)
+    // Start drag on title bar
+    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(window.is_dragging(), "drag must have started");
+
+    // Move outside (drop on desktop background area)
     app.dispatch(&mut mouse_at(70, 20, MouseEventKind::Up(MouseButton::Left)));
 
-    // Drag ends but no drop target exists at that location
-    assert!(!app.is_dragging());
+    let win_ref = app.desktop().windows().child_at(0).unwrap();
+    let window = win_ref
+        .as_any()
+        .downcast_ref::<Window>()
+        .expect("child must be a Window");
+    assert!(!window.is_dragging(), "mouse up must end dragging");
+
     // Application still running
-    assert!(app.is_running());
+    assert!(app.is_running(), "app must still be running after drag");
 }

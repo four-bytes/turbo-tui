@@ -312,11 +312,11 @@ mod tests {
 
         // Allow some tolerance for rounding
         assert!(
-            (dialog_center_x as i32 - center_x as i32).abs() <= 1,
+            (i32::from(dialog_center_x) - i32::from(center_x)).abs() <= 1,
             "Dialog should be horizontally centered"
         );
         assert!(
-            (dialog_center_y as i32 - center_y as i32).abs() <= 1,
+            (i32::from(dialog_center_y) - i32::from(center_y)).abs() <= 1,
             "Dialog should be vertically centered"
         );
     }

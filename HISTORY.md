@@ -229,3 +229,44 @@
   - Previously, windows created before a terminal resize kept stale drag limits (zero drag range if window filled entire desktop)
   - New test: `test_desktop_set_bounds_updates_drag_limits`
 - 357 tests passing (was 353), clippy pedantic clean
+
+## v0.3.1 (2026-05-26)
+
+### Ratatui 0.30 Upgrade
+- Upgraded ratatui 0.29 → 0.30, crossterm 0.28 retained — zero API breaks
+
+### Scrollbar Auto-Visibility
+- **NEW** `content_size_hint()` — View trait method for reporting content dimensions vs viewport size
+- **NEW** `content_size` field on `Window` — stores interior content size hint
+- **NEW** `Window::set_content_size()` / `content_size()` — set/get content dimensions for scrollbar auto-visibility
+- **Auto-hide:** Scrollbars automatically hide when content fits within viewport (content_size ≤ bounds)
+- **Show on scroll:** Scrollbars appear/pulse when content overflows and view scrolls
+
+### Scrollbar Hover States
+- **NEW** `scrollbar_track_hover` theme field — hover state for scrollbar track
+- **Track hover state** — entire track shows hover state when mouse is over it (not just thumb)
+- **Thumb drag support** — dragging thumb via mouse already implemented
+
+### Scrollbar Thumb Sync
+- **NEW** `View::scroll_position() -> Option<Position>` — queries current scroll position from interior view
+- **NEW** `View::scroll_to()` — commands interior view to scroll to a specific position
+
+### Windowing System Improvements
+- **Desktop `set_bounds()` fix** — updates drag_limits on all existing windows on terminal resize
+- **Frame auto-visibility** — frame border now draws (height=1) when scrollbars force visibility
+
+### Bug Fixes
+- **Bug 1:** HorizontalBar Alt+Char fallthrough — `Alt+X` falls through to `handle_key_code_match()` when no hotkey
+- **Bug 2:** Window resize propagation — `update_bounds()` resizes all interior children to fill new interior rect
+- **Bug 3:** Container auto-focus — `Container::add()` auto-focuses first focusable child
+- **Bug 4:** Cursor position support — all views propagate `cursor_position()`
+
+### Dropdown Close on Mouse
+- Dropdown menus now close when clicking outside (via OverlayManager outside-click dismiss)
+
+### Draw Border When Scrollbar Hidden (Auto Visibility)
+- Frame now draws border even when scrollbar is hidden (respects auto-visibility state)
+- Previously hidden scrollbar caused no border to be drawn
+
+### Tests
+- 360+ tests passing, clippy pedantic clean

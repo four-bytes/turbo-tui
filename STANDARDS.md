@@ -133,7 +133,7 @@ When adding a new widget (e.g., `gauge.rs`):
 5. Embed `ViewBase`
 6. Add `#[cfg(test)] mod tests` at bottom
 7. Add theme fields if needed (in `theme.rs` + `theme_json.rs`)
-8. Update `CLAUDE.md` architecture tree
+8. Update `AGENTS.md` architecture tree
 9. Update `TESTING.md` test count table
 
 ### Widget Template

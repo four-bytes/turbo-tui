@@ -240,7 +240,7 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 
 | File | Purpose | When to Read |
 |------|---------|-------------|
-| `CLAUDE.md` | Agent config, conventions, current state | Every session (auto-loaded) |
+| `AGENTS.md` | Agent config, conventions, current state | Every session (auto-loaded) |
 | `ARCHITECTURE.md` | System diagram, module deps, event dispatch, rendering pipeline | When changing event routing, adding widgets, understanding data flow |
 | `STANDARDS.md` | Coding standards, patterns, widget template, commit conventions | When writing new code, reviewing PRs |
 | `TESTING.md` | Test architecture, patterns, naming, what to test | When writing or debugging tests |

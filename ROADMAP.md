@@ -177,7 +177,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 | Document | Path | Purpose |
 |----------|------|---------|
-| CLAUDE.md | `CLAUDE.md` | Agent configuration, conventions, current state |
+| AGENTS.md | `AGENTS.md` | Agent configuration, conventions, current state |
 | HISTORY.md | `HISTORY.md` | Change log (append-only) |
 | v0.2 Plan | `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) |
 | v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) |

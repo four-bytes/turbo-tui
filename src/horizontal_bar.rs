@@ -12,9 +12,9 @@
 //! [`MenuBar`]: crate::menu_bar::MenuBar
 //! [`StatusBar`]: crate::status_bar::StatusBar
 
+use crate::core::Buffer;
+use crate::core::Rect;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 use crate::command::{CommandId, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN};

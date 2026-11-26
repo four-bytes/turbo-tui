@@ -14,11 +14,11 @@
 //! ```
 
 use crate::clip;
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
 use crossterm::event::{KeyCode, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Single-line text input widget.

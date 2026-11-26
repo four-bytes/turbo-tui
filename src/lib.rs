@@ -6,6 +6,9 @@
 // Enable pedantic Clippy lints.
 #![warn(clippy::pedantic)]
 
+// Core type seam (re-exports Ratatui cell/geometry/style types)
+pub mod core;
+
 // Level 0: Foundation
 pub mod command;
 pub mod theme;
@@ -59,6 +62,7 @@ pub mod prelude {
     pub use crate::application::Application;
     pub use crate::command::*;
     pub use crate::container::Container;
+    pub use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect, Style};
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
     pub use crate::editor::Editor;

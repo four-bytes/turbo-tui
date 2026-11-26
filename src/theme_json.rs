@@ -46,8 +46,8 @@
 //! }
 //! ```
 
+use crate::core::{Color, Modifier, Style};
 use crate::theme::{ButtonSide, Theme};
-use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

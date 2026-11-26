@@ -3,9 +3,9 @@
 //! These functions write text to a `Buffer` while respecting a clip rectangle.
 //! Characters outside the clip region are silently skipped.
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
-use ratatui::style::Style;
+use crate::core::Buffer;
+use crate::core::Style;
+use crate::core::{Position, Rect};
 
 /// Write a string to the buffer, clipping to the given rectangle.
 ///
@@ -46,7 +46,7 @@ pub fn set_string_clipped(buf: &mut Buffer, x: u16, y: u16, text: &str, style: S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::style::Color;
+    use crate::core::Color;
 
     #[test]
     fn test_set_string_clipped_full_visible() {

@@ -9,8 +9,8 @@
 //! remain available for backward compatibility.
 
 use crate::command::CommandId;
+use crate::core::Rect;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::Rect;
 
 // ============================================================================
 // Constants for key codes
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_status_bar_from_items() {
-        use ratatui::layout::Rect;
+        use crate::core::Rect;
         let items = vec![
             StatusItem::new("~F1~ Help", CM_CLOSE, KB_F1),
             StatusItem::new("~F2~ Open", CM_CLOSE, KB_F2),
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_type_alias_usable() {
-        use ratatui::layout::Rect;
+        use crate::core::Rect;
         let entries = vec![crate::horizontal_bar::BarEntry::Action {
             label: "~F1~ Help".into(),
             command: CM_CLOSE,

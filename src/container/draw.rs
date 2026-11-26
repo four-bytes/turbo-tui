@@ -1,9 +1,9 @@
 //! Drawing logic for `Container`.
 
 use super::Container;
+use crate::core::Buffer;
+use crate::core::Rect;
 use crate::view::SF_VISIBLE;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 
 impl Container {
     /// Draw all visible children whose bounds intersect `clip`.

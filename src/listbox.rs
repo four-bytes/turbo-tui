@@ -19,11 +19,11 @@
 //! ```
 
 use crate::clip;
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Scrollbar characters used when content exceeds visible area.

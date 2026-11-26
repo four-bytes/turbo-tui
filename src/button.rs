@@ -25,11 +25,11 @@
 //! ```
 
 use crate::command::CommandId;
+use crate::core::Buffer;
+use crate::core::Rect;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 /// Clickable button that emits a command when activated.

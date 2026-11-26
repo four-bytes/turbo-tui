@@ -6,7 +6,7 @@
 //! - Drop target routing through Container
 
 use crossterm::event::{MouseButton, MouseEventKind};
-use ratatui::layout::Rect;
+use turbo_tui::core::Rect;
 use turbo_tui::menu_bar::MenuItem;
 use turbo_tui::menu_box::MenuBox;
 use turbo_tui::overlay::Overlay;
@@ -211,9 +211,9 @@ fn test_window_outside_titlebar_no_drag() {
 /// Test: container routes drop to target with `OF_DROP_TARGET`.
 #[test]
 fn test_drop_routes_to_drop_target() {
-    use ratatui::buffer::Buffer;
     use std::any::Any;
     use std::cell::RefCell;
+    use turbo_tui::core::Buffer;
     use turbo_tui::view::ViewBase;
 
     // A view that accepts drops

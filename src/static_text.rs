@@ -15,10 +15,10 @@
 //! let title = StaticText::centered(Rect::new(0, 0, 40, 1), "Welcome!");
 //! ```
 
+use crate::core::Buffer;
+use crate::core::Rect;
 use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 /// Non-interactive text label.

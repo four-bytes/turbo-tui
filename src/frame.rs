@@ -12,13 +12,13 @@
 //! Frame does NOT manage children — it only draws the border decoration.
 //! Use [`Window`] for a complete window with Frame + interior Container.
 
+use crate::core::Buffer;
+use crate::core::{Color, Style};
+use crate::core::{Position, Rect};
 use crate::scrollbar::ScrollBar;
 use crate::theme::{self, ButtonSide};
 use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
-use ratatui::style::{Color, Style};
 use std::any::Any;
 
 // ============================================================================
@@ -345,7 +345,7 @@ impl ButtonTray {
 ///
 /// ```ignore
 /// use turbo_tui::frame::{Frame, FrameType};
-/// use ratatui::layout::Rect;
+/// use turbo_tui::core::Rect;
 ///
 /// let frame = Frame::new(Rect::new(10, 5, 40, 20), "My Window", FrameType::Window);
 /// assert!(frame.closeable());
@@ -967,7 +967,7 @@ impl Frame {
         col: u16,
         row: u16,
         ch: char,
-        style: ratatui::style::Style,
+        style: crate::core::Style,
         clip: Rect,
     ) -> bool {
         if col < clip.x || col >= clip.x + clip.width || row < clip.y || row >= clip.y + clip.height
@@ -1174,14 +1174,14 @@ impl View for Frame {
 
 /// Styles and characters for drawing a frame.
 struct FrameStyles {
-    frame: ratatui::style::Style,
-    title: ratatui::style::Style,
-    close: ratatui::style::Style,
-    resize: ratatui::style::Style,
-    minimize_style: ratatui::style::Style,
+    frame: crate::core::Style,
+    title: crate::core::Style,
+    close: crate::core::Style,
+    resize: crate::core::Style,
+    minimize_style: crate::core::Style,
     minimize_text: [char; 8],
     minimize_text_len: u8,
-    maximize_style: ratatui::style::Style,
+    maximize_style: crate::core::Style,
     maximize_text: [char; 8],
     maximize_text_len: u8,
     tl: char,
@@ -1193,7 +1193,7 @@ struct FrameStyles {
     close_text: [char; 8],
     close_text_len: u8,
     resize_char: char,
-    title_bar_bg: Option<ratatui::style::Style>,
+    title_bar_bg: Option<crate::core::Style>,
 }
 
 impl Frame {

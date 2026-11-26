@@ -10,12 +10,12 @@
 //! [`Container`] for window rendering and event dispatch.
 
 use crate::container::Container;
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
 use crate::window::Window;
 use crossterm::event::{MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Desktop window manager — background with overlapping windows.
@@ -770,8 +770,8 @@ mod tests {
         let (theme_bg, theme_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
         let cell = buf.cell(Position::new(0, 0)).unwrap();
         assert_eq!(cell.symbol(), theme_char.to_string().as_str());
-        assert_eq!(cell.fg, theme_bg.fg.unwrap_or(ratatui::style::Color::Reset));
-        assert_eq!(cell.bg, theme_bg.bg.unwrap_or(ratatui::style::Color::Reset));
+        assert_eq!(cell.fg, theme_bg.fg.unwrap_or(crate::core::Color::Reset));
+        assert_eq!(cell.bg, theme_bg.bg.unwrap_or(crate::core::Color::Reset));
     }
 
     #[test]

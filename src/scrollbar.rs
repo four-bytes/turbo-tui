@@ -5,9 +5,9 @@
 //! - Track area for page stepping
 //! - Draggable thumb for direct positioning
 
+use crate::core::Buffer;
+use crate::core::Rect;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 use crate::command::CM_SCROLL_CHANGED;
@@ -89,7 +89,7 @@ pub enum ScrollBarVisibility {
 ///
 /// ```ignore
 /// use turbo_tui::scrollbar::{ScrollBar, Orientation};
-/// use ratatui::layout::Rect;
+/// use turbo_tui::core::Rect;
 ///
 /// let mut scrollbar = ScrollBar::vertical(Rect::new(0, 0, 1, 10));
 /// scrollbar.set_params(50, 0, 100, 10, 1);
@@ -734,7 +734,7 @@ impl View for ScrollBar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::buffer::Buffer;
+    use crate::core::Buffer;
 
     #[test]
     fn test_scrollbar_vertical_new() {

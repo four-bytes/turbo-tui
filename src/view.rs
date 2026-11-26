@@ -3,8 +3,8 @@
 //! All UI components in turbo-tui implement the [`View`] trait, following
 //! the Borland Turbo Vision pattern.
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

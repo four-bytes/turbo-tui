@@ -16,7 +16,7 @@
 //! theme::set(Theme::turbo_vision());
 //! ```
 
-use ratatui::style::{Color, Modifier, Style};
+use crate::core::{Color, Modifier, Style};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 

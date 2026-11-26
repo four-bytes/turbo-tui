@@ -8,6 +8,7 @@
 
 ### Refactor
 - Core type seam: new `turbo_tui::core` module re-exporting `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier`, `Style`; all crate/test/example imports now go through it (prepares the own backend, epic #10, issue #13)
+- Own core types: `turbo_tui::core` now provides its own `Rect`, `Position`, `Color`, `Modifier`, `Style`, `Cell` and `Buffer` (Ratatui-compatible API subset, wide-character aware via `unicode-width` + `unicode-segmentation`) behind temporary `From` conversions used by `Application::draw` (epic #10, issue #14)
 
 ## v0.3.2 — 2026-05-26
 

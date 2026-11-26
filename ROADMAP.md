@@ -1,6 +1,6 @@
 # turbo-tui — Roadmap
 
-> Last updated: 2026-05-26
+> Last updated: 2026-11-26
 
 ## Version History
 
@@ -163,7 +163,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 ### Rendering Backend & Runtime (from the FourSix/Sixel discussion, 2026-11)
 
-- **Own backend instead of Ratatui:** turbo-tui only uses `Buffer`, `Rect`, `Style`/`Color` and `Terminal` (diff + output) from Ratatui. Widgets, layouts, `Paragraph` and `Block` are not used, because the Turbo Vision views are our own code. Goal: own `Cell`/`Buffer`/`Rect`/`Style` types, own cell diff (~300 lines), crossterm directly. Ratatui is not kept around as an adapter. Affects the consumer four-code (uses Ratatui types directly) → plan a migration path (see #10).
+- **Own backend instead of Ratatui:** From Ratatui, turbo-tui uses `Buffer`, `Rect`, `Position`, `Style`/`Color`/`Modifier` (views and themes), `Terminal` (diff + output) and `Frame`, which is part of the public API via `Application::draw(&mut Frame)` and must be replaced with an own frame/target type (breaking). Widgets, layouts, `Paragraph` and `Block` are not used, because the Turbo Vision views are our own code. Goal: own `Cell`/`Buffer`/`Rect`/`Style` types, own cell diff (~300 lines), crossterm directly. Ratatui is not kept around as an adapter. Affects the consumer four-code (uses Ratatui types directly) → plan a migration path (see #10).
 - **Canvas trait:** widgets draw via `Canvas` instead of writing buffer cells directly. The canvas provides a metric (width × height of a character) that widgets compute with. Two implementations:
   - `CellCanvas`: unit = cell, metric 1 × 1. This is today's text mode; positioning is cell-wise.
   - `PixelCanvas`: adapter onto the FourSix Engine. Unit = pixel, metric from the font (e.g. 8 × 16). Windows and text are positioned pixel-wise, output via Sixel.

@@ -92,6 +92,8 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - `src/view.rs` (add `dirty_rect` to `ViewBase`)
 - `src/application.rs` (clip rendering to dirty regions)
 
+**Dependency:** Ratatui setzt den Back-Buffer in jedem Frame zurück (`Terminal::swap_buffers` → `reset()`). Wer nur den Dirty Rect zeichnet, bekommt außerhalb davon leere Zellen, und der Diff löscht dort den Inhalt. Deshalb invalidiert `Application` heute bei jedem Key-/Mouse-Event den ganzen Screen, und der Dirty Rect bringt noch nichts. Echte Partial Invalidation braucht einen persistenten Puffer → siehe Future „Eigenes Backend statt Ratatui“.
+
 **Verification**:
 - Test with `cargo run --example demo` over SSH (reduced bandwidth).
 - Ensure `cargo test` passes.
@@ -156,9 +158,16 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 - **Tree widget:** Hierarchical list/tree view with expand/collapse.
 - **Multi-document interface (MDI):** Tabbed windows support.
-- **Channel-Based Events:** Async UI updates via `tokio::mpsc`.
 - **Runtime Theme Editor:** Edit themes at runtime.
 - **Community Controls pattern:** Documented extension pattern for community-contributed View implementations (guide + example).
+
+### Rendering-Backend & Runtime (aus der FourSix-/Sixel-Diskussion, 2026-11)
+
+- **Eigenes Backend statt Ratatui:** turbo-tui nutzt von Ratatui nur `Buffer`, `Rect`, `Style`/`Color` und `Terminal` (Diff + Ausgabe). Widgets, Layouts, `Paragraph` und `Block` werden nicht verwendet, denn die Turbo-Vision-Views sind eigener Code. Ziel: eigene `Cell`/`Buffer`/`Rect`/`Style`-Typen, eigener Zell-Diff (~300 Zeilen), crossterm direkt. Ratatui wird nicht als Adapter weitergeschleppt. Betrifft den Consumer four-code (nutzt Ratatui-Typen direkt) → Migrationspfad mitplanen.
+- **Backend-Schnittstelle:** schmale Grenze „Eingabe liefern / Frame ausgeben“. Implementierungen: Text (Terminal-Zellen), Sixel (Pixel-Surface, Halfblock als Modus), Web (Zustand/Canvas über WebSocket). Layout-Einheit bleibt die Zelle, damit Text, Sixel und Web dieselbe Geometrie sehen.
+- **Persistenter Puffer + Dirty Rects:** Voraussetzung für Partial Invalidation (v0.4.0, Punkt 1) und für bandbreitensparendes Sixel über SSH.
+- **Tokio-Host (optionales Feature `tokio`):** UI-Owner-Task mit `select!` über crossterm `EventStream`, Service-Kanäle (`mpsc` für Commands/Ergebnisse, `watch` für den neuesten Zustand) und einen Render-Tick (`MissedTickBehavior::Skip`, Frame-Cap). Viele parallele Erzeuger, **ein** sequenzieller Verbraucher: Der View-Baum bleibt in einem Task (der Three-Phase-Dispatch ist sequenziell, kein `Send`/Locks nötig). Service-Nachrichten laufen in die bestehende Deferred-Event-Queue. Ersetzt den Punkt „Channel-Based Events“.
+- **Sixel-Engine:** wird zuerst als separates Projekt prototypisiert (Use-Case-Test). Erst danach fällt die Entscheidung, ob sie als Backend in turbo-tui kommt.
 
 ---
 

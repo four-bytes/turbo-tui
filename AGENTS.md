@@ -61,6 +61,7 @@ No Makefile — use cargo directly.
 ## Conventions
 
 ### Code Style
+- **English only:** issues, PRs, commit messages, docs and code comments
 - `unsafe_code = "forbid"` — zero unsafe, no exceptions
 - Clippy pedantic enabled (`clippy::pedantic = warn`)
 - All public items must have doc comments

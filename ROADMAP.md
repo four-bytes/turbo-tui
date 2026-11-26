@@ -1,6 +1,6 @@
 # turbo-tui — Roadmap
 
-> Last updated: 2026-05-26
+> Last updated: 2026-11-26
 
 ## Version History
 
@@ -92,6 +92,8 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - `src/view.rs` (add `dirty_rect` to `ViewBase`)
 - `src/application.rs` (clip rendering to dirty regions)
 
+**Dependency:** Ratatui resets the back buffer every frame (`Terminal::swap_buffers` → `reset()`). Drawing only the dirty rect leaves empty cells everywhere else, and the diff erases the screen there. That is why `Application` currently invalidates the full screen on every key/mouse event, so the dirty rect has no effect yet. Real partial invalidation needs a persistent buffer → see Future "Own backend instead of Ratatui".
+
 **Verification**:
 - Test with `cargo run --example demo` over SSH (reduced bandwidth).
 - Ensure `cargo test` passes.
@@ -156,9 +158,20 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 
 - **Tree widget:** Hierarchical list/tree view with expand/collapse.
 - **Multi-document interface (MDI):** Tabbed windows support.
-- **Channel-Based Events:** Async UI updates via `tokio::mpsc`.
 - **Runtime Theme Editor:** Edit themes at runtime.
 - **Community Controls pattern:** Documented extension pattern for community-contributed View implementations (guide + example).
+
+### Rendering Backend & Runtime (from the FourSix/Sixel discussion, 2026-11)
+
+- **Own backend instead of Ratatui:** From Ratatui, turbo-tui uses `Buffer`, `Rect`, `Position`, `Style`/`Color`/`Modifier` (views and themes), `Terminal` (diff + output) and `Frame`, which is part of the public API via `Application::draw(&mut Frame)` and must be replaced with an own frame/target type (breaking). Widgets, layouts, `Paragraph` and `Block` are not used, because the Turbo Vision views are our own code. Goal: own `Cell`/`Buffer`/`Rect`/`Style` types, own cell diff (~300 lines), crossterm directly. Ratatui is not kept around as an adapter. Affects the consumer four-code (uses Ratatui types directly) → plan a migration path (see #10).
+- **Canvas trait:** widgets draw via `Canvas` instead of writing buffer cells directly. The canvas provides a metric (width × height of a character) that widgets compute with. Two implementations:
+  - `CellCanvas`: unit = cell, metric 1 × 1. This is today's text mode; positioning is cell-wise.
+  - `PixelCanvas`: adapter onto the FourSix Engine. Unit = pixel, metric from the font (e.g. 8 × 16). Windows and text are positioned pixel-wise, output via Sixel.
+- **FourSix Engine (own layer, developed in `four-sixel-lab`):** pixel engine with graphics commands (rect, line, blit), text, clipping, composition and dirty tracking. It knows nothing about terminals: Sixel is one output path of the host; web or a native window would be others. Game engines use it directly, without the workbench.
+- **Order:** (1) own cell backend + `Canvas` trait + `CellCanvas`, migrate widgets, remove Ratatui (#10) → (2) build and measure the engine in `four-sixel-lab` → (3) `PixelCanvas` adapter, turbo-tui windows in Sixel mode
+- **Open points for Sixel mode:** pixel mouse (`DECSET 1016`) in Windows Terminal; no text selection via the terminal (own selection + OSC 52); own fonts/HiDPI; bandwidth over SSH (adaptive fallback to text mode)
+- **Persistent buffer + dirty rects:** prerequisite for partial invalidation (v0.4.0, item 1) and for bandwidth-efficient Sixel over SSH.
+- **Tokio host (optional feature `tokio`):** UI owner task with `select!` over crossterm `EventStream`, service channels (`mpsc` for commands/results, `watch` for latest state) and a render tick (`MissedTickBehavior::Skip`, frame cap). Many parallel producers, **one** sequential consumer: the view tree stays in a single task (three-phase dispatch is sequential; no `Send`/locks needed). Service messages feed into the existing deferred event queue. Replaces the former "Channel-Based Events" item.
 
 ---
 

@@ -164,15 +164,14 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 ### Rendering-Backend & Runtime (aus der FourSix-/Sixel-Diskussion, 2026-11)
 
 - **Eigenes Backend statt Ratatui:** turbo-tui nutzt von Ratatui nur `Buffer`, `Rect`, `Style`/`Color` und `Terminal` (Diff + Ausgabe). Widgets, Layouts, `Paragraph` und `Block` werden nicht verwendet, denn die Turbo-Vision-Views sind eigener Code. Ziel: eigene `Cell`/`Buffer`/`Rect`/`Style`-Typen, eigener Zell-Diff (~300 Zeilen), crossterm direkt. Ratatui wird nicht als Adapter weitergeschleppt. Betrifft den Consumer four-code (nutzt Ratatui-Typen direkt) → Migrationspfad mitplanen.
-- **Backend-Schnittstelle:** schmale Grenze „Eingabe liefern / Frame ausgeben“. Primär der Text-Renderer (Terminal-Zellen). Die UI bleibt textbasiert, es gibt **keinen** kompletten Pixel-Renderer der Oberfläche. Optional später: Web-Spiegelung desselben Zellmodells über WebSocket.
+- **Canvas-Trait:** Widgets zeichnen über `Canvas` statt direkt in Pufferzellen. Der Canvas liefert eine Metrik (Breite × Höhe eines Zeichens), mit der Widgets rechnen. Zwei Umsetzungen:
+  - `CellCanvas`: Einheit Zelle, Metrik 1 × 1. Das ist der heutige Textmodus, positioniert wird zellenweise.
+  - `PixelCanvas`: Adapter auf die FourSix Engine. Einheit Pixel, Metrik aus dem Font (z. B. 8 × 16). Fenster und Text werden pixelweise positioniert, Ausgabe per Sixel.
+- **FourSix Engine (eigene Schicht, entsteht in `four-sixel-lab`):** Pixel-Engine mit Grafikbefehlen (Rechteck, Linie, Blit), Text, Clipping, Komposition und Dirty-Tracking. Sie kennt kein Terminal: Sixel ist ein Ausgabeweg des Hosts, Web oder ein natives Fenster wären weitere. Spiel-Engines nutzen sie direkt, ohne Workbench.
+- **Reihenfolge:** (1) eigenes Zell-Backend + `Canvas`-Trait + `CellCanvas`, Widgets umstellen, Ratatui entfernen → (2) Engine in `four-sixel-lab` bauen und messen → (3) `PixelCanvas`-Adapter, turbo-tui-Fenster im Sixel-Modus
+- **Offene Punkte für den Sixel-Modus:** Pixel-Maus (`DECSET 1016`) in Windows Terminal, keine Textauswahl über das Terminal (eigene Auswahl + OSC 52), eigene Fonts/HiDPI, Bandbreite über SSH (adaptives Zurückschalten in den Textmodus)
 - **Persistenter Puffer + Dirty Rects:** Voraussetzung für Partial Invalidation (v0.4.0, Punkt 1) und für bandbreitensparendes Sixel über SSH.
 - **Tokio-Host (optionales Feature `tokio`):** UI-Owner-Task mit `select!` über crossterm `EventStream`, Service-Kanäle (`mpsc` für Commands/Ergebnisse, `watch` für den neuesten Zustand) und einen Render-Tick (`MissedTickBehavior::Skip`, Frame-Cap). Viele parallele Erzeuger, **ein** sequenzieller Verbraucher: Der View-Baum bleibt in einem Task (der Three-Phase-Dispatch ist sequenziell, kein `Send`/Locks nötig). Service-Nachrichten laufen in die bestehende Deferred-Event-Queue. Ersetzt den Punkt „Channel-Based Events“.
-- **Pixel-Layer (optional, Feature `sixel`):** eine Grafikschicht nur für einzelne Fenster mit Pixelinhalt (Spiel, Graph, Bild), nicht für die UI. Eine `PixelSurface`-View liefert RGBA-Frames für ihr Zellrechteck. Der Host gibt zuerst den Zell-Diff aus und danach die Sixel-Bilder darüber. Zellen, die zu einer Pixelfläche gehören, überspringt der Diff.
-  - Fallback-Kette: Sixel → Halfblock (`▀`, 2 Pixel pro Zelle) → Platzhalter bzw. Text-Fallback der View
-  - Verdeckung: Wird die Fläche von einem Fenster, Dropdown oder Overlay überlagert, wird das Bild auf den sichtbaren Bereich zugeschnitten oder für diese Zeit auf Halfblock umgeschaltet
-  - Freie, pixelgenaue Position: Ein Sixel-Bild beginnt immer an einer Zelle, deshalb wird mit Pixel-Offset in einen zellausgerichteten Container gerendert. Den Rand füllt die Hintergrundfarbe oder Sixel-Transparenz, je nach Terminal
-  - Eigener Takt pro Fläche, Encoding im Worker, „neuester Frame gewinnt“ (keine Queue)
-  - Wird zuerst in `four-sixel-lab` gemessen und geprüft
 
 ---
 

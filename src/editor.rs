@@ -19,6 +19,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::canvas::Canvas;
 use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use std::any::Any;
@@ -365,7 +366,9 @@ impl View for Editor {
         self.memo.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         self.draw_highlighted(buf, clip);
     }
 
@@ -598,7 +601,10 @@ mod tests {
         let mut editor = Editor::new(Rect::new(0, 0, 20, 5));
         editor.memo = Memo::new(Rect::new(0, 0, 20, 5)).with_text("Test Content");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 10));
-        editor.draw(&mut buf, Rect::new(0, 0, 30, 10));
+        editor.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 30, 10),
+        );
         // Should not panic
     }
 }

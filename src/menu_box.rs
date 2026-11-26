@@ -5,7 +5,7 @@
 //!
 //! [`MenuBar`]: crate::menu_bar::MenuBar
 
-use crate::core::Buffer;
+use crate::canvas::Canvas;
 use crate::core::Rect;
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use std::any::Any;
@@ -226,7 +226,9 @@ impl View for MenuBox {
     }
 
     #[allow(clippy::similar_names)]
-    fn draw(&self, buf: &mut Buffer, _clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, _clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         let area = self.base.bounds();
         if area.width < 4 || area.height < 3 {
             return;
@@ -442,6 +444,7 @@ impl View for MenuBox {
 mod tests {
     use super::*;
     use crate::command::{CM_NEW, CM_OPEN, CM_QUIT, CM_SAVE};
+    use crate::core::Buffer;
     use crossterm::event::{
         KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseEvent,
     };
@@ -587,7 +590,7 @@ mod tests {
         let bounds = MenuBox::calculate_bounds(0, 0, &items);
         let mut buf = Buffer::empty(bounds);
         let menu = MenuBox::new(bounds, items);
-        menu.draw(&mut buf, bounds);
+        menu.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Top-left corner
         assert_eq!(buf[(0, 0)].symbol(), "┌");

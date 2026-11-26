@@ -11,7 +11,7 @@
 mod dispatch;
 mod draw;
 
-use crate::core::Buffer;
+use crate::canvas::Canvas;
 use crate::core::{Position, Rect};
 #[allow(unused_imports)]
 use crate::view::{
@@ -345,8 +345,8 @@ impl View for Container {
         }
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
-        self.draw_children(buf, clip);
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        self.draw_children(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -449,7 +449,7 @@ mod tests {
             self.base.set_bounds(bounds);
         }
 
-        fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+        fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
 
         fn handle_event(&mut self, event: &mut Event) {
             let name = match &event.kind {
@@ -816,7 +816,7 @@ mod tests {
         fn set_bounds(&mut self, b: Rect) {
             self.base.set_bounds(b);
         }
-        fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+        fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
         fn handle_event(&mut self, event: &mut Event) {
             let name = match &event.kind {
                 EventKind::Key(_) => "key",

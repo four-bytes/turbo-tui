@@ -9,6 +9,7 @@
 //! Desktop draws the background first, then delegates to its internal
 //! [`Container`] for window rendering and event dispatch.
 
+use crate::canvas::Canvas;
 use crate::container::Container;
 use crate::core::Buffer;
 use crate::core::{Position, Rect};
@@ -402,11 +403,14 @@ impl View for Desktop {
         }
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
-        // 1. Background
-        self.draw_background(buf, clip);
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // 1. Background — S4 escape hatch
+        {
+            let buf = canvas.buffer_mut();
+            self.draw_background(buf, clip);
+        }
         // 2. Windows (Container handles Z-order)
-        self.windows.draw(buf, clip);
+        self.windows.draw(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -701,7 +705,7 @@ mod tests {
         let mut buf = Buffer::empty(bounds);
         let desktop = Desktop::new(bounds);
 
-        desktop.draw(&mut buf, bounds);
+        desktop.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Verify the buffer has the current theme's background character
         let bg_char = theme::with_current(|t| t.desktop_char);
@@ -762,7 +766,7 @@ mod tests {
         let mut buf = Buffer::empty(bounds);
         let desktop = Desktop::new(bounds);
 
-        desktop.draw(&mut buf, bounds);
+        desktop.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // The buffer cells should reflect the theme's desktop background.
         // Compare fg/bg only — Ratatui cells carry an extra underline_color(Reset)

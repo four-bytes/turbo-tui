@@ -213,7 +213,7 @@ fn test_window_outside_titlebar_no_drag() {
 fn test_drop_routes_to_drop_target() {
     use std::any::Any;
     use std::cell::RefCell;
-    use turbo_tui::core::Buffer;
+    use turbo_tui::canvas::Canvas;
     use turbo_tui::view::ViewBase;
 
     // A view that accepts drops
@@ -244,7 +244,7 @@ fn test_drop_routes_to_drop_target() {
         fn set_bounds(&mut self, r: Rect) {
             self.base.set_bounds(r);
         }
-        fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+        fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
         fn handle_event(&mut self, _event: &mut Event) {}
         fn handle_drop(&mut self, _payload: Box<dyn Any>) -> bool {
             *self.accepted.borrow_mut() = true;

@@ -5,7 +5,7 @@
 //! - Track area for page stepping
 //! - Draggable thumb for direct positioning
 
-use crate::core::Buffer;
+use crate::canvas::Canvas;
 use crate::core::Rect;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::any::Any;
@@ -567,7 +567,9 @@ impl View for ScrollBar {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn draw(&self, buf: &mut Buffer, area: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, area: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         // Don't draw if hidden
         if !self.is_visible() {
             return;
@@ -802,7 +804,10 @@ mod tests {
         scrollbar.set_params(25, 0, 100, 10, 1);
 
         let mut buf = Buffer::empty(Rect::new(0, 0, 2, 6));
-        scrollbar.draw(&mut buf, Rect::new(0, 0, 2, 6));
+        scrollbar.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 2, 6),
+        );
 
         // Check up arrow at row 0
         assert_eq!(buf[(0, 0)].symbol(), V_UP.to_string().as_str());
@@ -823,7 +828,10 @@ mod tests {
         scrollbar.set_params(50, 0, 100, 10, 1);
 
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 2));
-        scrollbar.draw(&mut buf, Rect::new(0, 0, 10, 2));
+        scrollbar.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 10, 2),
+        );
 
         // Check left arrow at column 0
         assert_eq!(buf[(0, 0)].symbol(), H_LEFT.to_string().as_str());

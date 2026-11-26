@@ -18,6 +18,7 @@ pub mod theme;
 pub mod theme_json;
 
 // Level 1: View abstraction
+pub mod canvas;
 pub mod view;
 
 // Clip-aware rendering utilities (crate-internal)
@@ -63,6 +64,7 @@ pub mod syntax;
 /// Prelude — import this for quick access to common types.
 pub mod prelude {
     pub use crate::application::Application;
+    pub use crate::canvas::{Canvas, CellCanvas};
     pub use crate::command::*;
     pub use crate::container::Container;
     pub use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect, Style};

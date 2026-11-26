@@ -32,6 +32,7 @@
 //! 5. Application handles unhandled commands (`CM_QUIT`, `CM_CLOSE`)
 //! 6. Process deferred event queue
 
+use crate::canvas::Canvas;
 use crate::command::{
     CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DRAG_END, CM_DRAG_MOVE,
     CM_DRAG_START, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
@@ -89,7 +90,7 @@ use std::any::Any;
 /// let mut terminal = Terminal::new(std::io::stdout(), 80, 24);
 ///
 /// // In your event loop:
-/// terminal.draw(|buf| app.draw(buf))?;
+/// terminal.draw(|buf| app.draw(&mut turbo_tui::canvas::CellCanvas::new(buf)))?;
 /// app.handle_crossterm_event(crossterm::event::read()?);
 /// if !app.is_running() { break; }
 /// ```
@@ -336,12 +337,12 @@ impl Application {
     /// cursor when no overlay is active, otherwise `None`.
     ///
     /// [`invalidate_rect`]: Application::invalidate_rect
-    pub fn draw(&mut self, buffer: &mut crate::core::Buffer) -> Option<crate::core::Position> {
-        let area = buffer.area;
+    pub fn draw(&mut self, canvas: &mut dyn Canvas) -> Option<crate::core::Position> {
+        let area = canvas.area();
         // Use the accumulated dirty rect, or fall back to full area
         let clip = self.dirty_rect.unwrap_or(area);
 
-        // Collect cursor position before borrowing the buffer
+        // Collect cursor position before dispatching draws
         let cursor_pos: Option<Position> = if self.overlay_manager.is_empty() {
             self.desktop.cursor_position()
         } else {
@@ -349,20 +350,20 @@ impl Application {
         };
 
         // 1. Desktop (background + windows) — clipped to dirty region
-        self.desktop.draw(buffer, clip);
+        self.desktop.draw(canvas, clip);
 
         // 2. Menu bar (top row) — clipped to dirty region
         if let Some(ref mb) = self.menu_bar {
-            mb.draw(buffer, clip);
+            mb.draw(canvas, clip);
         }
 
         // 3. Status bar (bottom row) — clipped to dirty region
         if let Some(ref sl) = self.status_bar {
-            sl.draw(buffer, clip);
+            sl.draw(canvas, clip);
         }
 
         // 4. Overlays (above everything) — clipped to dirty region
-        self.overlay_manager.draw(buffer, clip);
+        self.overlay_manager.draw(canvas, clip);
 
         // 5. Clear dirty rect — everything has been redrawn
         self.dirty_rect = None;
@@ -1403,7 +1404,7 @@ mod tests {
 
     #[test]
     fn test_desktop_cursor_position_propagates_from_focused_child() {
-        use crate::core::Buffer;
+        use crate::canvas::Canvas;
         use crate::view::{View, ViewBase, ViewId, OF_SELECTABLE};
         use std::any::Any;
 
@@ -1423,7 +1424,7 @@ mod tests {
             fn set_bounds(&mut self, b: Rect) {
                 self.base.set_bounds(b);
             }
-            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
             fn handle_event(&mut self, _event: &mut Event) {}
             fn can_focus(&self) -> bool {
                 true
@@ -1509,7 +1510,7 @@ mod tests {
         assert!(app.dirty_rect.is_some());
 
         let mut terminal = TestTerminal::new(80, 24);
-        terminal.draw(|buf| app.draw(buf));
+        terminal.draw(|buf| app.draw(&mut crate::canvas::CellCanvas::new(buf)));
 
         // After draw, dirty_rect must be cleared
         assert!(app.dirty_rect.is_none());
@@ -1534,7 +1535,7 @@ mod tests {
 
     #[test]
     fn test_draw_narrows_clip_to_dirty_rect() {
-        use crate::core::Buffer;
+        use crate::canvas::Canvas;
         use crate::terminal::TestTerminal;
         use crate::view::{ViewBase, OF_SELECTABLE};
         use std::sync::Mutex;
@@ -1564,7 +1565,7 @@ mod tests {
             fn set_state(&mut self, s: u16) {
                 self.base.set_state(s);
             }
-            fn draw(&self, _buf: &mut Buffer, clip: Rect) {
+            fn draw(&self, _canvas: &mut dyn Canvas, clip: Rect) {
                 let mut guard = self.recorded.lock().unwrap();
                 *guard = Some(clip);
             }
@@ -1598,7 +1599,7 @@ mod tests {
         app.invalidate_rect(Rect::new(5, 5, 30, 10));
 
         let mut terminal = TestTerminal::new(80, 24);
-        terminal.draw(|buf| app.draw(buf));
+        terminal.draw(|buf| app.draw(&mut crate::canvas::CellCanvas::new(buf)));
 
         // The clip rect passed to the view should be restricted to the
         // intersection of the dirty rect and the window area

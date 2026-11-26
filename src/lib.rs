@@ -36,6 +36,9 @@ pub mod application;
 pub mod dialog;
 pub mod overlay;
 
+// Terminal backend: persistent buffers, diffing and crossterm output
+pub mod terminal;
+
 // Level 5: Widgets
 pub mod button;
 pub mod input_line;
@@ -74,6 +77,7 @@ pub mod prelude {
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
     pub use crate::scrollbar::{Orientation, ScrollBar, ScrollBarVisibility};
     pub use crate::syntax::{PlainTextHighlighter, RustHighlighter, SyntaxHighlighter};
+    pub use crate::terminal::{Terminal, TestTerminal};
     pub use crate::theme::{self, ButtonSide};
     pub use crate::view::{
         Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_DROP_TARGET, OF_POST_PROCESS,

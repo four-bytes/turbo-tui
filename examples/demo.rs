@@ -21,12 +21,14 @@
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        disable_raw_mode, enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen,
+    },
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::{Duration, Instant};
 use turbo_tui::core::Rect;
+use turbo_tui::terminal::Terminal;
 use turbo_tui::{
     application::Application,
     button::Button,
@@ -52,26 +54,22 @@ fn main() -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let (width, height) = size()?;
+    let mut terminal = Terminal::new(io::stdout(), width, height);
 
     // Run app
     let result = run_app(&mut terminal);
 
     // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
     terminal.show_cursor()?;
+    disable_raw_mode()?;
+    execute!(stdout, LeaveAlternateScreen, DisableMouseCapture)?;
 
     result
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
-    let size = terminal.size()?;
+fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
+    let (width, height) = terminal.size();
 
     // ── Theme initialization ───────────────────────────────────────────
     // 1. Register built-in Turbo Vision theme
@@ -94,7 +92,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
     // Snapshot theme names for menu building and command handling
     let theme_names = theme::registered_names();
 
-    let mut app = Application::new(Rect::new(0, 0, size.width, size.height));
+    let mut app = Application::new(Rect::new(0, 0, width, height));
 
     // Setup menu bar (needs theme_names for dynamic theme submenu)
     setup_menu_bar(&mut app, &theme_names);
@@ -107,9 +105,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
 
     // ── Event loop ─────────────────────────────────────────────────────
     // Draw once before entering the loop so the initial frame is visible.
-    terminal.draw(|frame| {
-        app.draw(frame);
-    })?;
+    terminal.draw(|buf| app.draw(buf))?;
 
     // Target frame budget (~60 fps). When a burst of events is pending, the
     // whole queue is drained and dispatched as one batch, then a single frame
@@ -129,11 +125,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 events.push(event::read()?);
             }
 
-            // Handle Alt+X quit and F2 theme cycle before dispatching.
+            // Handle Alt+X quit, F2 theme cycle and terminal resizes before
+            // dispatching.
             let mut quit = false;
             for ct_event in &events {
-                if let event::Event::Key(key) = ct_event {
-                    if key.kind == event::KeyEventKind::Press {
+                match ct_event {
+                    event::Event::Key(key) if key.kind == event::KeyEventKind::Press => {
                         if key.code == KeyCode::Char('x')
                             && key.modifiers.contains(KeyModifiers::ALT)
                         {
@@ -145,6 +142,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                             let _ = theme::cycle_next_registered();
                         }
                     }
+                    event::Event::Resize(w, h) => terminal.resize(*w, *h)?,
+                    _ => {}
                 }
             }
 
@@ -170,9 +169,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
             }
 
             // Draw exactly once for the whole batch.
-            terminal.draw(|frame| {
-                app.draw(frame);
-            })?;
+            terminal.draw(|buf| app.draw(buf))?;
 
             // Enforce the frame cap: sleep whatever is left of the budget.
             if let Some(remaining) = frame_budget.checked_sub(frame_start.elapsed()) {

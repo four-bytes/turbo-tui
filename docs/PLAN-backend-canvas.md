@@ -1,6 +1,6 @@
 # Plan — Own Cell Backend + Canvas Trait, Remove Ratatui (Epic #10)
 
-> Status: planning · Created: 2026-11-26 · Epic: #10 · Roadmap: ROADMAP.md → Future → "Rendering Backend & Runtime", step (1)
+> Status: planned · Created: 2026-11-26 · Epic: #10 · Sub-issues: #13–#21, four-code #6/#7 · Roadmap: ROADMAP.md → Future → "Rendering Backend & Runtime", step (1)
 
 ## Goal
 
@@ -62,22 +62,22 @@ Order is strict (one branch at a time). Each is ≤ 5 steps.
 
 | # | Title | Depends on | Breaking |
 |---|---|---|---|
-| S1 | `[REFACTOR]` Core type seam: `turbo_tui::core` re-exports, switch all imports | #7 merged | no |
-| S2 | `[REFACTOR]` Own core types: `Rect`, `Position`, `Style`/`Color`/`Modifier`, `Cell`, `Buffer` | S1 | no (same API) |
-| S3 | `[FEAT]` Own terminal backend: persistent buffers, diff, crossterm output, test backend | S2 | **yes** (`Application::draw`) |
-| S4 | `[REFACTOR]` `Canvas` trait + `CellCanvas`, new `View::draw` signature (with escape hatch) | S3 | **yes** (`View::draw`) |
-| S5a | `[REFACTOR]` Migrate core views to `Canvas`: frame, window, desktop, container, overlay, dialog, application | S4 | no |
-| S5b | `[REFACTOR]` Migrate bars and menus: horizontal_bar, menu_box, menu_bar, status_bar | S4 | no |
-| S5c | `[REFACTOR]` Migrate widgets: button, static_text, input_line, listbox, scrollbar, msgbox | S4 | no |
-| S5d | `[REFACTOR]` Migrate editor, memo, syntax | S4 | no |
-| S6 | `[CHORE]` Remove escape hatch + `ratatui` dependency, docs, migration notes, version bump | S5a–d | — |
+| S1 (#13) | `[REFACTOR]` Core type seam: `turbo_tui::core` re-exports, switch all imports | #7 merged | no |
+| S2 (#14) | `[REFACTOR]` Own core types: `Rect`, `Position`, `Style`/`Color`/`Modifier`, `Cell`, `Buffer` | S1 (#13) | no (same API) |
+| S3 (#15) | `[FEAT]` Own terminal backend: persistent buffers, diff, crossterm output, test backend | S2 (#14) | **yes** (`Application::draw`) |
+| S4 (#16) | `[REFACTOR]` `Canvas` trait + `CellCanvas`, new `View::draw` signature (with escape hatch) | S3 (#15) | **yes** (`View::draw`) |
+| S5a (#17) | `[REFACTOR]` Migrate core views to `Canvas`: frame, window, desktop, container, overlay, dialog, application | S4 (#16) | no |
+| S5b (#18) | `[REFACTOR]` Migrate bars and menus: horizontal_bar, menu_box, menu_bar, status_bar | S4 (#16) | no |
+| S5c (#19) | `[REFACTOR]` Migrate widgets: button, static_text, input_line, listbox, scrollbar, msgbox | S4 (#16) | no |
+| S5d (#20) | `[REFACTOR]` Migrate editor, memo, syntax | S4 (#16) | no |
+| S6 (#21) | `[CHORE]` Remove escape hatch + `ratatui` dependency, docs, migration notes, version bump | S5a–d | — |
 
 Consumer issues in **four-code** (separate repo):
 
 | # | Title | After |
 |---|---|---|
-| F1 | Switch imports to `turbo_tui` core types; replace `Paragraph::new` with `draw_text`/`set_string`; own split logic instead of `Layout` in `panel.rs`; highlight styles on turbo-tui `Style` | S1 (works against re-exports already) |
-| F2 | Main loop on turbo-tui `Terminal`; `View::draw` on `Canvas` for four-code views | S4 |
+| F1 (four-code#6) | Switch imports to `turbo_tui` core types; replace `Paragraph::new` with `draw_text`/`set_string`; own split logic instead of `Layout` in `panel.rs`; highlight styles on turbo-tui `Style` | S1 (works against re-exports already) |
+| F2 (four-code#7) | Main loop on turbo-tui `Terminal`; `View::draw` on `Canvas` for four-code views | S4 (#16) |
 
 ### S1 — Core type seam
 - New module `src/core.rs`: `pub use ratatui::{buffer::{Buffer, Cell}, layout::{Position, Rect}, style::{Color, Modifier, Style}};`
@@ -125,8 +125,8 @@ Consumer issues in **four-code** (separate repo):
 | four-code breaks between S3 and F2 | four-code pins a turbo-tui git rev/tag until F2 is done |
 | Scope creep into metric-aware views | Explicitly out of scope (decision 5) |
 
-## Open decisions
+## Decisions (2026-11-26)
 
-1. **Version**: fold this into the planned v0.4.0 (partial invalidation depends on it) or release it as its own breaking version?
-2. **Module name** `turbo_tui::core` — ok, or e.g. `turbo_tui::render`?
-3. **`Application::draw` target**: `&mut Buffer` (consumer owns the `Terminal`) or `render(&mut Terminal)` (turbo-tui owns output)? Recommendation: `&mut Buffer` now; a host/runtime that owns the terminal comes with the Tokio host.
+1. **Version**: API break accepted; released as **v0.4.0** (partial invalidation depends on it).
+2. **Module name**: `turbo_tui::core`. Inside the crate always refer to it as `crate::core::…` (a root module named `core` shadows the built-in `core` crate in root-level `use core::…`).
+3. **`Application::draw` target**: `&mut Buffer` — the consumer owns the `Terminal`; a runtime that owns output comes with the Tokio host.

@@ -27,9 +27,7 @@ use crate::clip;
 use crate::memo::Memo;
 use crate::syntax::{PlainTextHighlighter, SyntaxHighlighter};
 use crate::theme;
-use crate::view::{
-    Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED,
-};
+use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Text editor combining `Memo` with file I/O and syntax highlighting.
@@ -467,8 +465,7 @@ mod tests {
     #[test]
     fn test_editor_search() {
         let mut editor = Editor::new(Rect::new(0, 0, 30, 10));
-        editor.memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello World\nHello Again");
+        editor.memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello World\nHello Again");
 
         let matches = editor.search("Hello");
         assert_eq!(matches.len(), 2);
@@ -479,8 +476,7 @@ mod tests {
     #[test]
     fn test_editor_search_no_matches() {
         let mut editor = Editor::new(Rect::new(0, 0, 30, 10));
-        editor.memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello World");
+        editor.memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello World");
 
         let matches = editor.search("xyz");
         assert!(matches.is_empty());
@@ -489,8 +485,7 @@ mod tests {
     #[test]
     fn test_editor_replace() {
         let mut editor = Editor::new(Rect::new(0, 0, 30, 10));
-        editor.memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello World\nHello Again");
+        editor.memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello World\nHello Again");
 
         let count = editor.replace("Hello", "Hi");
         assert_eq!(count, 2);
@@ -500,8 +495,7 @@ mod tests {
     #[test]
     fn test_editor_replace_no_matches() {
         let mut editor = Editor::new(Rect::new(0, 0, 30, 10));
-        editor.memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello World");
+        editor.memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello World");
 
         let count = editor.replace("xyz", "abc");
         assert_eq!(count, 0);
@@ -544,8 +538,7 @@ mod tests {
     #[test]
     fn test_editor_content_size_hint() {
         let mut editor = Editor::new(Rect::new(0, 0, 30, 10));
-        editor.memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Line 1\nLine 2\nLine 3");
+        editor.memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Line 1\nLine 2\nLine 3");
 
         let (w, h) = editor.content_size_hint().unwrap();
         assert_eq!(h, 3);
@@ -603,8 +596,7 @@ mod tests {
     #[test]
     fn test_editor_draw() {
         let mut editor = Editor::new(Rect::new(0, 0, 20, 5));
-        editor.memo = Memo::new(Rect::new(0, 0, 20, 5))
-            .with_text("Test Content");
+        editor.memo = Memo::new(Rect::new(0, 0, 20, 5)).with_text("Test Content");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 10));
         editor.draw(&mut buf, Rect::new(0, 0, 30, 10));
         // Should not panic

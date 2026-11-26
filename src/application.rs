@@ -32,9 +32,8 @@
 //! 6. Process deferred event queue
 
 use crate::command::{
-    CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DROPDOWN_CLOSED,
-    CM_DROPDOWN_NAVIGATE, CM_DRAG_END, CM_DRAG_MOVE, CM_DRAG_START, CM_OPEN_DROPDOWN, CM_QUIT,
-    CM_TILE,
+    CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DRAG_END, CM_DRAG_MOVE,
+    CM_DRAG_START, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
 };
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
@@ -46,8 +45,6 @@ use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
 use ratatui::layout::{Position, Rect};
 use std::any::Any;
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 
 /// Application — central orchestrator for a turbo-tui program.
 ///
@@ -107,8 +104,6 @@ pub struct Application {
     running: bool,
     /// Last unhandled command (for the consumer to read).
     last_unhandled_command: Option<CommandId>,
-    /// Thread-safe queue for externally posted events (from background tasks).
-    deferred_events: Arc<Mutex<VecDeque<Event>>>,
     /// Items to display in a context menu.
     context_menu_items: Vec<MenuItem>,
     /// Last known mouse position (for context menu placement).
@@ -141,7 +136,6 @@ impl Application {
             overlay_manager: OverlayManager::new(screen_size.width, screen_size.height),
             running: true,
             last_unhandled_command: None,
-            deferred_events: Arc::new(Mutex::new(VecDeque::new())),
             context_menu_items: Vec::new(),
             last_mouse_pos: Position::ORIGIN,
             drag_origin: None,
@@ -380,7 +374,7 @@ impl Application {
     // Event handling
     // -------------------------------------------------------------------------
 
-    /// Handle a raw crossterm event.
+    /// Handle a single raw crossterm event.
     ///
     /// Converts the crossterm event to a turbo-tui [`Event`] and dispatches it
     /// through the view hierarchy.
@@ -390,11 +384,59 @@ impl Application {
     /// - Resize events: calls [`resize`] then broadcasts a resize event.
     /// - All other events (`FocusGained`, `FocusLost`, Paste): ignored.
     ///
+    /// For a burst of already-queued events (e.g. fast mouse motion) prefer
+    /// [`handle_crossterm_events`](Application::handle_crossterm_events), which
+    /// coalesces motion events and lets the caller draw a single frame.
+    ///
     /// [`resize`]: Application::resize
     pub fn handle_crossterm_event(&mut self, ct_event: &crossterm::event::Event) {
         // Clear any previous unhandled command
         self.last_unhandled_command = None;
+        self.dispatch_crossterm_event(ct_event);
+    }
 
+    /// Handle a batch of raw crossterm events in one pass.
+    ///
+    /// Consecutive mouse motion events (`Moved` / `Drag`) are coalesced with
+    /// [`coalesce_mouse_motion_events`], so only the last position of each run
+    /// is dispatched. Key, button (`Down` / `Up`), scroll and resize events are
+    /// preserved complete and in order.
+    ///
+    /// Draining the whole pending queue and dispatching it as one batch before
+    /// a single redraw prevents drag/resize from trailing behind the cursor
+    /// when motion events arrive faster than frames are drawn:
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use crossterm::event;
+    /// # fn pump(app: &mut turbo_tui::application::Application) -> std::io::Result<()> {
+    /// loop {
+    ///     // Block for the first event (frame cap ~60 fps).
+    ///     if event::poll(Duration::from_millis(16))? {
+    ///         let mut events = vec![event::read()?];
+    ///         // Drain everything already queued without blocking.
+    ///         while event::poll(Duration::ZERO)? {
+    ///             events.push(event::read()?);
+    ///         }
+    ///         app.handle_crossterm_events(&events);
+    ///         // ... draw exactly once here ...
+    ///     }
+    /// }
+    /// # }
+    /// ```
+    ///
+    /// The draw call is omitted above; call [`draw`](Application::draw) once
+    /// after the batch.
+    pub fn handle_crossterm_events(&mut self, events: &[crossterm::event::Event]) {
+        // Clear any previous unhandled command once for the whole batch.
+        self.last_unhandled_command = None;
+        for ct_event in coalesce_mouse_motion_events(events) {
+            self.dispatch_crossterm_event(&ct_event);
+        }
+    }
+
+    /// Dispatch one raw crossterm event without resetting the unhandled command.
+    fn dispatch_crossterm_event(&mut self, ct_event: &crossterm::event::Event) {
         match ct_event {
             crossterm::event::Event::Key(key) => {
                 if key.kind == crossterm::event::KeyEventKind::Press {
@@ -657,11 +699,8 @@ impl Application {
 
         self.invalidate_rect(self.screen_size);
         let items = self.context_menu_items.clone();
-        let menu_bounds = MenuBox::calculate_bounds(
-            self.last_mouse_pos.x,
-            self.last_mouse_pos.y,
-            &items,
-        );
+        let menu_bounds =
+            MenuBox::calculate_bounds(self.last_mouse_pos.x, self.last_mouse_pos.y, &items);
         let screen = Rect::new(0, 0, self.screen_size.width, self.screen_size.height);
 
         let (overlay_rect, _actual_dir) = calculate_overlay_bounds(
@@ -841,6 +880,60 @@ impl Application {
         // Desktop occupies the remaining area
         self.desktop
             .set_bounds(Rect::new(s.x, desktop_y, s.width, desktop_h));
+    }
+}
+
+// ============================================================================
+// Event coalescing
+// ============================================================================
+
+/// Coalesce consecutive mouse motion events into a single event per run.
+///
+/// Any maximal run of consecutive events of the same kind that are either
+/// [`MouseEventKind::Moved`] or [`MouseEventKind::Drag`] is reduced to its last
+/// event, so only the most recent cursor position is dispatched. Every other
+/// event — keys, button [`MouseEventKind::Down`] / [`MouseEventKind::Up`],
+/// scroll and resize — is preserved unchanged and keeps its position, splitting
+/// motion runs.
+///
+/// This is a pure function: it performs no I/O and does not touch the terminal,
+/// which makes it unit-testable without a real event source.
+///
+/// [`MouseEventKind::Moved`]: crossterm::event::MouseEventKind::Moved
+/// [`MouseEventKind::Drag`]: crossterm::event::MouseEventKind::Drag
+/// [`MouseEventKind::Down`]: crossterm::event::MouseEventKind::Down
+/// [`MouseEventKind::Up`]: crossterm::event::MouseEventKind::Up
+#[must_use]
+pub fn coalesce_mouse_motion_events(
+    events: &[crossterm::event::Event],
+) -> Vec<crossterm::event::Event> {
+    let mut coalesced: Vec<crossterm::event::Event> = Vec::with_capacity(events.len());
+    for ev in events {
+        if let Some(kind) = motion_kind(ev) {
+            if let Some(last) = coalesced.last_mut() {
+                if motion_kind(last) == Some(kind) {
+                    *last = ev.clone();
+                    continue;
+                }
+            }
+        }
+        coalesced.push(ev.clone());
+    }
+    coalesced
+}
+
+/// Return the kind of a mouse motion event, or `None` for anything else.
+fn motion_kind(ev: &crossterm::event::Event) -> Option<crossterm::event::MouseEventKind> {
+    match ev {
+        crossterm::event::Event::Mouse(mouse)
+            if matches!(
+                mouse.kind,
+                crossterm::event::MouseEventKind::Moved | crossterm::event::MouseEventKind::Drag(_)
+            ) =>
+        {
+            Some(mouse.kind)
+        }
+        _ => None,
     }
 }
 
@@ -1409,8 +1502,8 @@ mod tests {
 
     #[test]
     fn test_draw_clears_dirty_rect() {
-        use ratatui::Terminal;
         use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
 
         let mut app = Application::new(screen());
         app.invalidate_rect(Rect::new(5, 5, 10, 10));
@@ -1444,14 +1537,13 @@ mod tests {
     #[test]
     fn test_draw_narrows_clip_to_dirty_rect() {
         use crate::view::{ViewBase, OF_SELECTABLE};
+        use ratatui::backend::TestBackend;
         use ratatui::buffer::Buffer;
         use ratatui::Terminal;
-        use ratatui::backend::TestBackend;
         use std::sync::Mutex;
 
         // Track the clip rect that was actually passed to child views
-        let last_clip: std::sync::Arc<Mutex<Option<Rect>>> =
-            std::sync::Arc::new(Mutex::new(None));
+        let last_clip: std::sync::Arc<Mutex<Option<Rect>>> = std::sync::Arc::new(Mutex::new(None));
 
         // A custom view that records the clip rect it receives
         struct ClipRecorder {
@@ -1546,10 +1638,7 @@ mod tests {
 
         let mb = menu_bar_from_menus(screen(), vec![Menu::new("~F~ile", vec![])]);
         app.set_menu_bar(mb);
-        assert!(
-            app.dirty_rect.is_some(),
-            "set_menu_bar should invalidate"
-        );
+        assert!(app.dirty_rect.is_some(), "set_menu_bar should invalidate");
     }
 
     #[test]
@@ -1562,10 +1651,7 @@ mod tests {
         app.dirty_rect = None;
 
         app.close_window(id);
-        assert!(
-            app.dirty_rect.is_some(),
-            "close_window should invalidate"
-        );
+        assert!(app.dirty_rect.is_some(), "close_window should invalidate");
     }
 
     #[test]
@@ -1576,5 +1662,195 @@ mod tests {
         app.quit();
         // quit() only changes running state, no visual change
         assert!(app.dirty_rect.is_none(), "quit should NOT invalidate");
+    }
+
+    // -------------------------------------------------------------------------
+    // Event coalescing tests
+    // -------------------------------------------------------------------------
+
+    fn mouse_event(
+        kind: crossterm::event::MouseEventKind,
+        column: u16,
+        row: u16,
+    ) -> crossterm::event::Event {
+        crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        })
+    }
+
+    fn moved_event(column: u16, row: u16) -> crossterm::event::Event {
+        mouse_event(crossterm::event::MouseEventKind::Moved, column, row)
+    }
+
+    fn key_event(ch: char) -> crossterm::event::Event {
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(ch),
+            crossterm::event::KeyModifiers::NONE,
+        ))
+    }
+
+    fn mouse_kinds(events: &[crossterm::event::Event]) -> Vec<crossterm::event::MouseEventKind> {
+        events
+            .iter()
+            .map(|ev| match ev {
+                crossterm::event::Event::Mouse(m) => m.kind,
+                other => panic!("expected a mouse event, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_coalesce_100_moved_events_yield_single_dispatch() {
+        let events: Vec<_> = (0..100u16).map(|i| moved_event(i, 0)).collect();
+        let out = coalesce_mouse_motion_events(&events);
+
+        assert_eq!(out.len(), 1, "100 consecutive Moved must coalesce to 1");
+        match &out[0] {
+            crossterm::event::Event::Mouse(m) => {
+                assert_eq!(m.column, 99, "the last Moved position must win");
+            }
+            other => panic!("expected a mouse event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_coalesce_drag_run_keeps_last_drag() {
+        let events: Vec<_> = (0..20u16)
+            .map(|i| {
+                mouse_event(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    i,
+                    7,
+                )
+            })
+            .collect();
+        let out = coalesce_mouse_motion_events(&events);
+
+        assert_eq!(out.len(), 1, "a run of Drag must coalesce to 1");
+        match &out[0] {
+            crossterm::event::Event::Mouse(m) => {
+                assert_eq!((m.column, m.row), (19, 7), "last Drag position wins");
+            }
+            other => panic!("expected a mouse event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_coalesce_down_drag_up_preserves_order() {
+        let down = mouse_event(
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            3,
+            3,
+        );
+        let up = mouse_event(
+            crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            9,
+            9,
+        );
+
+        let mut events = vec![down];
+        for i in 0..15u16 {
+            events.push(mouse_event(
+                crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                i,
+                4,
+            ));
+        }
+        events.push(up);
+
+        let out = coalesce_mouse_motion_events(&events);
+
+        assert_eq!(
+            mouse_kinds(&out),
+            vec![
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+            ],
+            "Down → n×Drag → Up must yield Down, last Drag, Up in order"
+        );
+        match &out[1] {
+            crossterm::event::Event::Mouse(m) => {
+                assert_eq!(m.column, 14, "only the last Drag of the run survives");
+            }
+            other => panic!("expected a mouse event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_coalesce_never_drops_key_events() {
+        let events = vec![
+            key_event('a'),
+            key_event('b'),
+            moved_event(1, 1),
+            moved_event(2, 2),
+            key_event('c'),
+            key_event('d'),
+        ];
+        let out = coalesce_mouse_motion_events(&events);
+
+        assert_eq!(out.len(), 5, "all keys kept, Moved run coalesced");
+        let keys: Vec<_> = out
+            .iter()
+            .filter_map(|ev| match ev {
+                crossterm::event::Event::Key(k) => Some(k.code),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                crossterm::event::KeyCode::Char('a'),
+                crossterm::event::KeyCode::Char('b'),
+                crossterm::event::KeyCode::Char('c'),
+                crossterm::event::KeyCode::Char('d'),
+            ],
+            "key events must never be dropped and must keep their order"
+        );
+    }
+
+    #[test]
+    fn test_coalesce_key_splits_motion_runs() {
+        let events = vec![
+            moved_event(1, 1),
+            moved_event(2, 2),
+            key_event('x'),
+            moved_event(3, 3),
+            moved_event(4, 4),
+        ];
+        let out = coalesce_mouse_motion_events(&events);
+
+        assert_eq!(out.len(), 3, "Moved run, Key, Moved run → 3 events");
+        assert!(
+            matches!(&out[1], crossterm::event::Event::Key(_)),
+            "the key must sit between the two coalesced runs"
+        );
+    }
+
+    #[test]
+    fn test_coalesce_mixed_moved_and_drag_are_not_merged() {
+        let events = vec![
+            moved_event(1, 1),
+            mouse_event(
+                crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                2,
+                2,
+            ),
+        ];
+        let out = coalesce_mouse_motion_events(&events);
+        assert_eq!(
+            out.len(),
+            2,
+            "a Moved followed by a Drag are different kinds and stay separate"
+        );
+    }
+
+    #[test]
+    fn test_coalesce_empty_input() {
+        let out = coalesce_mouse_motion_events(&[]);
+        assert!(out.is_empty(), "empty input stays empty");
     }
 }

@@ -20,9 +20,7 @@
 
 use crate::clip;
 use crate::theme;
-use crate::view::{
-    Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE,
-};
+use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
@@ -200,7 +198,9 @@ impl ListBox {
             // Scroll down if selection moved below visible area
             let visible_lines = self.visible_lines();
             if self.selected >= self.scroll + visible_lines {
-                self.scroll = self.selected.saturating_sub(visible_lines.saturating_sub(1));
+                self.scroll = self
+                    .selected
+                    .saturating_sub(visible_lines.saturating_sub(1));
             }
         }
     }
@@ -325,9 +325,8 @@ impl View for ListBox {
             return;
         }
 
-        let (normal_style, selected_style) = theme::with_current(|t| {
-            (t.list_box_normal, t.list_box_selected)
-        });
+        let (normal_style, selected_style) =
+            theme::with_current(|t| (t.list_box_normal, t.list_box_selected));
 
         // Draw visible items
         let visible = usize::from(bounds.height);
@@ -341,7 +340,11 @@ impl View for ListBox {
             }
 
             let is_selected = item_idx == self.selected;
-            let style = if is_selected { selected_style } else { normal_style };
+            let style = if is_selected {
+                selected_style
+            } else {
+                normal_style
+            };
 
             // Fill entire row background
             for col in bounds.x..bounds.x + content_width {
@@ -361,7 +364,8 @@ impl View for ListBox {
         // Fill remaining visible rows with background
         let remaining = visible.saturating_sub(self.items.len().saturating_sub(self.scroll));
         for i in 0..remaining {
-            let row = bounds.y + u16::try_from(self.items.len().saturating_sub(self.scroll) + i).unwrap_or(0);
+            let row = bounds.y
+                + u16::try_from(self.items.len().saturating_sub(self.scroll) + i).unwrap_or(0);
             if row < clip.y || row >= clip.y + clip.height {
                 continue;
             }
@@ -452,7 +456,7 @@ impl View for ListBox {
                     }
                     _ => {}
                 }
-            },
+            }
             EventKind::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
                     if self.is_inside(mouse.column, mouse.row) {
@@ -555,8 +559,7 @@ mod tests {
     #[test]
     fn test_listbox_with_items() {
         let items = sample_items();
-        let list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(items.clone());
+        let list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(items.clone());
 
         assert_eq!(list.items().len(), 7);
         assert_eq!(list.items()[0], "Apple");
@@ -576,8 +579,7 @@ mod tests {
 
     #[test]
     fn test_listbox_selected_clamped_to_empty() {
-        let list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_selected(5); // No items, clamped to 0
+        let list = ListBox::new(Rect::new(0, 0, 20, 10)).with_selected(5); // No items, clamped to 0
 
         assert_eq!(list.selected(), 0);
         assert!(list.items().is_empty());
@@ -594,8 +596,7 @@ mod tests {
 
     #[test]
     fn test_listbox_select_next() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
         assert_eq!(list.selected(), 0);
 
@@ -631,8 +632,7 @@ mod tests {
 
     #[test]
     fn test_listbox_select_prev_at_start() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
         list.select_prev();
         assert_eq!(list.selected(), 0); // Stays at start
@@ -645,13 +645,13 @@ mod tests {
             .with_selected(3);
 
         assert_eq!(list.scroll, 1); // scroll adjusted so selected (3) is visible in 3 lines: scroll = selected - (3-1) = 3-2 = 1
-        // Wait, let me recalculate. visible_lines = 3, selected = 3
-        // clamp_scroll: selected >= scroll + visible => 3 >= 1 + 3 => 3 >= 4 => false
-        // Actually scroll was set in with_selected -> clamp_scroll
-        // scroll starts at 0. clamp_scroll runs.
-        // visible = 3, max_scroll = 7 - 3 = 4. scroll=0 <= 4 ok.
-        // selected=3, scroll=0, visible=3 => 0 + 3 = 3, selected(3) >= 3 => scroll = 3-2 = 1
-        // So scroll=1 now.
+                                    // Wait, let me recalculate. visible_lines = 3, selected = 3
+                                    // clamp_scroll: selected >= scroll + visible => 3 >= 1 + 3 => 3 >= 4 => false
+                                    // Actually scroll was set in with_selected -> clamp_scroll
+                                    // scroll starts at 0. clamp_scroll runs.
+                                    // visible = 3, max_scroll = 7 - 3 = 4. scroll=0 <= 4 ok.
+                                    // selected=3, scroll=0, visible=3 => 0 + 3 = 3, selected(3) >= 3 => scroll = 3-2 = 1
+                                    // So scroll=1 now.
         assert_eq!(list.scroll, 1);
         assert_eq!(list.selected, 3);
 
@@ -747,10 +747,7 @@ mod tests {
             .with_items(sample_items())
             .with_selected(5);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Home,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Home, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -761,13 +758,9 @@ mod tests {
 
     #[test]
     fn test_listbox_end() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::End,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::End, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -779,10 +772,7 @@ mod tests {
     fn test_listbox_home_empty() {
         let mut list = ListBox::new(Rect::new(0, 0, 20, 10));
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Home,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Home, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -795,10 +785,7 @@ mod tests {
             .with_items(sample_items())
             .with_selected(3);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Up,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Up, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -812,10 +799,7 @@ mod tests {
             .with_items(sample_items())
             .with_selected(3);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Down,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -825,8 +809,7 @@ mod tests {
 
     #[test]
     fn test_listbox_mouse_click_selects() {
-        let mut list = ListBox::new(Rect::new(10, 5, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(10, 5, 20, 10)).with_items(sample_items());
 
         // Click on row 7 (relative to bounds: 2) → index 2
         let mouse = MouseEvent {
@@ -845,8 +828,7 @@ mod tests {
 
     #[test]
     fn test_listbox_mouse_click_outside() {
-        let mut list = ListBox::new(Rect::new(10, 5, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(10, 5, 20, 10)).with_items(sample_items());
 
         // Click outside bounds
         let mouse = MouseEvent {
@@ -864,8 +846,7 @@ mod tests {
 
     #[test]
     fn test_listbox_mouse_click_beyond_items() {
-        let mut list = ListBox::new(Rect::new(10, 5, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(10, 5, 20, 10)).with_items(sample_items());
 
         // Click on row 14 (relative: 9) — inside bounds but index 9 is beyond 7 items
         let mouse = MouseEvent {
@@ -945,10 +926,7 @@ mod tests {
         let mut list = ListBox::new(Rect::new(0, 0, 20, 10));
 
         // Key events should not crash on empty list
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Down,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -958,8 +936,7 @@ mod tests {
 
     #[test]
     fn test_listbox_single_item() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(vec!["Only".into()]);
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(vec!["Only".into()]);
 
         assert_eq!(list.selected(), 0);
 
@@ -985,14 +962,12 @@ mod tests {
     #[test]
     fn test_listbox_needs_scrollbar() {
         // More items than visible lines
-        let list = ListBox::new(Rect::new(0, 0, 20, 3))
-            .with_items(sample_items()); // 7 items, 3 visible
+        let list = ListBox::new(Rect::new(0, 0, 20, 3)).with_items(sample_items()); // 7 items, 3 visible
 
         assert!(list.needs_scrollbar());
 
         // Fewer items than visible lines
-        let list2 = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items()); // 7 items, 10 visible
+        let list2 = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items()); // 7 items, 10 visible
 
         assert!(!list2.needs_scrollbar());
     }
@@ -1008,8 +983,8 @@ mod tests {
 
     #[test]
     fn test_listbox_set_items_updates_list() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(vec!["A".into(), "B".into()]);
+        let mut list =
+            ListBox::new(Rect::new(0, 0, 20, 10)).with_items(vec!["A".into(), "B".into()]);
 
         assert_eq!(list.items().len(), 2);
 
@@ -1020,8 +995,7 @@ mod tests {
 
     #[test]
     fn test_listbox_set_selected() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
         list.set_selected(5);
         assert_eq!(list.selected(), 5);
@@ -1032,8 +1006,7 @@ mod tests {
 
     #[test]
     fn test_listbox_draw() {
-        let list = ListBox::new(Rect::new(0, 0, 20, 5))
-            .with_items(sample_items());
+        let list = ListBox::new(Rect::new(0, 0, 20, 5)).with_items(sample_items());
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 10));
         list.draw(&mut buf, Rect::new(0, 0, 30, 10));
 
@@ -1053,8 +1026,7 @@ mod tests {
 
     #[test]
     fn test_listbox_draw_clipped() {
-        let list = ListBox::new(Rect::new(0, 0, 20, 5))
-            .with_items(sample_items());
+        let list = ListBox::new(Rect::new(0, 0, 20, 5)).with_items(sample_items());
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 5));
         // Draw with clip that only covers half the list
         list.draw(&mut buf, Rect::new(0, 0, 20, 2));
@@ -1085,13 +1057,9 @@ mod tests {
 
     #[test]
     fn test_listbox_ignores_non_navigation_keys() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Char('a'),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty());
         let mut event = Event::key(key);
         list.handle_event(&mut event);
 
@@ -1127,8 +1095,7 @@ mod tests {
 
     #[test]
     fn test_listbox_handle_drop() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
         // Drop a string onto the list
         let payload: Box<dyn Any> = Box::new("Dropped Item".to_string());
@@ -1141,8 +1108,7 @@ mod tests {
 
     #[test]
     fn test_listbox_handle_drop_wrong_type() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 10))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 10)).with_items(sample_items());
 
         // Drop a non-string type
         let payload: Box<dyn Any> = Box::new(42i32);
@@ -1154,8 +1120,7 @@ mod tests {
 
     #[test]
     fn test_listbox_push_item() {
-        let mut list = ListBox::new(Rect::new(0, 0, 20, 3))
-            .with_items(sample_items());
+        let mut list = ListBox::new(Rect::new(0, 0, 20, 3)).with_items(sample_items());
 
         list.push_item("New Item".to_string());
         assert_eq!(list.items().len(), 8);

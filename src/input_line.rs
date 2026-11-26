@@ -365,8 +365,7 @@ mod tests {
 
     #[test]
     fn test_input_line_with_text() {
-        let input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
 
         assert_eq!(input.text(), "Hello");
         assert_eq!(input.cursor(), 5);
@@ -384,14 +383,10 @@ mod tests {
 
     #[test]
     fn test_input_line_insert_char() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Heo");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Heo");
         input.cursor = 2; // After "He", before "o"
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Char('l'),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('l'), KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -402,14 +397,10 @@ mod tests {
 
     #[test]
     fn test_input_line_backspace() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hell");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hell");
         input.cursor = 4;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -419,14 +410,10 @@ mod tests {
 
     #[test]
     fn test_input_line_backspace_at_start() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 0;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -436,14 +423,10 @@ mod tests {
 
     #[test]
     fn test_input_line_delete() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 0;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Delete,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Delete, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -453,14 +436,10 @@ mod tests {
 
     #[test]
     fn test_input_line_delete_at_end() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 5;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Delete,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Delete, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -470,14 +449,10 @@ mod tests {
 
     #[test]
     fn test_input_line_cursor_left() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 5;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Left,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -486,14 +461,10 @@ mod tests {
 
     #[test]
     fn test_input_line_cursor_left_at_start() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 0;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Left,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -502,14 +473,10 @@ mod tests {
 
     #[test]
     fn test_input_line_cursor_right() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 0;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Right,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -518,14 +485,10 @@ mod tests {
 
     #[test]
     fn test_input_line_cursor_right_at_end() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 5;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Right,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -534,14 +497,10 @@ mod tests {
 
     #[test]
     fn test_input_line_home() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 3;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Home,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Home, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -550,14 +509,10 @@ mod tests {
 
     #[test]
     fn test_input_line_end() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
         input.cursor = 0;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::End,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::End, KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -566,8 +521,7 @@ mod tests {
 
     #[test]
     fn test_input_line_mouse_click() {
-        let mut input = InputLine::new(Rect::new(10, 5, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(10, 5, 30, 1)).with_text("Hello");
 
         let mouse = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -601,8 +555,7 @@ mod tests {
 
     #[test]
     fn test_input_line_mouse_click_beyond_text() {
-        let mut input = InputLine::new(Rect::new(10, 5, 30, 1))
-            .with_text("Hi");
+        let mut input = InputLine::new(Rect::new(10, 5, 30, 1)).with_text("Hi");
 
         // Click at column 35 — inside bounds (10..40), but beyond text length (2)
         let mouse = MouseEvent {
@@ -621,8 +574,7 @@ mod tests {
 
     #[test]
     fn test_input_line_mouse_click_outside_bounds_ignored() {
-        let mut input = InputLine::new(Rect::new(10, 5, 30, 1))
-            .with_text("Hi");
+        let mut input = InputLine::new(Rect::new(10, 5, 30, 1)).with_text("Hi");
 
         // Cursor starts at end of text (2)
         assert_eq!(input.cursor(), 2);
@@ -652,8 +604,7 @@ mod tests {
 
     #[test]
     fn test_input_line_set_text_truncated() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_max_length(5);
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_max_length(5);
         input.set_text("Hello World");
 
         assert_eq!(input.text(), "Hello");
@@ -662,8 +613,7 @@ mod tests {
 
     #[test]
     fn test_input_line_set_cursor() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
 
         input.set_cursor(10);
         assert_eq!(input.cursor(), 5); // Clamped to text length
@@ -678,10 +628,7 @@ mod tests {
             .with_max_length(5)
             .with_text("Hello");
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Char('X'),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('X'), KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -690,14 +637,10 @@ mod tests {
 
     #[test]
     fn test_input_line_insert_in_middle() {
-        let mut input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hlo");
+        let mut input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hlo");
         input.cursor = 1;
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Char('e'),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('e'), KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -720,16 +663,14 @@ mod tests {
 
     #[test]
     fn test_input_line_cursor_position_none_when_not_focused() {
-        let input = InputLine::new(Rect::new(10, 5, 30, 1))
-            .with_text("Hello");
+        let input = InputLine::new(Rect::new(10, 5, 30, 1)).with_text("Hello");
 
         assert_eq!(input.cursor_position(), None);
     }
 
     #[test]
     fn test_input_line_cursor_position_when_focused() {
-        let mut input = InputLine::new(Rect::new(10, 5, 30, 1))
-            .with_text("Hello");
+        let mut input = InputLine::new(Rect::new(10, 5, 30, 1)).with_text("Hello");
         input.set_state(input.state() | SF_FOCUSED);
 
         let pos = input.cursor_position();
@@ -738,8 +679,7 @@ mod tests {
 
     #[test]
     fn test_input_line_draw() {
-        let input = InputLine::new(Rect::new(0, 0, 20, 1))
-            .with_text("Test Input");
+        let input = InputLine::new(Rect::new(0, 0, 20, 1)).with_text("Test Input");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 5));
         input.draw(&mut buf, Rect::new(0, 0, 30, 5));
 
@@ -757,10 +697,7 @@ mod tests {
     fn test_input_line_ignores_non_text_input() {
         let mut input = InputLine::new(Rect::new(0, 0, 30, 1));
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::F(1),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::F(1), KeyModifiers::empty());
         let mut event = Event::key(key);
         input.handle_event(&mut event);
 
@@ -808,8 +745,7 @@ mod tests {
 
     #[test]
     fn test_input_line_text_getter() {
-        let input = InputLine::new(Rect::new(0, 0, 30, 1))
-            .with_text("Hello");
+        let input = InputLine::new(Rect::new(0, 0, 30, 1)).with_text("Hello");
 
         assert_eq!(input.text(), "Hello");
         assert_eq!(input.max_len(), 256);

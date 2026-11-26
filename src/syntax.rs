@@ -69,8 +69,7 @@ impl RustHighlighter {
     fn is_keyword(word: &str) -> bool {
         matches!(
             word,
-            "fn"
-                | "let"
+            "fn" | "let"
                 | "mut"
                 | "pub"
                 | "use"
@@ -107,8 +106,7 @@ impl RustHighlighter {
     fn is_builtin_type(word: &str) -> bool {
         matches!(
             word,
-            "i8"
-                | "i16"
+            "i8" | "i16"
                 | "i32"
                 | "i64"
                 | "i128"
@@ -195,10 +193,7 @@ impl SyntaxHighlighter for RustHighlighter {
             if remaining.starts_with("/*") {
                 if let Some(pos) = remaining[2..].find("*/") {
                     let end_pos = pos + 4;
-                    tokens.push((
-                        Style::default().fg(Color::DarkGray),
-                        &remaining[..end_pos],
-                    ));
+                    tokens.push((Style::default().fg(Color::DarkGray), &remaining[..end_pos]));
                     remaining = &remaining[end_pos..];
                 } else {
                     tokens.push((Style::default().fg(Color::DarkGray), remaining));
@@ -245,10 +240,7 @@ impl SyntaxHighlighter for RustHighlighter {
                         let close_str = format!("\"{}", "#".repeat(hash_count));
                         if let Some(pos) = rest.find(&close_str) {
                             let end_pos = 1 + hash_count + 1 + pos + close_str.len();
-                            tokens.push((
-                                Style::default().fg(Color::Green),
-                                &remaining[..end_pos],
-                            ));
+                            tokens.push((Style::default().fg(Color::Green), &remaining[..end_pos]));
                             remaining = &remaining[end_pos..];
                         } else {
                             tokens.push((Style::default().fg(Color::Green), remaining));
@@ -297,10 +289,7 @@ impl SyntaxHighlighter for RustHighlighter {
                     }
                     end += ch.len_utf8();
                 }
-                tokens.push((
-                    Style::default().fg(Color::Green),
-                    &remaining[..end],
-                ));
+                tokens.push((Style::default().fg(Color::Green), &remaining[..end]));
                 remaining = &remaining[end..];
                 continue;
             }
@@ -309,10 +298,7 @@ impl SyntaxHighlighter for RustHighlighter {
             if remaining.starts_with("#[") {
                 if let Some(pos) = remaining.find(']') {
                     let end_pos = pos + 1;
-                    tokens.push((
-                        Style::default().fg(Color::DarkGray),
-                        &remaining[..end_pos],
-                    ));
+                    tokens.push((Style::default().fg(Color::DarkGray), &remaining[..end_pos]));
                     remaining = &remaining[end_pos..];
                 } else {
                     tokens.push((Style::default().fg(Color::DarkGray), remaining));
@@ -329,10 +315,7 @@ impl SyntaxHighlighter for RustHighlighter {
             {
                 let num_len = Self::number_len(remaining);
                 if num_len > 0 {
-                    tokens.push((
-                        Style::default().fg(Color::Yellow),
-                        &remaining[..num_len],
-                    ));
+                    tokens.push((Style::default().fg(Color::Yellow), &remaining[..num_len]));
                     remaining = &remaining[num_len..];
                     continue;
                 }
@@ -361,10 +344,7 @@ impl SyntaxHighlighter for RustHighlighter {
             }
 
             // Punctuation / other single characters
-            let ch_len = remaining
-                .chars()
-                .next()
-                .map_or(1, char::len_utf8);
+            let ch_len = remaining.chars().next().map_or(1, char::len_utf8);
             tokens.push((Style::default(), &remaining[..ch_len]));
             remaining = &remaining[ch_len..];
         }

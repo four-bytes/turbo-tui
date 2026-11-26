@@ -570,11 +570,12 @@ pub struct MemoSection {
 impl Default for MemoSection {
     fn default() -> Self {
         Self {
-            normal: StyleValue::from_style(
-                Style::default().fg(Color::Yellow).bg(Color::Blue),
-            ),
+            normal: StyleValue::from_style(Style::default().fg(Color::Yellow).bg(Color::Blue)),
             focused: StyleValue::from_style(
-                Style::default().fg(Color::White).bg(Color::Blue).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .bg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
             ),
         }
     }
@@ -601,12 +602,8 @@ pub struct ListBoxSection {
 impl Default for ListBoxSection {
     fn default() -> Self {
         Self {
-            normal: StyleValue::from_style(
-                Style::default().fg(Color::Yellow).bg(Color::Blue),
-            ),
-            selected: StyleValue::from_style(
-                Style::default().fg(Color::Black).bg(Color::Green),
-            ),
+            normal: StyleValue::from_style(Style::default().fg(Color::Yellow).bg(Color::Blue)),
+            selected: StyleValue::from_style(Style::default().fg(Color::Black).bg(Color::Green)),
         }
     }
 }
@@ -1042,7 +1039,13 @@ fn detect_border_preset(tl: char, tr: char, bl: char, br: char, h: char, v: char
         BorderPreset::None,
     ] {
         let (preset_tl, preset_tr, preset_bl, preset_br, preset_h, preset_v) = preset.chars();
-        if tl == preset_tl && tr == preset_tr && bl == preset_bl && br == preset_br && h == preset_h && v == preset_v {
+        if tl == preset_tl
+            && tr == preset_tr
+            && bl == preset_bl
+            && br == preset_br
+            && h == preset_h
+            && v == preset_v
+        {
             return BorderChars::Preset(preset);
         }
     }
@@ -1306,8 +1309,10 @@ mod tests {
             errors.is_empty(),
             "Theme loading errors:
 {}",
-            errors.join("
-")
+            errors.join(
+                "
+"
+            )
         );
         assert!(
             loaded >= 1,

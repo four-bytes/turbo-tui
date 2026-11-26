@@ -170,6 +170,7 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - **Pixel-Layer (optional, Feature `sixel`):** eine Grafikschicht nur für einzelne Fenster mit Pixelinhalt (Spiel, Graph, Bild), nicht für die UI. Eine `PixelSurface`-View liefert RGBA-Frames für ihr Zellrechteck. Der Host gibt zuerst den Zell-Diff aus und danach die Sixel-Bilder darüber. Zellen, die zu einer Pixelfläche gehören, überspringt der Diff.
   - Fallback-Kette: Sixel → Halfblock (`▀`, 2 Pixel pro Zelle) → Platzhalter bzw. Text-Fallback der View
   - Verdeckung: Wird die Fläche von einem Fenster, Dropdown oder Overlay überlagert, wird das Bild auf den sichtbaren Bereich zugeschnitten oder für diese Zeit auf Halfblock umgeschaltet
+  - Freie, pixelgenaue Position: Ein Sixel-Bild beginnt immer an einer Zelle, deshalb wird mit Pixel-Offset in einen zellausgerichteten Container gerendert. Den Rand füllt die Hintergrundfarbe oder Sixel-Transparenz, je nach Terminal
   - Eigener Takt pro Fläche, Encoding im Worker, „neuester Frame gewinnt“ (keine Queue)
   - Wird zuerst in `four-sixel-lab` gemessen und geprüft
 

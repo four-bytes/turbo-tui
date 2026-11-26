@@ -1,8 +1,9 @@
 //! Application — central orchestrator for a turbo-tui program.
 //!
 //! Manages the top-level view hierarchy, event dispatch, and screen layout.
-//! Application does **not** own a terminal — it receives `&mut ratatui::Frame`
-//! for drawing and raw crossterm events for processing.
+//! Application does **not** own a terminal — it renders into a
+//! [`core::Buffer`](crate::core::Buffer) supplied by the caller and processes
+//! raw crossterm events.
 //!
 //! # Layout
 //!
@@ -80,12 +81,15 @@ use std::any::Any;
 /// ```ignore
 /// use turbo_tui::application::Application;
 /// use turbo_tui::core::Rect;
+/// use turbo_tui::terminal::Terminal;
 ///
 /// let mut app = Application::new(Rect::new(0, 0, 80, 24));
 /// // ... add windows, configure menus ...
 ///
+/// let mut terminal = Terminal::new(std::io::stdout(), 80, 24);
+///
 /// // In your event loop:
-/// terminal.draw(|f| app.draw(f))?;
+/// terminal.draw(|buf| app.draw(buf))?;
 /// app.handle_crossterm_event(crossterm::event::read()?);
 /// if !app.is_running() { break; }
 /// ```
@@ -313,7 +317,7 @@ impl Application {
     // Drawing
     // -------------------------------------------------------------------------
 
-    /// Draw the application to a ratatui frame, clipping to dirty regions.
+    /// Draw the application into a buffer, clipping to dirty regions.
     ///
     /// Rendering order (back to front):
     /// 1. Desktop (background + windows)
@@ -328,9 +332,12 @@ impl Application {
     /// After drawing, the dirty rectangle is cleared so the next draw call will
     /// be a full redraw unless a new region is invalidated.
     ///
+    /// Returns the cursor position to show, if any. This is the focused child's
+    /// cursor when no overlay is active, otherwise `None`.
+    ///
     /// [`invalidate_rect`]: Application::invalidate_rect
-    pub fn draw(&mut self, frame: &mut ratatui::Frame) {
-        let area: crate::core::Rect = frame.area().into();
+    pub fn draw(&mut self, buffer: &mut crate::core::Buffer) -> Option<crate::core::Position> {
+        let area = buffer.area;
         // Use the accumulated dirty rect, or fall back to full area
         let clip = self.dirty_rect.unwrap_or(area);
 
@@ -341,34 +348,26 @@ impl Application {
             None
         };
 
-        let mut buffer = crate::core::Buffer::empty(area);
-
         // 1. Desktop (background + windows) — clipped to dirty region
-        self.desktop.draw(&mut buffer, clip);
+        self.desktop.draw(buffer, clip);
 
         // 2. Menu bar (top row) — clipped to dirty region
         if let Some(ref mb) = self.menu_bar {
-            mb.draw(&mut buffer, clip);
+            mb.draw(buffer, clip);
         }
 
         // 3. Status bar (bottom row) — clipped to dirty region
         if let Some(ref sl) = self.status_bar {
-            sl.draw(&mut buffer, clip);
+            sl.draw(buffer, clip);
         }
 
         // 4. Overlays (above everything) — clipped to dirty region
-        self.overlay_manager.draw(&mut buffer, clip);
+        self.overlay_manager.draw(buffer, clip);
 
-        *frame.buffer_mut() = buffer.into();
-
-        // 5. Terminal cursor — from focused window's child view
-        if let Some(pos) = cursor_pos {
-            let ratatui_pos: ratatui::layout::Position = pos.into();
-            frame.set_cursor_position(ratatui_pos);
-        }
-
-        // 6. Clear dirty rect — everything has been redrawn
+        // 5. Clear dirty rect — everything has been redrawn
         self.dirty_rect = None;
+
+        cursor_pos
     }
 
     // -------------------------------------------------------------------------
@@ -1503,16 +1502,14 @@ mod tests {
 
     #[test]
     fn test_draw_clears_dirty_rect() {
-        use ratatui::backend::TestBackend;
-        use ratatui::Terminal;
+        use crate::terminal::TestTerminal;
 
         let mut app = Application::new(screen());
         app.invalidate_rect(Rect::new(5, 5, 10, 10));
         assert!(app.dirty_rect.is_some());
 
-        let backend = TestBackend::new(80, 24);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let mut terminal = TestTerminal::new(80, 24);
+        terminal.draw(|buf| app.draw(buf));
 
         // After draw, dirty_rect must be cleared
         assert!(app.dirty_rect.is_none());
@@ -1538,9 +1535,8 @@ mod tests {
     #[test]
     fn test_draw_narrows_clip_to_dirty_rect() {
         use crate::core::Buffer;
+        use crate::terminal::TestTerminal;
         use crate::view::{ViewBase, OF_SELECTABLE};
-        use ratatui::backend::TestBackend;
-        use ratatui::Terminal;
         use std::sync::Mutex;
 
         // Track the clip rect that was actually passed to child views
@@ -1601,9 +1597,8 @@ mod tests {
         // Invalidate a specific region
         app.invalidate_rect(Rect::new(5, 5, 30, 10));
 
-        let backend = TestBackend::new(80, 24);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let mut terminal = TestTerminal::new(80, 24);
+        terminal.draw(|buf| app.draw(buf));
 
         // The clip rect passed to the view should be restricted to the
         // intersection of the dirty rect and the window area

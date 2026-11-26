@@ -30,6 +30,10 @@ pub trait Canvas {
     /// Draws a single character at `(x, y)` if it lies inside `clip`.
     fn put_char(&mut self, x: u16, y: u16, ch: char, style: Style, clip: Rect);
 
+    /// Writes a multi-character symbol (e.g. grapheme cluster) at `(x, y)` if
+    /// it lies inside `clip`.
+    fn put_symbol(&mut self, x: u16, y: u16, symbol: &str, style: Style, clip: Rect);
+
     /// Fills `rect` with `ch`, clamping to the canvas area.
     fn fill(&mut self, rect: Rect, ch: char, style: Style);
 
@@ -92,6 +96,15 @@ impl Canvas for CellCanvas<'_> {
         if clip.contains(pos) {
             if let Some(cell) = self.buffer.cell_mut(pos) {
                 cell.set_char(ch).set_style(style);
+            }
+        }
+    }
+
+    fn put_symbol(&mut self, x: u16, y: u16, symbol: &str, style: Style, clip: Rect) {
+        let pos = Position::new(x, y);
+        if clip.contains(pos) {
+            if let Some(cell) = self.buffer.cell_mut(pos) {
+                cell.set_symbol(symbol).set_style(style);
             }
         }
     }
@@ -242,6 +255,34 @@ mod tests {
                 .unwrap()
                 .symbol(),
             "Y"
+        );
+    }
+
+    #[test]
+    fn test_put_symbol_writes_multi_char_symbol() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 5));
+        let mut canvas = CellCanvas::new(&mut buf);
+        let clip = Rect::new(2, 1, 3, 1);
+
+        canvas.put_symbol(2, 1, "ab", Style::default(), clip);
+        assert_eq!(
+            canvas
+                .buffer_mut()
+                .cell(Position::new(2, 1))
+                .unwrap()
+                .symbol(),
+            "ab"
+        );
+
+        // Outside the clip nothing is written.
+        canvas.put_symbol(0, 0, "cd", Style::default(), clip);
+        assert_eq!(
+            canvas
+                .buffer_mut()
+                .cell(Position::new(0, 0))
+                .unwrap()
+                .symbol(),
+            " "
         );
     }
 

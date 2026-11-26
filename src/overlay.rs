@@ -10,10 +10,10 @@
 //! through to the normal view hierarchy.
 
 use crate::command::CM_DROPDOWN_CLOSED;
+use crate::core::Buffer;
+use crate::core::Rect;
 use crate::view::{Event, EventKind, View, ViewId};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 
 /// Direction a dropdown should open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

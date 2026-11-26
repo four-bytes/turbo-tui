@@ -22,14 +22,14 @@
 
 use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_SCROLL_CHANGED, CM_ZOOM};
 use crate::container::Container;
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use crate::frame::{Frame, FrameConfig, FrameType};
 use crate::theme;
 use crate::view::{
     Event, EventKind, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING,
 };
 use crossterm::event::{MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Overlapping window with frame border, interior container, drag and resize support.
@@ -797,14 +797,14 @@ impl Window {
             if original.width == 0 || original.height == 0 {
                 continue;
             }
-            let mut temp_buf = ratatui::buffer::Buffer::empty(original);
+            let mut temp_buf = crate::core::Buffer::empty(original);
             // Pre-fill with window interior style so unpainted cells don't
             // overwrite the background with default (no-color) style
             let bg_style = theme::with_current(|t| t.window_interior);
             for row_idx in original.y..original.y + original.height {
                 for col_idx in original.x..original.x + original.width {
                     if let Some(cell) =
-                        temp_buf.cell_mut(ratatui::layout::Position::new(col_idx, row_idx))
+                        temp_buf.cell_mut(crate::core::Position::new(col_idx, row_idx))
                     {
                         cell.set_char(' ').set_style(bg_style);
                     }

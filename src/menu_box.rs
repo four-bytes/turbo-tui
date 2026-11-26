@@ -5,9 +5,9 @@
 //!
 //! [`MenuBar`]: crate::menu_bar::MenuBar
 
+use crate::core::Buffer;
+use crate::core::Rect;
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 use crate::command::{CommandId, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE};

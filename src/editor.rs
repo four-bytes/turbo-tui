@@ -19,8 +19,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 use std::any::Any;
 
 use crate::clip;

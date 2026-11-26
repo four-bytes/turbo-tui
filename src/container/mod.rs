@@ -11,13 +11,13 @@
 mod dispatch;
 mod draw;
 
+use crate::core::Buffer;
+use crate::core::{Position, Rect};
 #[allow(unused_imports)]
 use crate::view::{
     Event, EventKind, OwnerType, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS,
     OF_SELECTABLE, SF_DRAGGING, SF_RESIZING, SF_VISIBLE,
 };
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 use std::cmp::Ordering;
 
@@ -395,6 +395,7 @@ impl View for Container {
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_OK};
+    use crate::core::Rect;
     use crate::view::{
         Event, EventKind, View, ViewBase, ViewId, OF_POST_PROCESS, OF_PRE_PROCESS, OF_SELECTABLE,
         SF_DRAGGING, SF_FOCUSED, SF_VISIBLE,
@@ -403,7 +404,6 @@ mod tests {
         KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton, MouseEvent,
         MouseEventKind,
     };
-    use ratatui::layout::Rect;
     use std::cell::RefCell;
 
     // -----------------------------------------------------------------------

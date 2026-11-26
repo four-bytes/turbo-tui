@@ -14,7 +14,7 @@
 //!
 //! ```ignore
 //! use turbo_tui::dialog::Dialog;
-//! use ratatui::layout::Rect;
+//! use turbo_tui::core::Rect;
 //!
 //! let mut dialog = Dialog::new(Rect::new(20, 5, 40, 15), "Confirm");
 //! // Add buttons, labels etc. to dialog.interior_mut()
@@ -27,11 +27,11 @@
 
 use crate::command::{CommandId, CM_CANCEL, CM_OK, INTERNAL_COMMAND_BASE};
 use crate::container::Container;
+use crate::core::Buffer;
+use crate::core::Rect;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, SF_MODAL, SF_VISIBLE};
 use crate::window::Window;
 use crossterm::event::KeyCode;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 /// Modal dialog window.
@@ -44,7 +44,7 @@ use std::any::Any;
 ///
 /// ```ignore
 /// use turbo_tui::dialog::Dialog;
-/// use ratatui::layout::Rect;
+/// use turbo_tui::core::Rect;
 ///
 /// let mut dialog = Dialog::new(Rect::new(20, 5, 40, 15), "Confirm");
 /// // Add buttons, labels etc. to dialog.interior_mut()

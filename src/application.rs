@@ -35,6 +35,7 @@ use crate::command::{
     CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DRAG_END, CM_DRAG_MOVE,
     CM_DRAG_START, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
 };
+use crate::core::{Position, Rect};
 use crate::desktop::Desktop;
 use crate::menu_bar::MenuBar;
 use crate::menu_bar::MenuItem;
@@ -43,7 +44,6 @@ use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayMa
 use crate::status_bar::StatusBar;
 use crate::view::{Event, EventKind, View, ViewId};
 use crate::window::Window;
-use ratatui::layout::{Position, Rect};
 use std::any::Any;
 
 /// Application — central orchestrator for a turbo-tui program.
@@ -79,7 +79,7 @@ use std::any::Any;
 ///
 /// ```ignore
 /// use turbo_tui::application::Application;
-/// use ratatui::layout::Rect;
+/// use turbo_tui::core::Rect;
 ///
 /// let mut app = Application::new(Rect::new(0, 0, 80, 24));
 /// // ... add windows, configure menus ...
@@ -947,8 +947,8 @@ mod tests {
     use crate::command::{
         CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
     };
+    use crate::core::{Position, Rect};
     use crate::view::{Event, EventKind};
-    use ratatui::layout::{Position, Rect};
 
     fn screen() -> Rect {
         Rect::new(0, 0, 80, 24)
@@ -1403,8 +1403,8 @@ mod tests {
 
     #[test]
     fn test_desktop_cursor_position_propagates_from_focused_child() {
+        use crate::core::Buffer;
         use crate::view::{View, ViewBase, ViewId, OF_SELECTABLE};
-        use ratatui::buffer::Buffer;
         use std::any::Any;
 
         // A custom view that always reports a fixed cursor position.
@@ -1536,9 +1536,9 @@ mod tests {
 
     #[test]
     fn test_draw_narrows_clip_to_dirty_rect() {
+        use crate::core::Buffer;
         use crate::view::{ViewBase, OF_SELECTABLE};
         use ratatui::backend::TestBackend;
-        use ratatui::buffer::Buffer;
         use ratatui::Terminal;
         use std::sync::Mutex;
 

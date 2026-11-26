@@ -14,7 +14,7 @@
 //!
 //! ```ignore
 //! use turbo_tui::msgbox::message_box;
-//! use ratatui::layout::Rect;
+//! use turbo_tui::core::Rect;
 //!
 //! // Create a message box dialog
 //! let screen = Rect::new(0, 0, 80, 24);
@@ -26,9 +26,9 @@
 
 use crate::button::Button;
 use crate::command::{CM_CANCEL, CM_NO, CM_OK, CM_YES};
+use crate::core::Rect;
 use crate::dialog::Dialog;
 use crate::static_text::StaticText;
-use ratatui::layout::Rect;
 
 /// Create a message box dialog with an OK button.
 ///

@@ -7,7 +7,7 @@
 //!
 //! [`HorizontalBar`]: crate::horizontal_bar::HorizontalBar
 
-use ratatui::layout::Rect;
+use crate::core::Rect;
 
 use crate::command::CommandId;
 

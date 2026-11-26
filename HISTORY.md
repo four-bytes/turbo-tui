@@ -6,6 +6,9 @@
   - Pure, terminal-free `coalesce_mouse_motion_events()` collapses consecutive `Moved`/`Drag` runs to their last event; keys, button (`Down`/`Up`), scroll and resize events are preserved complete and in order
   - Demo now drains the pending queue (`poll(Duration::ZERO)`) and draws a single frame per batch, capped at ~60 fps — window drag/resize no longer trails the mouse
 
+### Refactor
+- Core type seam: new `turbo_tui::core` module re-exporting `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier`, `Style`; all crate/test/example imports now go through it (prepares the own backend, epic #10, issue #13)
+
 ## v0.3.2 — 2026-05-26
 
 ### Added

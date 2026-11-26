@@ -3,7 +3,7 @@
 //! Provides a [`SyntaxHighlighter`] trait and built-in implementations
 //! for plain text and Rust source code.
 
-use ratatui::style::{Color, Style};
+use crate::core::{Color, Style};
 
 /// A trait for syntax highlighters that tokenize a line of text
 /// into styled segments.

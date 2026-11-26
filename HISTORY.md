@@ -1,3 +1,11 @@
+## Unreleased
+
+### Performance
+- Event coalescing in the event loop against drag/mouse lag (Issue #7)
+  - New `Application::handle_crossterm_events(&[crossterm::Event])` batch API; the existing single-event `handle_crossterm_event()` is unchanged (no API break)
+  - Pure, terminal-free `coalesce_mouse_motion_events()` collapses consecutive `Moved`/`Drag` runs to their last event; keys, button (`Down`/`Up`), scroll and resize events are preserved complete and in order
+  - Demo now drains the pending queue (`poll(Duration::ZERO)`) and draws a single frame per batch, capped at ~60 fps — window drag/resize no longer trails the mouse
+
 ## v0.3.2 — 2026-05-26
 
 ### Added

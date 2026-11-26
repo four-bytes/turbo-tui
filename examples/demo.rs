@@ -25,12 +25,11 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, layout::Rect, Terminal};
 use std::io;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use turbo_tui::{
     application::Application,
     button::Button,
-    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT,
-              CM_TILE},
+    command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT, CM_TILE},
     editor::Editor,
     horizontal_bar::{BarEntry, HorizontalBar},
     listbox::ListBox,
@@ -111,25 +110,49 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
         app.draw(frame);
     })?;
 
+    // Target frame budget (~60 fps). When a burst of events is pending, the
+    // whole queue is drained and dispatched as one batch, then a single frame
+    // is drawn; sleeping the remaining budget keeps the frame rate at ~60 fps
+    // so a fast drag neither trails the cursor nor hammers the terminal.
+    let frame_budget = Duration::from_millis(16);
+
     loop {
-        if event::poll(Duration::from_millis(16))? {
-            let ct_event = event::read()?;
+        // Block for the first event (also the idle poll interval).
+        if event::poll(frame_budget)? {
+            let frame_start = Instant::now();
 
-            // Handle Alt+X quit before passing to app
-            if let event::Event::Key(key) = &ct_event {
-                if key.kind == event::KeyEventKind::Press {
-                    if key.code == KeyCode::Char('x') && key.modifiers.contains(KeyModifiers::ALT) {
-                        break;
-                    }
+            // Collect every already-queued event without blocking, so a burst
+            // of mouse motion becomes one batch and one draw.
+            let mut events = vec![event::read()?];
+            while event::poll(Duration::ZERO)? {
+                events.push(event::read()?);
+            }
 
-                    // F2 → cycle theme
-                    if key.code == KeyCode::F(2) {
-                        let _ = theme::cycle_next_registered();
+            // Handle Alt+X quit and F2 theme cycle before dispatching.
+            let mut quit = false;
+            for ct_event in &events {
+                if let event::Event::Key(key) = ct_event {
+                    if key.kind == event::KeyEventKind::Press {
+                        if key.code == KeyCode::Char('x')
+                            && key.modifiers.contains(KeyModifiers::ALT)
+                        {
+                            quit = true;
+                        }
+
+                        // F2 → cycle theme
+                        if key.code == KeyCode::F(2) {
+                            let _ = theme::cycle_next_registered();
+                        }
                     }
                 }
             }
 
-            app.handle_crossterm_event(&ct_event);
+            if quit {
+                break;
+            }
+
+            // Coalesces consecutive Moved/Drag events, dispatches the batch.
+            app.handle_crossterm_events(&events);
 
             // Handle commands from menu
             if let Some(cmd) = app.take_unhandled_command() {
@@ -145,10 +168,15 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<
                 }
             }
 
-            // Redraw only after processing an event
+            // Draw exactly once for the whole batch.
             terminal.draw(|frame| {
                 app.draw(frame);
             })?;
+
+            // Enforce the frame cap: sleep whatever is left of the budget.
+            if let Some(remaining) = frame_budget.checked_sub(frame_start.elapsed()) {
+                std::thread::sleep(remaining);
+            }
         }
 
         if !app.is_running() {
@@ -333,8 +361,7 @@ fn add_demo_windows(app: &mut Application) {
         "Papaya".into(),
         "Quince".into(),
     ];
-    let mut win5 = Window::new(Rect::new(35, 10, 22, 12), "ListBox Demo")
-        .with_min_size(18, 6);
+    let mut win5 = Window::new(Rect::new(35, 10, 22, 12), "ListBox Demo").with_min_size(18, 6);
     let list_label = StaticText::new(Rect::new(1, 0, 18, 1), "Fruits:");
     win5.add(Box::new(list_label));
     let list_box = ListBox::new(Rect::new(1, 1, 18, 8))
@@ -348,8 +375,7 @@ fn add_demo_windows(app: &mut Application) {
         "Drop Items Here".to_string(),
         "Left-drag from any window".to_string(),
     ];
-    let mut win6 = Window::new(Rect::new(5, 17, 24, 10), "Drop Target")
-        .with_min_size(18, 6);
+    let mut win6 = Window::new(Rect::new(5, 17, 24, 10), "Drop Target").with_min_size(18, 6);
     let drop_label = StaticText::new(Rect::new(1, 0, 20, 1), "Drag items onto list:");
     win6.add(Box::new(drop_label));
     let mut drop_list = ListBox::new(Rect::new(1, 1, 20, 6)).with_items(drop_items);

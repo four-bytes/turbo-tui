@@ -164,10 +164,14 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 ### Rendering-Backend & Runtime (aus der FourSix-/Sixel-Diskussion, 2026-11)
 
 - **Eigenes Backend statt Ratatui:** turbo-tui nutzt von Ratatui nur `Buffer`, `Rect`, `Style`/`Color` und `Terminal` (Diff + Ausgabe). Widgets, Layouts, `Paragraph` und `Block` werden nicht verwendet, denn die Turbo-Vision-Views sind eigener Code. Ziel: eigene `Cell`/`Buffer`/`Rect`/`Style`-Typen, eigener Zell-Diff (~300 Zeilen), crossterm direkt. Ratatui wird nicht als Adapter weitergeschleppt. Betrifft den Consumer four-code (nutzt Ratatui-Typen direkt) → Migrationspfad mitplanen.
-- **Backend-Schnittstelle:** schmale Grenze „Eingabe liefern / Frame ausgeben“. Implementierungen: Text (Terminal-Zellen), Sixel (Pixel-Surface, Halfblock als Modus), Web (Zustand/Canvas über WebSocket). Layout-Einheit bleibt die Zelle, damit Text, Sixel und Web dieselbe Geometrie sehen.
+- **Backend-Schnittstelle:** schmale Grenze „Eingabe liefern / Frame ausgeben“. Primär der Text-Renderer (Terminal-Zellen). Die UI bleibt textbasiert, es gibt **keinen** kompletten Pixel-Renderer der Oberfläche. Optional später: Web-Spiegelung desselben Zellmodells über WebSocket.
 - **Persistenter Puffer + Dirty Rects:** Voraussetzung für Partial Invalidation (v0.4.0, Punkt 1) und für bandbreitensparendes Sixel über SSH.
 - **Tokio-Host (optionales Feature `tokio`):** UI-Owner-Task mit `select!` über crossterm `EventStream`, Service-Kanäle (`mpsc` für Commands/Ergebnisse, `watch` für den neuesten Zustand) und einen Render-Tick (`MissedTickBehavior::Skip`, Frame-Cap). Viele parallele Erzeuger, **ein** sequenzieller Verbraucher: Der View-Baum bleibt in einem Task (der Three-Phase-Dispatch ist sequenziell, kein `Send`/Locks nötig). Service-Nachrichten laufen in die bestehende Deferred-Event-Queue. Ersetzt den Punkt „Channel-Based Events“.
-- **Sixel-Engine:** wird zuerst als separates Projekt prototypisiert (Use-Case-Test). Erst danach fällt die Entscheidung, ob sie als Backend in turbo-tui kommt.
+- **Pixel-Layer (optional, Feature `sixel`):** eine Grafikschicht nur für einzelne Fenster mit Pixelinhalt (Spiel, Graph, Bild), nicht für die UI. Eine `PixelSurface`-View liefert RGBA-Frames für ihr Zellrechteck. Der Host gibt zuerst den Zell-Diff aus und danach die Sixel-Bilder darüber. Zellen, die zu einer Pixelfläche gehören, überspringt der Diff.
+  - Fallback-Kette: Sixel → Halfblock (`▀`, 2 Pixel pro Zelle) → Platzhalter bzw. Text-Fallback der View
+  - Verdeckung: Wird die Fläche von einem Fenster, Dropdown oder Overlay überlagert, wird das Bild auf den sichtbaren Bereich zugeschnitten oder für diese Zeit auf Halfblock umgeschaltet
+  - Eigener Takt pro Fläche, Encoding im Worker, „neuester Frame gewinnt“ (keine Queue)
+  - Wird zuerst in `four-sixel-lab` gemessen und geprüft
 
 ---
 

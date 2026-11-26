@@ -13,8 +13,8 @@
 //!     .with_text("Hello");
 //! ```
 
+use crate::canvas::Canvas;
 use crate::clip;
-use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
@@ -227,7 +227,9 @@ impl View for InputLine {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         let b = self.base.bounds();
         let draw_area = b.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -348,6 +350,7 @@ impl View for InputLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Buffer;
     use crate::view::SF_VISIBLE;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent};
 
@@ -681,7 +684,10 @@ mod tests {
     fn test_input_line_draw() {
         let input = InputLine::new(Rect::new(0, 0, 20, 1)).with_text("Test Input");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 5));
-        input.draw(&mut buf, Rect::new(0, 0, 30, 5));
+        input.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 30, 5),
+        );
 
         // Verify text was drawn
         let content = buf.content();
@@ -720,7 +726,10 @@ mod tests {
     fn test_input_line_empty_draw() {
         let input = InputLine::new(Rect::new(0, 0, 20, 1));
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
-        input.draw(&mut buf, Rect::new(0, 0, 20, 1));
+        input.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 1),
+        );
         // Should not panic
     }
 

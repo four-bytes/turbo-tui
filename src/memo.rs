@@ -14,8 +14,8 @@
 //!     .with_text("Hello\nWorld");
 //! ```
 
+use crate::canvas::Canvas;
 use crate::clip;
-use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
@@ -358,7 +358,9 @@ impl View for Memo {
         self.clamp_cursor();
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         let bounds = self.base.bounds();
         let draw_area = bounds.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -597,6 +599,7 @@ impl View for Memo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Buffer;
     use crate::view::SF_VISIBLE;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent};
 
@@ -965,7 +968,10 @@ mod tests {
     fn test_memo_draw() {
         let memo = Memo::new(Rect::new(0, 0, 20, 5)).with_text("Test Content");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 10));
-        memo.draw(&mut buf, Rect::new(0, 0, 30, 10));
+        memo.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 30, 10),
+        );
 
         let content = buf.content();
         let has_test = content
@@ -978,7 +984,10 @@ mod tests {
     fn test_memo_draw_empty() {
         let memo = Memo::new(Rect::new(0, 0, 20, 5));
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 5));
-        memo.draw(&mut buf, Rect::new(0, 0, 20, 5));
+        memo.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 5),
+        );
         // Should not panic
     }
 

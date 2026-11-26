@@ -12,6 +12,7 @@
 //! Frame does NOT manage children — it only draws the border decoration.
 //! Use [`Window`] for a complete window with Frame + interior Container.
 
+use crate::canvas::Canvas;
 use crate::core::Buffer;
 use crate::core::{Color, Style};
 use crate::core::{Position, Rect};
@@ -996,7 +997,7 @@ impl View for Frame {
     }
 
     #[allow(clippy::too_many_lines)]
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
         if b.width < 2 || b.height < 1 {
             return;
@@ -1135,10 +1136,18 @@ impl View for Frame {
             (styles, tray)
         });
 
-        self.draw_top_border(buf, clip, &styles, &tray);
+        {
+            // S4 escape hatch (temporary)
+            let buf = canvas.buffer_mut();
+            self.draw_top_border(buf, clip, &styles, &tray);
+            if b.height >= 2 {
+                self.draw_side_borders(buf, clip, &styles);
+            }
+        }
         if b.height >= 2 {
-            self.draw_side_borders(buf, clip, &styles);
-            self.draw_scrollbars(buf, clip);
+            self.draw_scrollbars(canvas, clip);
+            // S4 escape hatch (temporary)
+            let buf = canvas.buffer_mut();
             self.draw_bottom_border(buf, clip, &styles);
         }
     }
@@ -1308,7 +1317,7 @@ impl Frame {
     }
 
     /// Draw the vertical and horizontal scrollbars if present.
-    fn draw_scrollbars(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_scrollbars(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
 
         // Vertical scrollbar
@@ -1320,7 +1329,7 @@ impl Frame {
 
             let mut sb_owned = sb.clone();
             sb_owned.set_bounds(sb_bounds);
-            sb_owned.draw(buf, clip);
+            sb_owned.draw(canvas, clip);
         }
 
         // Horizontal scrollbar
@@ -1333,7 +1342,7 @@ impl Frame {
             );
             let mut sb_owned = sb.clone();
             sb_owned.set_bounds(h_sb_bounds);
-            sb_owned.draw(buf, clip);
+            sb_owned.draw(canvas, clip);
         }
     }
 
@@ -1581,7 +1590,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 20, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "Test", FrameType::Window);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Check corner characters
         let tl = buf.cell(Position::new(0, 0)).unwrap();
@@ -1603,7 +1612,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 20, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "MyTitle", FrameType::Window);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Title should be centered on the top border
         // Width 20, title " MyTitle " = 9 chars
@@ -1627,7 +1636,10 @@ mod tests {
         let bounds = Rect::new(0, 0, 12, 5);
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 10));
         let frame = Frame::new(bounds, "LongTitle", FrameType::Window);
-        frame.draw(&mut buf, Rect::new(0, 0, 20, 10));
+        frame.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 10),
+        );
 
         // Close button occupies cols 2, 3, 4 (with 1-cell gap from corner)
         // Verify close button is intact
@@ -1661,7 +1673,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 20, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "Test", FrameType::Window);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Close button at positions 2, 3, 4 (with 1-cell gap from corner)
         let b1 = buf.cell(Position::new(2, 0)).unwrap();
@@ -1679,7 +1691,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 20, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "Dialog", FrameType::Dialog);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Dialog frame should not have close button
         // Position 1, 2 should have border characters, not [■
@@ -1693,7 +1705,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 20, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "GroupBox", FrameType::Single);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // Single frame should not have close button or resize handle
         let c1 = buf.cell(Position::new(1, 0)).unwrap();
@@ -1979,7 +1991,7 @@ mod tests {
         let mut buf = Buffer::empty(bounds);
         // Dialog has no close button, so title can use full top bar
         let frame = Frame::new(bounds, "Hi", FrameType::Dialog);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // " Hi " = 4 chars, width 40 → ideal_start = (40 - 4) / 2 = 18
         // So 'H' at col 19 (after leading space at 18)
@@ -2013,7 +2025,10 @@ mod tests {
         let bounds = Rect::new(0, 0, 10, 5);
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 10));
         let frame = Frame::new(bounds, "VeryLongTitle", FrameType::Dialog);
-        frame.draw(&mut buf, Rect::new(0, 0, 20, 10));
+        frame.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 10),
+        );
 
         // " VeryLongTitle " = 15 chars, available ~ 8 (cols 2..8 for Dialog with margin)
         // Right truncation should show ellipsis
@@ -2038,7 +2053,7 @@ mod tests {
         let bounds = Rect::new(0, 0, 40, 10);
         let mut buf = Buffer::empty(bounds);
         let frame = Frame::new(bounds, "Ok", FrameType::Dialog);
-        frame.draw(&mut buf, bounds);
+        frame.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         let top_row: String = (0..40)
             .map(|col| {
@@ -2064,7 +2079,10 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
         let frame = Frame::new(bounds, "X", FrameType::Single);
         // Should not panic
-        frame.draw(&mut buf, Rect::new(0, 0, 10, 10));
+        frame.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 10, 10),
+        );
     }
 
     // ============================================================================
@@ -2076,7 +2094,10 @@ mod tests {
         setup_default_theme();
         let frame = Frame::new(Rect::new(0, 0, 20, 1), "Mini", FrameType::Window);
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 5));
-        frame.draw(&mut buf, Rect::new(0, 0, 40, 5));
+        frame.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 40, 5),
+        );
         // Should draw something (not be empty) — verify corner chars exist
         let cell = buf.cell(Position::new(0, 0)).unwrap();
         assert_ne!(cell.symbol(), " ", "top-left corner should be drawn");
@@ -2119,7 +2140,10 @@ mod tests {
         setup_default_theme();
         let frame = Frame::new(Rect::new(0, 0, 30, 1), "TestWin", FrameType::Window);
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 5));
-        frame.draw(&mut buf, Rect::new(0, 0, 40, 5));
+        frame.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 40, 5),
+        );
         // Check that title characters appear somewhere in row 0
         let row_text: String = (0..30)
             .map(|col| {

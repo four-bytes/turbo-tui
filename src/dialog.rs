@@ -25,9 +25,9 @@
 //! }
 //! ```
 
+use crate::canvas::Canvas;
 use crate::command::{CommandId, CM_CANCEL, CM_OK, INTERNAL_COMMAND_BASE};
 use crate::container::Container;
-use crate::core::Buffer;
 use crate::core::Rect;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, SF_MODAL, SF_VISIBLE};
 use crate::window::Window;
@@ -151,11 +151,11 @@ impl View for Dialog {
         self.window.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
         if !self.open {
             return;
         }
-        self.window.draw(buf, clip);
+        self.window.draw(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -236,6 +236,7 @@ impl View for Dialog {
 mod tests {
     use super::*;
     use crate::command::{CM_CANCEL, CM_OK};
+    use crate::core::Buffer;
     use crate::theme::Theme;
     use crate::view::SF_MODAL;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
@@ -383,7 +384,7 @@ mod tests {
             fn set_bounds(&mut self, b: Rect) {
                 self.base.set_bounds(b);
             }
-            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
             fn handle_event(&mut self, event: &mut Event) {
                 event.handled = true;
             }
@@ -442,7 +443,10 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 80, 24));
 
         // Draw should be a no-op - no panic, no changes to buffer
-        dialog.draw(&mut buf, Rect::new(0, 0, 80, 24));
+        dialog.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 80, 24),
+        );
 
         // Buffer should remain empty (all cells default)
         for cell in buf.content() {

@@ -20,6 +20,7 @@
 //!
 //! Double-click on title bar toggles between maximized and previous bounds.
 
+use crate::canvas::Canvas;
 use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_SCROLL_CHANGED, CM_ZOOM};
 use crate::container::Container;
 use crate::core::Buffer;
@@ -810,7 +811,7 @@ impl Window {
                     }
                 }
             }
-            child.draw(&mut temp_buf, original);
+            child.draw(&mut crate::canvas::CellCanvas::new(&mut temp_buf), original);
 
             // Copy visible cells from temp to main buf, applying scroll offset
             for row in 0..original.height {
@@ -880,7 +881,7 @@ impl View for Window {
         self.update_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
         let draw_area = b.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -888,23 +889,27 @@ impl View for Window {
         }
 
         // 1. Draw frame (border, title, close button, resize handle)
-        self.frame.draw(buf, clip);
+        self.frame.draw(canvas, clip);
 
         // 2. If minimized (height == 1), skip interior
         if self.is_minimized() {
             return;
         }
 
-        // 3. Fill interior with background (prevents bleed-through)
-        self.fill_interior(buf, clip);
+        // 3. Fill interior with background (prevents bleed-through) — S4 escape hatch
+        {
+            let buf = canvas.buffer_mut();
+            self.fill_interior(buf, clip);
+        }
 
         // 4. Draw children with scroll offset applied
         let interior_clip = self.frame.interior_area().intersection(clip);
         if self.scroll_offset == (0, 0) || self.self_scrolling {
             // No scroll offset, or child manages its own scrolling
-            self.interior.draw(buf, interior_clip);
+            self.interior.draw(canvas, interior_clip);
         } else {
-            // Bitmap-shift approach for non-self-scrolling children
+            // Bitmap-shift approach for non-self-scrolling children — S4 escape hatch
+            let buf = canvas.buffer_mut();
             self.draw_scrolled_children(buf, interior_clip);
         }
     }
@@ -1257,7 +1262,7 @@ mod tests {
             fn set_bounds(&mut self, b: Rect) {
                 self.base.set_bounds(b);
             }
-            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
             fn handle_event(&mut self, event: &mut Event) {
                 event.handled = true;
             }
@@ -1810,7 +1815,7 @@ mod tests {
             fn set_bounds(&mut self, b: Rect) {
                 self.base.set_bounds(b);
             }
-            fn draw(&self, _: &mut Buffer, _: Rect) {}
+            fn draw(&self, _canvas: &mut dyn Canvas, _: Rect) {}
             fn handle_event(&mut self, event: &mut Event) {
                 self.received = true;
                 event.handled = true;
@@ -2088,7 +2093,7 @@ mod tests {
             fn set_bounds(&mut self, b: Rect) {
                 self.base.set_bounds(b);
             }
-            fn draw(&self, _buf: &mut Buffer, _clip: Rect) {}
+            fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {}
             fn handle_event(&mut self, _event: &mut Event) {}
             fn state(&self) -> u16 {
                 self.base.state()

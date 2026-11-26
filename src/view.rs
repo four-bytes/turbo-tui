@@ -3,7 +3,7 @@
 //! All UI components in turbo-tui implement the [`View`] trait, following
 //! the Borland Turbo Vision pattern.
 
-use crate::core::Buffer;
+use crate::canvas::Canvas;
 use crate::core::{Position, Rect};
 use std::any::Any;
 use std::collections::hash_map::DefaultHasher;
@@ -244,7 +244,7 @@ pub enum OwnerType {
 ///     fn id(&self) -> ViewId { self.base.id() }
 ///     fn bounds(&self) -> Rect { self.base.bounds() }
 ///     fn set_bounds(&mut self, bounds: Rect) { self.base.set_bounds(bounds); }
-///     fn draw(&self, buf: &mut Buffer, area: Rect) { /* ... */ }
+///     fn draw(&self, canvas: &mut dyn crate::canvas::Canvas, clip: Rect) { /* ... */ }
 ///     fn handle_event(&mut self, event: &mut Event) { /* ... */ }
 ///     fn state(&self) -> u16 { self.base.state() }
 ///     fn set_state(&mut self, state: u16) { self.base.set_state(state); }
@@ -274,7 +274,7 @@ pub trait View {
     /// rectangle. Views should draw at their own `bounds()` coordinates,
     /// skipping any cells outside `clip`. Containers pass the intersection
     /// of the parent area and child bounds.
-    fn draw(&self, buf: &mut Buffer, clip: Rect);
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect);
 
     // --- Events ---
 
@@ -471,7 +471,7 @@ pub trait View {
 ///     fn id(&self) -> ViewId { self.base.id() }
 ///     fn bounds(&self) -> Rect { self.base.bounds() }
 ///     fn set_bounds(&mut self, bounds: Rect) { self.base.set_bounds(bounds); }
-///     fn draw(&self, buf: &mut Buffer, area: Rect) { /* ... */ }
+///     fn draw(&self, canvas: &mut dyn crate::canvas::Canvas, clip: Rect) { /* ... */ }
 ///     fn handle_event(&mut self, event: &mut Event) { event.handled = true; }
 ///     fn state(&self) -> u16 { self.base.state() }
 ///     fn set_state(&mut self, state: u16) { self.base.set_state(state); }
@@ -670,7 +670,7 @@ impl View for ViewBase {
         }
     }
 
-    fn draw(&self, _buf: &mut Buffer, _clip: Rect) {
+    fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {
         // Base implementation draws nothing
     }
 

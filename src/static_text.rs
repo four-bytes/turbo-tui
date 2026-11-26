@@ -15,6 +15,7 @@
 //! let title = StaticText::centered(Rect::new(0, 0, 40, 1), "Welcome!");
 //! ```
 
+use crate::canvas::Canvas;
 use crate::core::Buffer;
 use crate::core::Rect;
 use crate::theme;
@@ -123,7 +124,9 @@ impl View for StaticText {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         self.draw_text(buf, clip);
     }
 
@@ -182,7 +185,10 @@ mod tests {
     fn test_static_text_draw() {
         let text = StaticText::new(Rect::new(0, 0, 20, 1), "Test Label");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 5));
-        text.draw(&mut buf, Rect::new(0, 0, 30, 5));
+        text.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 30, 5),
+        );
 
         // Verify text was drawn
         let content = buf.content();
@@ -207,7 +213,10 @@ mod tests {
     fn test_static_text_empty() {
         let text = StaticText::new(Rect::new(0, 0, 20, 1), "");
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
-        text.draw(&mut buf, Rect::new(0, 0, 20, 1));
+        text.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 1),
+        );
         // Should not panic
     }
 
@@ -236,7 +245,10 @@ mod tests {
     fn test_static_text_centered_calculation() {
         let text = StaticText::centered(Rect::new(0, 0, 20, 1), "Hi"); // 2 chars
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 5));
-        text.draw(&mut buf, Rect::new(0, 0, 30, 5));
+        text.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 30, 5),
+        );
 
         // "Hi" has 2 chars, centered in width20 => starts at (20-2)/2 = 9
         // Check that the text is approximately centered

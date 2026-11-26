@@ -24,6 +24,7 @@
 //! }
 //! ```
 
+use crate::canvas::Canvas;
 use crate::command::CommandId;
 use crate::core::Buffer;
 use crate::core::Rect;
@@ -160,7 +161,9 @@ impl View for Button {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         self.draw_button(buf, clip);
     }
 
@@ -255,7 +258,10 @@ mod tests {
     fn test_button_draw() {
         let button = Button::new(Rect::new(0, 0, 10, 1), "OK", CM_OK, false);
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 5));
-        button.draw(&mut buf, Rect::new(0, 0, 20, 5));
+        button.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 5),
+        );
 
         // Button text "[ OK ]" should be drawn
         // Verify content exists in buffer

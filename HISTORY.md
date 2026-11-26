@@ -9,10 +9,12 @@
 ### Refactor
 - Core type seam: new `turbo_tui::core` module re-exporting `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier`, `Style`; all crate/test/example imports now go through it (prepares the own backend, epic #10, issue #13)
 - Own core types: `turbo_tui::core` now provides its own `Rect`, `Position`, `Color`, `Modifier`, `Style`, `Cell` and `Buffer` (Ratatui-compatible API subset, wide-character aware via `unicode-width` + `unicode-segmentation`) behind temporary `From` conversions used by `Application::draw` (epic #10, issue #14)
+- New `turbo_tui::canvas` module: `Canvas` trait (`metric`, `area`, `draw_text`, `put_char`, `fill`, `set_style`, `set_cursor`) and `CellCanvas` wrapping `&mut Buffer`, with a temporary `buffer_mut()` escape hatch (epic #10, issue #16)
 
 ### Changed (BREAKING)
 - Own terminal backend: `turbo_tui::terminal::Terminal<W: Write>` (persistent front/back buffers, cell diff via crossterm, cursor handling) and `TestTerminal` replace Ratatui's `Terminal`/`Frame` and `TestBackend`.
 - `Application::draw(&mut core::Buffer) -> Option<Position>` replaces `Application::draw(&mut ratatui::Frame)` (returns the cursor position). Part of the v0.4.0 breaking release.
+- `View::draw(&self, canvas: &mut dyn Canvas, clip: Rect)` replaces the `&mut Buffer` signature; `Application::draw` now takes `&mut dyn Canvas`. All views still draw through the temporary `Canvas::buffer_mut()` escape hatch (14 sites) until the S5 widget migration.
 
 ## v0.3.2 — 2026-05-26
 

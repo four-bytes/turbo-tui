@@ -9,8 +9,8 @@
 //! overlay receives events first. If it doesn't consume the event, it falls
 //! through to the normal view hierarchy.
 
+use crate::canvas::Canvas;
 use crate::command::CM_DROPDOWN_CLOSED;
-use crate::core::Buffer;
 use crate::core::Rect;
 use crate::view::{Event, EventKind, View, ViewId};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind};
@@ -127,9 +127,9 @@ impl OverlayManager {
     }
 
     /// Draw all overlays (bottom to top).
-    pub fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    pub fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
         for overlay in &self.overlays {
-            overlay.view.draw(buf, clip);
+            overlay.view.draw(canvas, clip);
         }
     }
 
@@ -318,7 +318,7 @@ mod tests {
             self.base.set_bounds(bounds);
         }
 
-        fn draw(&self, _buf: &mut Buffer, _clip: Rect) {
+        fn draw(&self, _canvas: &mut dyn Canvas, _clip: Rect) {
             // Test implementation - draw nothing
         }
 

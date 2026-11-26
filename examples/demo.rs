@@ -27,6 +27,7 @@ use crossterm::{
 };
 use std::io;
 use std::time::{Duration, Instant};
+use turbo_tui::canvas::CellCanvas;
 use turbo_tui::core::Rect;
 use turbo_tui::terminal::Terminal;
 use turbo_tui::{
@@ -105,7 +106,7 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
 
     // ── Event loop ─────────────────────────────────────────────────────
     // Draw once before entering the loop so the initial frame is visible.
-    terminal.draw(|buf| app.draw(buf))?;
+    terminal.draw(|buf| app.draw(&mut CellCanvas::new(buf)))?;
 
     // Target frame budget (~60 fps). When a burst of events is pending, the
     // whole queue is drained and dispatched as one batch, then a single frame
@@ -169,7 +170,7 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
             }
 
             // Draw exactly once for the whole batch.
-            terminal.draw(|buf| app.draw(buf))?;
+            terminal.draw(|buf| app.draw(&mut CellCanvas::new(buf)))?;
 
             // Enforce the frame cap: sleep whatever is left of the budget.
             if let Some(remaining) = frame_budget.checked_sub(frame_start.elapsed()) {

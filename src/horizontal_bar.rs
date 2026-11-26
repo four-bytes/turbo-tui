@@ -12,6 +12,7 @@
 //! [`MenuBar`]: crate::menu_bar::MenuBar
 //! [`StatusBar`]: crate::status_bar::StatusBar
 
+use crate::canvas::Canvas;
 use crate::core::Buffer;
 use crate::core::Rect;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
@@ -733,7 +734,9 @@ impl View for HorizontalBar {
         self.base.set_bounds(bounds);
     }
 
-    fn draw(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
+        // TEMPORARY escape hatch (S4) — removed in S6.
+        let buf = canvas.buffer_mut();
         if self.base.bounds().height == 0 {
             return;
         }
@@ -1109,7 +1112,7 @@ mod tests {
         let bar = make_menu_bar();
         let area = Rect::new(0, 0, 80, 1);
         let mut buf = Buffer::empty(area);
-        bar.draw(&mut buf, area);
+        bar.draw(&mut crate::canvas::CellCanvas::new(&mut buf), area);
 
         // "File" starts at column 1 (column 0 = leading space)
         assert_eq!(buf[(0, 0)].symbol(), " "); // leading space

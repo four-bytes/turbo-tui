@@ -18,6 +18,8 @@ json-themes = ["dep:serde", "dep:serde_json"]
 [dependencies]
 ratatui = "0.30"
 crossterm = "0.28"
+unicode-segmentation = "1"
+unicode-width = "0.2"
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 

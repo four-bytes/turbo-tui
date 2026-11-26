@@ -330,7 +330,7 @@ impl Application {
     ///
     /// [`invalidate_rect`]: Application::invalidate_rect
     pub fn draw(&mut self, frame: &mut ratatui::Frame) {
-        let area = frame.area();
+        let area: crate::core::Rect = frame.area().into();
         // Use the accumulated dirty rect, or fall back to full area
         let clip = self.dirty_rect.unwrap_or(area);
 
@@ -341,29 +341,30 @@ impl Application {
             None
         };
 
-        {
-            let buf = frame.buffer_mut();
+        let mut buffer = crate::core::Buffer::empty(area);
 
-            // 1. Desktop (background + windows) — clipped to dirty region
-            self.desktop.draw(buf, clip);
+        // 1. Desktop (background + windows) — clipped to dirty region
+        self.desktop.draw(&mut buffer, clip);
 
-            // 2. Menu bar (top row) — clipped to dirty region
-            if let Some(ref mb) = self.menu_bar {
-                mb.draw(buf, clip);
-            }
-
-            // 3. Status bar (bottom row) — clipped to dirty region
-            if let Some(ref sl) = self.status_bar {
-                sl.draw(buf, clip);
-            }
-
-            // 4. Overlays (above everything) — clipped to dirty region
-            self.overlay_manager.draw(buf, clip);
+        // 2. Menu bar (top row) — clipped to dirty region
+        if let Some(ref mb) = self.menu_bar {
+            mb.draw(&mut buffer, clip);
         }
+
+        // 3. Status bar (bottom row) — clipped to dirty region
+        if let Some(ref sl) = self.status_bar {
+            sl.draw(&mut buffer, clip);
+        }
+
+        // 4. Overlays (above everything) — clipped to dirty region
+        self.overlay_manager.draw(&mut buffer, clip);
+
+        *frame.buffer_mut() = buffer.into();
 
         // 5. Terminal cursor — from focused window's child view
         if let Some(pos) = cursor_pos {
-            frame.set_cursor_position(pos);
+            let ratatui_pos: ratatui::layout::Position = pos.into();
+            frame.set_cursor_position(ratatui_pos);
         }
 
         // 6. Clear dirty rect — everything has been redrawn

@@ -23,7 +23,6 @@
 use crate::canvas::Canvas;
 use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_SCROLL_CHANGED, CM_ZOOM};
 use crate::container::Container;
-use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use crate::frame::{Frame, FrameConfig, FrameType};
 use crate::theme;
@@ -766,7 +765,7 @@ impl Window {
     /// Temporarily shifts each child's bounds by `-scroll_offset` for drawing,
     /// then restores the original bounds. Children outside the visible area
     /// after the shift are culled (not drawn).
-    fn draw_scrolled_children(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_scrolled_children(&self, canvas: &mut dyn Canvas, clip: Rect) {
         use crate::view::SF_VISIBLE;
 
         let (sx, sy) = self.scroll_offset;
@@ -831,13 +830,9 @@ impl Window {
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let (dx, dy) = (dest_x as u16, dest_y as u16);
                     let src_pos = Position::new(original.x + col, original.y + row);
-                    let dst_pos = Position::new(dx, dy);
 
                     if let Some(src_cell) = temp_buf.cell(src_pos) {
-                        if let Some(dst_cell) = buf.cell_mut(dst_pos) {
-                            dst_cell.set_symbol(src_cell.symbol());
-                            dst_cell.set_style(src_cell.style());
-                        }
+                        canvas.put_symbol(dx, dy, src_cell.symbol(), src_cell.style(), clip);
                     }
                 }
             }
@@ -847,20 +842,14 @@ impl Window {
     /// Fill the interior area with the window background style.
     ///
     /// This prevents background bleed-through when children don't cover the full interior.
-    fn fill_interior(&self, buf: &mut Buffer, clip: Rect) {
+    fn fill_interior(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let interior = self.frame.interior_area();
         let fill_area = interior.intersection(clip);
         if fill_area.width == 0 || fill_area.height == 0 {
             return;
         }
         let style = theme::with_current(|t| t.window_interior);
-        for row in fill_area.y..fill_area.y + fill_area.height {
-            for col in fill_area.x..fill_area.x + fill_area.width {
-                if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                    cell.set_char(' ').set_style(style);
-                }
-            }
-        }
+        canvas.fill(fill_area, ' ', style);
     }
 }
 
@@ -896,11 +885,8 @@ impl View for Window {
             return;
         }
 
-        // 3. Fill interior with background (prevents bleed-through) — S4 escape hatch
-        {
-            let buf = canvas.buffer_mut();
-            self.fill_interior(buf, clip);
-        }
+        // 3. Fill interior with background (prevents bleed-through)
+        self.fill_interior(canvas, clip);
 
         // 4. Draw children with scroll offset applied
         let interior_clip = self.frame.interior_area().intersection(clip);
@@ -908,9 +894,8 @@ impl View for Window {
             // No scroll offset, or child manages its own scrolling
             self.interior.draw(canvas, interior_clip);
         } else {
-            // Bitmap-shift approach for non-self-scrolling children — S4 escape hatch
-            let buf = canvas.buffer_mut();
-            self.draw_scrolled_children(buf, interior_clip);
+            // Bitmap-shift approach for non-self-scrolling children
+            self.draw_scrolled_children(canvas, interior_clip);
         }
     }
 

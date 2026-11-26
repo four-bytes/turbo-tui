@@ -11,7 +11,6 @@
 
 use crate::canvas::Canvas;
 use crate::container::Container;
-use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId};
@@ -363,20 +362,14 @@ impl Desktop {
     ///
     /// Reads the background style and character from the current theme at draw-time
     /// so that runtime theme changes via [`theme::set`] are always reflected.
-    fn draw_background(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_background(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
         let fill_area = b.intersection(clip);
         if fill_area.width == 0 || fill_area.height == 0 {
             return;
         }
         let (bg_style, bg_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
-        for row in fill_area.y..fill_area.y + fill_area.height {
-            for col in fill_area.x..fill_area.x + fill_area.width {
-                if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                    cell.set_char(bg_char).set_style(bg_style);
-                }
-            }
-        }
+        canvas.fill(fill_area, bg_char, bg_style);
     }
 }
 
@@ -404,11 +397,8 @@ impl View for Desktop {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // 1. Background — S4 escape hatch
-        {
-            let buf = canvas.buffer_mut();
-            self.draw_background(buf, clip);
-        }
+        // 1. Background
+        self.draw_background(canvas, clip);
         // 2. Windows (Container handles Z-order)
         self.windows.draw(canvas, clip);
     }
@@ -487,6 +477,7 @@ impl View for Desktop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Buffer;
     use crate::theme::Theme;
     use crate::view::{SF_FOCUSED, SF_VISIBLE};
 

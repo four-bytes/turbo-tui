@@ -10,6 +10,7 @@
 - Core type seam: new `turbo_tui::core` module re-exporting `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier`, `Style`; all crate/test/example imports now go through it (prepares the own backend, epic #10, issue #13)
 - Own core types: `turbo_tui::core` now provides its own `Rect`, `Position`, `Color`, `Modifier`, `Style`, `Cell` and `Buffer` (Ratatui-compatible API subset, wide-character aware via `unicode-width` + `unicode-segmentation`) behind temporary `From` conversions used by `Application::draw` (epic #10, issue #14)
 - New `turbo_tui::canvas` module: `Canvas` trait (`metric`, `area`, `draw_text`, `put_char`, `fill`, `set_style`, `set_cursor`) and `CellCanvas` wrapping `&mut Buffer`, with a temporary `buffer_mut()` escape hatch (epic #10, issue #16)
+- S5a: core views (frame, window, desktop) draw via `Canvas` primitives; the temporary `buffer_mut()` escape hatch is gone from the core view group (epic #10, issue #17)
 
 ### Changed (BREAKING)
 - Own terminal backend: `turbo_tui::terminal::Terminal<W: Write>` (persistent front/back buffers, cell diff via crossterm, cursor handling) and `TestTerminal` replace Ratatui's `Terminal`/`Frame` and `TestBackend`.

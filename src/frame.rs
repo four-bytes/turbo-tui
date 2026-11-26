@@ -13,9 +13,7 @@
 //! Use [`Window`] for a complete window with Frame + interior Container.
 
 use crate::canvas::Canvas;
-use crate::core::Buffer;
-use crate::core::{Color, Style};
-use crate::core::{Position, Rect};
+use crate::core::{Color, Rect, Style};
 use crate::scrollbar::ScrollBar;
 use crate::theme::{self, ButtonSide};
 use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
@@ -960,26 +958,17 @@ impl Frame {
         self.hovered
     }
 
-    /// Draw a single character to the buffer at the given position.
-    ///
-    /// Returns `true` if the character was drawn (within clip bounds).
+    /// Draw a single character to the canvas at the given position, clipped to
+    /// `clip`.
     fn draw_char(
-        buf: &mut Buffer,
+        canvas: &mut dyn Canvas,
         col: u16,
         row: u16,
         ch: char,
         style: crate::core::Style,
         clip: Rect,
-    ) -> bool {
-        if col < clip.x || col >= clip.x + clip.width || row < clip.y || row >= clip.y + clip.height
-        {
-            return false;
-        }
-
-        if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-            cell.set_char(ch).set_style(style);
-        }
-        true
+    ) {
+        canvas.put_char(col, row, ch, style, clip);
     }
 }
 
@@ -1136,19 +1125,13 @@ impl View for Frame {
             (styles, tray)
         });
 
-        {
-            // S4 escape hatch (temporary)
-            let buf = canvas.buffer_mut();
-            self.draw_top_border(buf, clip, &styles, &tray);
-            if b.height >= 2 {
-                self.draw_side_borders(buf, clip, &styles);
-            }
+        self.draw_top_border(canvas, clip, &styles, &tray);
+        if b.height >= 2 {
+            self.draw_side_borders(canvas, clip, &styles);
         }
         if b.height >= 2 {
             self.draw_scrollbars(canvas, clip);
-            // S4 escape hatch (temporary)
-            let buf = canvas.buffer_mut();
-            self.draw_bottom_border(buf, clip, &styles);
+            self.draw_bottom_border(canvas, clip, &styles);
         }
     }
 
@@ -1209,7 +1192,7 @@ impl Frame {
     /// Draw the top border including corners, horizontal line, close button, and title.
     fn draw_top_border(
         &self,
-        buf: &mut Buffer,
+        canvas: &mut dyn Canvas,
         clip: Rect,
         styles: &FrameStyles,
         tray: &ButtonTray,
@@ -1219,17 +1202,24 @@ impl Frame {
         // Optional title bar background (fills entire top row)
         if let Some(tb_bg) = styles.title_bar_bg {
             for col in (b.x + 1)..(b.x + b.width - 1) {
-                Self::draw_char(buf, col, b.y, ' ', tb_bg, clip);
+                Self::draw_char(canvas, col, b.y, ' ', tb_bg, clip);
             }
         }
 
         // Corner characters
-        Self::draw_char(buf, b.x, b.y, styles.tl, styles.frame, clip);
-        Self::draw_char(buf, b.x + b.width - 1, b.y, styles.tr, styles.frame, clip);
+        Self::draw_char(canvas, b.x, b.y, styles.tl, styles.frame, clip);
+        Self::draw_char(
+            canvas,
+            b.x + b.width - 1,
+            b.y,
+            styles.tr,
+            styles.frame,
+            clip,
+        );
 
         // Horizontal line
         for col in (b.x + 1)..(b.x + b.width - 1) {
-            Self::draw_char(buf, col, b.y, styles.h, styles.frame, clip);
+            Self::draw_char(canvas, col, b.y, styles.h, styles.frame, clip);
         }
 
         // Draw close button using tray position
@@ -1237,7 +1227,7 @@ impl Frame {
             let close_chars = &styles.close_text[..styles.close_text_len as usize];
             for (i, &ch) in close_chars.iter().take(len as usize).enumerate() {
                 let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(buf, col, b.y, ch, styles.close, clip);
+                Self::draw_char(canvas, col, b.y, ch, styles.close, clip);
             }
         }
 
@@ -1246,7 +1236,7 @@ impl Frame {
             let min_chars = &styles.minimize_text[..styles.minimize_text_len as usize];
             for (i, &ch) in min_chars.iter().take(len as usize).enumerate() {
                 let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(buf, col, b.y, ch, styles.minimize_style, clip);
+                Self::draw_char(canvas, col, b.y, ch, styles.minimize_style, clip);
             }
         }
 
@@ -1255,7 +1245,7 @@ impl Frame {
             let max_chars = &styles.maximize_text[..styles.maximize_text_len as usize];
             for (i, &ch) in max_chars.iter().take(len as usize).enumerate() {
                 let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(buf, col, b.y, ch, styles.maximize_style, clip);
+                Self::draw_char(canvas, col, b.y, ch, styles.maximize_style, clip);
             }
         }
 
@@ -1293,7 +1283,7 @@ impl Frame {
                         } else {
                             ch
                         };
-                        Self::draw_char(buf, col, b.y, draw_ch, styles.title, clip);
+                        Self::draw_char(canvas, col, b.y, draw_ch, styles.title, clip);
                     }
                 }
             }
@@ -1301,17 +1291,17 @@ impl Frame {
     }
 
     /// Draw the left and right vertical borders.
-    fn draw_side_borders(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+    fn draw_side_borders(&self, canvas: &mut dyn Canvas, clip: Rect, styles: &FrameStyles) {
         let b = self.base.bounds();
 
         for row in (b.y + 1)..(b.y + b.height - 1) {
             // Left border
-            Self::draw_char(buf, b.x, row, styles.v, styles.frame, clip);
+            Self::draw_char(canvas, b.x, row, styles.v, styles.frame, clip);
 
             // Right border — draw when no scrollbar, or scrollbar is hidden
             let sb_visible = self.v_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
             if !sb_visible {
-                Self::draw_char(buf, b.x + b.width - 1, row, styles.v, styles.frame, clip);
+                Self::draw_char(canvas, b.x + b.width - 1, row, styles.v, styles.frame, clip);
             }
         }
     }
@@ -1347,24 +1337,38 @@ impl Frame {
     }
 
     /// Draw the bottom border including corners, horizontal line, and resize handle.
-    fn draw_bottom_border(&self, buf: &mut Buffer, clip: Rect, styles: &FrameStyles) {
+    fn draw_bottom_border(&self, canvas: &mut dyn Canvas, clip: Rect, styles: &FrameStyles) {
         let b = self.base.bounds();
 
         // Corner characters
-        Self::draw_char(buf, b.x, b.y + b.height - 1, styles.bl, styles.frame, clip);
+        Self::draw_char(
+            canvas,
+            b.x,
+            b.y + b.height - 1,
+            styles.bl,
+            styles.frame,
+            clip,
+        );
 
         // Horizontal line — draw when no scrollbar, or scrollbar is hidden
         let h_sb_visible = self.h_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
         if !h_sb_visible {
             for col in (b.x + 1)..(b.x + b.width - 1) {
-                Self::draw_char(buf, col, b.y + b.height - 1, styles.h, styles.frame, clip);
+                Self::draw_char(
+                    canvas,
+                    col,
+                    b.y + b.height - 1,
+                    styles.h,
+                    styles.frame,
+                    clip,
+                );
             }
         }
 
         // Bottom-right corner (or resize handle)
         if self.resizable && self.frame_type == FrameType::Window {
             Self::draw_char(
-                buf,
+                canvas,
                 b.x + b.width - 1,
                 b.y + b.height - 1,
                 styles.resize_char,
@@ -1373,7 +1377,7 @@ impl Frame {
             );
         } else {
             Self::draw_char(
-                buf,
+                canvas,
                 b.x + b.width - 1,
                 b.y + b.height - 1,
                 styles.br,
@@ -1391,6 +1395,7 @@ impl Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{Buffer, Position};
     use crate::theme::Theme;
 
     fn setup_default_theme() {

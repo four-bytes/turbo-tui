@@ -5,14 +5,14 @@
 //! - Window drag lifecycle (start on title bar, end on mouse up)
 //! - Drop target routing through Container
 
-use turbo_tui::prelude::*;
+use crossterm::event::{MouseButton, MouseEventKind};
+use ratatui::layout::Rect;
 use turbo_tui::menu_bar::MenuItem;
 use turbo_tui::menu_box::MenuBox;
 use turbo_tui::overlay::Overlay;
+use turbo_tui::prelude::*;
 use turbo_tui::view::ViewId;
 use turbo_tui::window::Window;
-use ratatui::layout::Rect;
-use crossterm::event::{MouseButton, MouseEventKind};
 
 /// Helper to create a mouse event at a given position.
 fn mouse_at(col: u16, row: u16, kind: MouseEventKind) -> Event {
@@ -44,7 +44,10 @@ fn test_overlay_dismiss_on_escape() {
         dismiss_on_outside_click: true,
         dismiss_on_escape: true,
     });
-    assert!(!app.overlay_manager().is_empty(), "overlay must be present after push");
+    assert!(
+        !app.overlay_manager().is_empty(),
+        "overlay must be present after push"
+    );
 
     // Press Escape to dismiss
     let escape = Event::key(crossterm::event::KeyEvent {
@@ -78,7 +81,10 @@ fn test_overlay_dismiss_on_outside_click() {
         dismiss_on_outside_click: true,
         dismiss_on_escape: true,
     });
-    assert!(!app.overlay_manager().is_empty(), "overlay must be present after push");
+    assert!(
+        !app.overlay_manager().is_empty(),
+        "overlay must be present after push"
+    );
 
     // Click outside the overlay (top-left corner, far from menu at 10,5)
     app.dispatch(&mut mouse_at(0, 0, MouseEventKind::Down(MouseButton::Left)));
@@ -108,10 +114,7 @@ fn test_overlay_can_be_pushed_and_popped() {
 
     let popped = app.overlay_manager_mut().pop();
     assert!(popped.is_some(), "pop must return the overlay");
-    assert!(
-        app.overlay_manager().is_empty(),
-        "must be empty after pop"
-    );
+    assert!(app.overlay_manager().is_empty(), "must be empty after pop");
 }
 
 // ========================================================================
@@ -127,7 +130,11 @@ fn test_window_drag_starts_on_titlebar_mousedown() {
     let _wid = app.add_window(win);
 
     // Click on title bar (col=20, row=5) — past close button at cols 11-13
-    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+    app.dispatch(&mut mouse_at(
+        20,
+        5,
+        MouseEventKind::Down(MouseButton::Left),
+    ));
 
     // Downcast to check drag state
     let win_ref = app.desktop().windows().child_at(0).unwrap();
@@ -149,7 +156,11 @@ fn test_window_drag_ends_on_mouseup() {
     let _wid = app.add_window(win);
 
     // Start drag
-    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+    app.dispatch(&mut mouse_at(
+        20,
+        5,
+        MouseEventKind::Down(MouseButton::Left),
+    ));
     let win_ref = app.desktop().windows().child_at(0).unwrap();
     let window = win_ref
         .as_any()
@@ -165,10 +176,7 @@ fn test_window_drag_ends_on_mouseup() {
         .as_any()
         .downcast_ref::<Window>()
         .expect("child must be a Window");
-    assert!(
-        !window.is_dragging(),
-        "mouse up must end dragging"
-    );
+    assert!(!window.is_dragging(), "mouse up must end dragging");
 }
 
 /// Test: clicking on the window interior (not title bar) does NOT start drag.
@@ -179,7 +187,11 @@ fn test_window_outside_titlebar_no_drag() {
     let _wid = app.add_window(win);
 
     // Click on interior area (col=20, row=12 — inside the window but not title bar)
-    app.dispatch(&mut mouse_at(20, 12, MouseEventKind::Down(MouseButton::Left)));
+    app.dispatch(&mut mouse_at(
+        20,
+        12,
+        MouseEventKind::Down(MouseButton::Left),
+    ));
 
     let win_ref = app.desktop().windows().child_at(0).unwrap();
     let window = win_ref
@@ -199,10 +211,10 @@ fn test_window_outside_titlebar_no_drag() {
 /// Test: container routes drop to target with `OF_DROP_TARGET`.
 #[test]
 fn test_drop_routes_to_drop_target() {
+    use ratatui::buffer::Buffer;
     use std::any::Any;
     use std::cell::RefCell;
     use turbo_tui::view::ViewBase;
-    use ratatui::buffer::Buffer;
 
     // A view that accepts drops
     struct DropTargetView {
@@ -288,7 +300,11 @@ fn test_drag_outside_no_drop() {
     let _wid = app.add_window(win);
 
     // Start drag on title bar
-    app.dispatch(&mut mouse_at(20, 5, MouseEventKind::Down(MouseButton::Left)));
+    app.dispatch(&mut mouse_at(
+        20,
+        5,
+        MouseEventKind::Down(MouseButton::Left),
+    ));
     let win_ref = app.desktop().windows().child_at(0).unwrap();
     let window = win_ref
         .as_any()

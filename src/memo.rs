@@ -16,9 +16,7 @@
 
 use crate::clip;
 use crate::theme;
-use crate::view::{
-    Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED,
-};
+use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
@@ -616,8 +614,7 @@ mod tests {
 
     #[test]
     fn test_memo_with_text() {
-        let memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
 
         assert_eq!(memo.text(), "Hello\nWorld");
         assert_eq!(memo.line_count(), 2);
@@ -627,16 +624,14 @@ mod tests {
 
     #[test]
     fn test_memo_with_text_empty() {
-        let memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("");
+        let memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("");
         assert_eq!(memo.text(), "");
         assert_eq!(memo.line_count(), 1); // Always at least one line
     }
 
     #[test]
     fn test_memo_insert_char() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Heo");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Heo");
         memo.cursor = (0, 2);
 
         memo.insert_char('l');
@@ -646,8 +641,7 @@ mod tests {
 
     #[test]
     fn test_memo_insert_newline() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("HelloWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("HelloWorld");
         memo.cursor = (0, 5);
 
         memo.insert_char('\n');
@@ -658,8 +652,7 @@ mod tests {
 
     #[test]
     fn test_memo_backspace() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello");
         memo.cursor = (0, 5);
 
         memo.delete_before_cursor();
@@ -669,8 +662,7 @@ mod tests {
 
     #[test]
     fn test_memo_backspace_joins_lines() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
         memo.cursor = (1, 0);
 
         memo.delete_before_cursor();
@@ -681,8 +673,7 @@ mod tests {
 
     #[test]
     fn test_memo_delete() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello");
         memo.cursor = (0, 0);
 
         memo.delete_at_cursor();
@@ -692,8 +683,7 @@ mod tests {
 
     #[test]
     fn test_memo_delete_joins_lines() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
         memo.cursor = (0, 5);
 
         memo.delete_at_cursor();
@@ -704,8 +694,7 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_up_down() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Line 1\nLine 2\nLine 3");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Line 1\nLine 2\nLine 3");
         memo.cursor = (1, 3);
 
         memo.cursor_up();
@@ -723,8 +712,7 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_left_right() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello");
         memo.cursor = (0, 2);
 
         memo.cursor_left();
@@ -736,8 +724,7 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_left_wraps_to_prev_line() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
         memo.cursor = (1, 0);
 
         memo.cursor_left();
@@ -746,8 +733,7 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_right_wraps_to_next_line() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
         memo.cursor = (0, 5);
 
         memo.cursor_right();
@@ -756,8 +742,7 @@ mod tests {
 
     #[test]
     fn test_memo_home_end() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello World");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello World");
         memo.cursor = (0, 5);
 
         memo.cursor_home();
@@ -770,8 +755,8 @@ mod tests {
     #[test]
     fn test_memo_page_up_down() {
         // Use a small visible area to test page keys
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 3))
-            .with_text("Line1\nLine2\nLine3\nLine4\nLine5");
+        let mut memo =
+            Memo::new(Rect::new(0, 0, 30, 3)).with_text("Line1\nLine2\nLine3\nLine4\nLine5");
         memo.cursor = (4, 0);
         memo.scroll_to_cursor();
 
@@ -785,8 +770,7 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_clamped_to_line_length() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hi\nLonger Line");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hi\nLonger Line");
         memo.cursor = (0, 5); // Beyond line length
 
         memo.clamp_cursor_col();
@@ -795,8 +779,8 @@ mod tests {
 
     #[test]
     fn test_memo_scroll_to_cursor() {
-        let mut memo = Memo::new(Rect::new(0, 0, 10, 3))
-            .with_text("Line1\nLine2\nLine3\nLine4\nLine5");
+        let mut memo =
+            Memo::new(Rect::new(0, 0, 10, 3)).with_text("Line1\nLine2\nLine3\nLine4\nLine5");
 
         // Move cursor past visible area
         memo.cursor = (4, 0);
@@ -809,8 +793,7 @@ mod tests {
 
     #[test]
     fn test_memo_content_size_hint() {
-        let memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld\nFoo");
+        let memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld\nFoo");
 
         let (w, h) = memo.content_size_hint().unwrap();
         assert_eq!(h, 3); // 3 lines
@@ -819,8 +802,8 @@ mod tests {
 
     #[test]
     fn test_memo_scroll_position() {
-        let mut memo = Memo::new(Rect::new(0, 0, 10, 3))
-            .with_text("Line1\nLine2\nLine3\nLine4\nLine5");
+        let mut memo =
+            Memo::new(Rect::new(0, 0, 10, 3)).with_text("Line1\nLine2\nLine3\nLine4\nLine5");
         memo.scroll = (2, 3);
 
         let (x, y) = memo.scroll_position();
@@ -830,8 +813,8 @@ mod tests {
 
     #[test]
     fn test_memo_scroll_to() {
-        let mut memo = Memo::new(Rect::new(0, 0, 10, 3))
-            .with_text("Line1\nLine2\nLine3\nLine4\nLine5");
+        let mut memo =
+            Memo::new(Rect::new(0, 0, 10, 3)).with_text("Line1\nLine2\nLine3\nLine4\nLine5");
 
         let result = memo.scroll_to(2, 1);
         assert!(result);
@@ -843,10 +826,7 @@ mod tests {
     fn test_memo_key_event_insert() {
         let mut memo = Memo::new(Rect::new(0, 0, 30, 10));
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Char('a'),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
 
@@ -856,15 +836,11 @@ mod tests {
 
     #[test]
     fn test_memo_key_event_enter() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello");
 
         memo.cursor = (0, 5);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Enter,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
 
@@ -875,14 +851,10 @@ mod tests {
 
     #[test]
     fn test_memo_key_event_backspace() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hi");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hi");
         memo.cursor = (0, 2);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Backspace,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
 
@@ -892,14 +864,10 @@ mod tests {
 
     #[test]
     fn test_memo_key_event_delete() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hi");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hi");
         memo.cursor = (0, 0);
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Delete,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Delete, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
 
@@ -909,43 +877,30 @@ mod tests {
 
     #[test]
     fn test_memo_key_event_navigation() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("Hello\nWorld");
         memo.cursor = (1, 3);
 
         // Up
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Up,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Up, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
         assert!(event.is_cleared());
         assert_eq!(memo.cursor, (0, 3));
 
         // Down
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Down,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Down, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
         assert_eq!(memo.cursor, (1, 3));
 
         // Left
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Left,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Left, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
         assert_eq!(memo.cursor, (1, 2));
 
         // Right
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::Right,
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::Right, KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
         assert_eq!(memo.cursor, (1, 3));
@@ -953,8 +908,7 @@ mod tests {
 
     #[test]
     fn test_memo_mouse_click_places_cursor() {
-        let mut memo = Memo::new(Rect::new(10, 5, 30, 10))
-            .with_text("Hello\nWorld");
+        let mut memo = Memo::new(Rect::new(10, 5, 30, 10)).with_text("Hello\nWorld");
 
         let mouse = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -993,15 +947,13 @@ mod tests {
 
     #[test]
     fn test_memo_cursor_position_none_when_not_focused() {
-        let memo = Memo::new(Rect::new(10, 5, 30, 10))
-            .with_text("Hello");
+        let memo = Memo::new(Rect::new(10, 5, 30, 10)).with_text("Hello");
         assert_eq!(memo.cursor_position(), None);
     }
 
     #[test]
     fn test_memo_cursor_position_when_focused() {
-        let mut memo = Memo::new(Rect::new(10, 5, 30, 10))
-            .with_text("Hello");
+        let mut memo = Memo::new(Rect::new(10, 5, 30, 10)).with_text("Hello");
         memo.set_state(memo.state() | SF_FOCUSED);
         memo.cursor = (0, 3);
 
@@ -1011,15 +963,14 @@ mod tests {
 
     #[test]
     fn test_memo_draw() {
-        let memo = Memo::new(Rect::new(0, 0, 20, 5))
-            .with_text("Test Content");
+        let memo = Memo::new(Rect::new(0, 0, 20, 5)).with_text("Test Content");
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 10));
         memo.draw(&mut buf, Rect::new(0, 0, 30, 10));
 
         let content = buf.content();
-        let has_test = content.iter().any(|cell| {
-            cell.symbol().contains('T') || cell.symbol().contains('C')
-        });
+        let has_test = content
+            .iter()
+            .any(|cell| cell.symbol().contains('T') || cell.symbol().contains('C'));
         assert!(has_test, "Memo should draw its content");
     }
 
@@ -1044,10 +995,7 @@ mod tests {
     fn test_memo_ignores_non_text_input() {
         let mut memo = Memo::new(Rect::new(0, 0, 30, 10));
 
-        let key = crossterm::event::KeyEvent::new(
-            KeyCode::F(1),
-            KeyModifiers::empty(),
-        );
+        let key = crossterm::event::KeyEvent::new(KeyCode::F(1), KeyModifiers::empty());
         let mut event = Event::key(key);
         memo.handle_event(&mut event);
 
@@ -1057,8 +1005,7 @@ mod tests {
 
     #[test]
     fn test_memo_multi_line_insert() {
-        let mut memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("abcdef");
+        let mut memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("abcdef");
         memo.cursor = (0, 3);
 
         memo.insert_char('\n');
@@ -1073,8 +1020,7 @@ mod tests {
 
     #[test]
     fn test_memo_max_line_width() {
-        let memo = Memo::new(Rect::new(0, 0, 30, 10))
-            .with_text("a\nbb\nccc");
+        let memo = Memo::new(Rect::new(0, 0, 30, 10)).with_text("a\nbb\nccc");
         assert_eq!(memo.max_line_width(), 3);
     }
 }

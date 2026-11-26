@@ -1152,17 +1152,14 @@ impl View for Window {
 // ============================================================================
 
 #[cfg(test)]
-#[allow(
-    clippy::items_after_statements,
-    clippy::semicolon_if_nothing_returned
-)]
+#[allow(clippy::items_after_statements, clippy::semicolon_if_nothing_returned)]
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
     use crate::frame::{FrameConfig, FrameType};
+    use crate::scrollbar::ScrollBar;
     use crate::theme::Theme;
     use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING};
-    use crate::scrollbar::ScrollBar;
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn setup_theme() {

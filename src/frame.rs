@@ -1639,7 +1639,10 @@ mod tests {
         // Collect the top row from col 5 onwards
         let title_area: String = (5..12)
             .map(|col| {
-                buf.cell(Position::new(col, 0)).unwrap().symbol().to_string()
+                buf.cell(Position::new(col, 0))
+                    .unwrap()
+                    .symbol()
+                    .to_string()
             })
             .collect();
 

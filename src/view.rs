@@ -660,10 +660,9 @@ impl View for ViewBase {
                 Some(existing) => {
                     let x = existing.x.min(union_rect.x);
                     let y = existing.y.min(union_rect.y);
-                    let right = (existing.x + existing.width)
-                        .max(union_rect.x + union_rect.width);
-                    let bottom = (existing.y + existing.height)
-                        .max(union_rect.y + union_rect.height);
+                    let right = (existing.x + existing.width).max(union_rect.x + union_rect.width);
+                    let bottom =
+                        (existing.y + existing.height).max(union_rect.y + union_rect.height);
                     Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
                 }
                 None => union_rect,

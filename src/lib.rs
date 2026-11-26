@@ -50,9 +50,9 @@ pub mod msgbox;
 pub mod horizontal_bar;
 
 // Level 6: Text editor
+pub mod editor;
 pub mod memo;
 pub mod syntax;
-pub mod editor;
 
 /// Prelude — import this for quick access to common types.
 pub mod prelude {

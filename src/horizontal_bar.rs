@@ -13,7 +13,6 @@
 //! [`StatusBar`]: crate::status_bar::StatusBar
 
 use crate::canvas::Canvas;
-use crate::core::Buffer;
 use crate::core::Rect;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use std::any::Any;
@@ -463,7 +462,7 @@ impl HorizontalBar {
     // -----------------------------------------------------------------------
 
     /// Draw the bar row.
-    fn draw_bar(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_bar(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let (bar_style, active_style, hotkey_style, active_hotkey_style) =
             theme::with_current(|t| {
                 (
@@ -477,9 +476,11 @@ impl HorizontalBar {
         let bounds = self.base.bounds();
 
         // Fill background
-        for x in bounds.x..bounds.x + bounds.width {
-            crate::clip::set_string_clipped(buf, x, bounds.y, " ", bar_style, clip);
-        }
+        canvas.fill(
+            Rect::new(bounds.x, bounds.y, bounds.width, 1).intersection(clip),
+            ' ',
+            bar_style,
+        );
 
         for (idx, (entry, &pos)) in self
             .entries
@@ -503,7 +504,7 @@ impl HorizontalBar {
             let draw_x = bounds.x + pos;
 
             // Leading space
-            crate::clip::set_string_clipped(buf, draw_x, bounds.y, " ", base_style, clip);
+            canvas.draw_text(draw_x, bounds.y, " ", base_style, clip);
 
             // Label characters (with hotkey marker handling)
             let mut cur_x = draw_x + 1;
@@ -514,12 +515,12 @@ impl HorizontalBar {
                     continue;
                 }
                 let style = if in_marker { hk_style } else { base_style };
-                crate::clip::set_string_clipped(buf, cur_x, bounds.y, &ch.to_string(), style, clip);
+                canvas.draw_text(cur_x, bounds.y, &ch.to_string(), style, clip);
                 cur_x += 1;
             }
 
             // Trailing space
-            crate::clip::set_string_clipped(buf, cur_x, bounds.y, " ", base_style, clip);
+            canvas.draw_text(cur_x, bounds.y, " ", base_style, clip);
         }
 
         // Draw hint text right-aligned (status bar feature)
@@ -528,7 +529,7 @@ impl HorizontalBar {
             let hint_len = hint.chars().count() as u16;
             if hint_len < bounds.width {
                 let hint_x = bounds.x + bounds.width - hint_len - 1;
-                crate::clip::set_string_clipped(buf, hint_x, bounds.y, hint, bar_style, clip);
+                canvas.draw_text(hint_x, bounds.y, hint, bar_style, clip);
             }
         }
     }
@@ -735,12 +736,10 @@ impl View for HorizontalBar {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
         if self.base.bounds().height == 0 {
             return;
         }
-        self.draw_bar(buf, clip);
+        self.draw_bar(canvas, clip);
         // Dropdown is now rendered by OverlayManager, not self-drawn
     }
 
@@ -788,6 +787,7 @@ impl View for HorizontalBar {
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_NEW, CM_OPEN, CM_QUIT, CM_SAVE};
+    use crate::core::Buffer;
     use crate::status_bar::{KB_F1, KB_F2};
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 

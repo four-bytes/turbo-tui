@@ -45,6 +45,10 @@ Consumers pass the resulting flag to
 on, every link is written as `ESC ] 8 ; id=<id> ; <url> ESC \`, using the
 buffer's stable link id so the terminal can track a link region exactly. The
 sequence is closed before every cursor move and at the end of every frame.
+Plain, non-ASCII and wide cells are always positioned with an explicit cursor
+move; the cursor-advance shortcut is used only for adjacent ASCII single-width
+linked cells, so terminals that render an ambiguous-width glyph (such as the em
+dash) wider than the buffer can never shift the following text.
 
 When a cell is actually wrapped in OSC 8, turbo-tui suppresses that cell's SGR
 underline (`SGR 4`), so the terminal's own decoration is the only underline.

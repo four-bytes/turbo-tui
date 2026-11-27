@@ -3,15 +3,19 @@
 //! These functions write text to a `Buffer` while respecting a clip rectangle.
 //! Characters outside the clip region are silently skipped.
 
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
 use crate::core::Buffer;
 use crate::core::Style;
 use crate::core::{LinkId, Position, Rect};
 
 /// Write a string to the buffer, clipping to the given rectangle.
 ///
-/// Characters at positions outside `clip` are silently skipped.
-/// This replaces direct `buf.set_string()` calls in widgets that must
-/// respect the parent's clip region.
+/// Text is split into grapheme clusters. Clusters outside `clip` are skipped;
+/// a wide cluster that would cross the clip edge is skipped entirely so it
+/// cannot corrupt the neighbouring cell. The written cell keeps the cluster
+/// symbol and its trailing cell(s) are reset.
 ///
 /// # Arguments
 ///
@@ -57,18 +61,37 @@ fn set_string_impl(
     }
 
     let mut col = x;
-    for ch in text.chars() {
+    for grapheme in text.graphemes(true) {
         // Past right edge of clip — stop early
         if col >= clip.x + clip.width {
             break;
         }
-        // Only write if within clip's horizontal range
-        if col >= clip.x {
+
+        // Control characters are not drawn; zero-width clusters carry no cell.
+        if grapheme.contains(char::is_control) {
+            continue;
+        }
+        let width = grapheme.width();
+        if width == 0 {
+            continue;
+        }
+        let width = u16::try_from(width).unwrap_or(u16::MAX);
+
+        // Write only clusters that fit completely inside the clip; a wide
+        // grapheme that would cross the clip edge is skipped, because writing
+        // half of it would corrupt the neighbouring cell.
+        if col >= clip.x && col + width <= clip.x + clip.width {
             if let Some(cell) = buf.cell_mut(Position::new(col, y)) {
-                cell.set_char(ch).set_style(style).set_link(link);
+                cell.set_symbol(grapheme).set_style(style).set_link(link);
+            }
+            for offset in 1..width {
+                if let Some(cell) = buf.cell_mut(Position::new(col + offset, y)) {
+                    cell.reset();
+                }
             }
         }
-        col = col.saturating_add(1);
+
+        col = col.saturating_add(width);
     }
 }
 
@@ -163,5 +186,53 @@ mod tests {
         assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "l");
         assert_eq!(buf.cell(Position::new(4, 0)).unwrap().symbol(), "l");
         assert_eq!(buf.cell(Position::new(5, 0)).unwrap().symbol(), " ");
+    }
+
+    #[test]
+    fn test_set_string_clipped_wide_grapheme_advances_by_display_width() {
+        let clip = Rect::new(0, 0, 10, 1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
+        set_string_clipped(&mut buf, 0, 0, "世A", Style::default(), clip);
+
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "世");
+        assert_eq!(
+            buf.cell(Position::new(1, 0)).unwrap().symbol(),
+            " ",
+            "the trailing cell of a wide grapheme must be reset"
+        );
+        assert_eq!(buf.cell(Position::new(2, 0)).unwrap().symbol(), "A");
+    }
+
+    #[test]
+    fn test_set_string_linked_wide_grapheme_links_only_the_leading_cell() {
+        let clip = Rect::new(0, 0, 10, 1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
+        let mut links = crate::core::LinkTable::new();
+        let id = links.insert(&crate::core::Link::new(crate::core::LinkTarget::Url(
+            "https://example.com".to_owned(),
+        )));
+        buf.links = links;
+        set_string_linked(&mut buf, 0, 0, "世A", Style::default(), id, clip);
+
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().link(), Some(id));
+        assert_eq!(
+            buf.cell(Position::new(1, 0)).unwrap().link(),
+            None,
+            "the trailing cell must not carry the link"
+        );
+        assert_eq!(buf.cell(Position::new(2, 0)).unwrap().link(), Some(id));
+    }
+
+    #[test]
+    fn test_set_string_clipped_wide_grapheme_crossing_the_clip_is_skipped() {
+        let clip = Rect::new(0, 0, 1, 1);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
+        set_string_clipped(&mut buf, 0, 0, "世", Style::default(), clip);
+
+        assert_eq!(
+            buf.cell(Position::new(0, 0)).unwrap().symbol(),
+            " ",
+            "a wide grapheme that does not fully fit the clip is not written"
+        );
     }
 }

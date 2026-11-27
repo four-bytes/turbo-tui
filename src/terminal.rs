@@ -220,10 +220,14 @@ fn emit_updates<W: Write>(
 
 /// Emits the diff with run-aware OSC 8 hyperlink wrapping.
 ///
-/// A run continues while updates share a row, are horizontally adjacent and
-/// resolve to the same link id. Outside a run the active link is closed *before*
-/// the cursor moves. The link is always closed after the last update, so a frame
-/// never ends with an open hyperlink.
+/// A run continues while updates share a row, are horizontally adjacent, share
+/// the same link id, and the previous and current cells are ASCII single-width.
+/// Everything else is addressed with an explicit `MoveTo`: plain cells are
+/// always positioned absolutely, and non-ASCII or wide cells break the run,
+/// because the terminal's display width for ambiguous-width glyphs (and VS16
+/// trailing-cell updates) may differ from the buffer's width. Outside a run the
+/// active link is closed *before* the cursor moves. The link is always closed
+/// after the last update, so a frame never ends with an open hyperlink.
 ///
 /// Linked cells that are actually wrapped in OSC 8 drop their SGR underline; the
 /// terminal's own link decoration is the only underline. See
@@ -236,14 +240,25 @@ fn emit_linked_updates<W: Write>(
 ) -> io::Result<()> {
     let mut active: Option<LinkId> = None;
     let mut prev: Option<(u16, u16)> = None;
+    let mut prev_safe = false;
 
     for (x, y) in diff_updates(front, back) {
         let cell = &back[(x, y)];
         let resolved = resolve_cell_link(&back.links, allowed_schemes, cell);
         let target = resolved.as_ref().map(|(id, _)| *id);
 
-        let contiguous =
-            prev.is_some_and(|(px, py)| py == y && px.saturating_add(1) == x) && target == active;
+        // The cursor-advance shortcut is only safe for an adjacent ASCII
+        // single-width linked run. Plain cells are always addressed absolutely,
+        // and any non-ASCII or wide cell breaks the run: terminals may render
+        // an "ambiguous width" glyph (e.g. an em dash) wider than the buffer
+        // does, and VS16 trailing-cell updates must not be treated as
+        // contiguous with the wide grapheme that produced them.
+        let current_safe = cell.symbol().is_ascii() && cell.symbol().width() == 1;
+        let contiguous = target.is_some()
+            && target == active
+            && prev_safe
+            && current_safe
+            && prev.is_some_and(|(px, py)| py == y && px.saturating_add(1) == x);
 
         if !contiguous {
             if active.is_some() {
@@ -266,6 +281,7 @@ fn emit_linked_updates<W: Write>(
 
         queue_cell(writer, cell, resolved.is_none())?;
         prev = Some((x, y));
+        prev_safe = current_safe;
     }
 
     if active.is_some() {
@@ -350,6 +366,13 @@ impl<W: Write> Terminal<W> {
     /// Links that are not emitted — hyperlinks disabled, non-URL targets, or a
     /// URL rejected by the scheme allowlist — keep the theme `link*` pens,
     /// including their SGR underline.
+    ///
+    /// # Positioning
+    ///
+    /// Plain, non-ASCII and wide cells are always positioned with an explicit
+    /// cursor move; the cursor-advance shortcut is used only for adjacent ASCII
+    /// single-width linked cells, so an ambiguous-width glyph (such as the em
+    /// dash) rendered wider by the terminal cannot shift the following text.
     ///
     /// The consumer should pass
     /// [`Application::hyperlink_support`](crate::application::Application::hyperlink_support)'s
@@ -1347,5 +1370,365 @@ mod tests {
             output.contains("\x1b[4m"),
             "non-emittable links still rely on the theme underline: {output:?}"
         );
+    }
+
+    // -- VT screen model ----------------------------------------------------
+
+    /// Minimal VT screen used to check that the emitted bytes, not just the
+    /// front buffer, contain the cells the back buffer expects.
+    struct VtScreen {
+        width: u16,
+        height: u16,
+        cells: Vec<String>,
+        x: u16,
+        y: u16,
+        /// Simulate a terminal that renders the ambiguous-width em dash as two
+        /// cells (Windows Terminal does this in some configurations).
+        em_dash_double_width: bool,
+    }
+
+    impl VtScreen {
+        fn new(width: u16, height: u16) -> Self {
+            Self {
+                width,
+                height,
+                cells: vec![" ".to_owned(); usize::from(width) * usize::from(height)],
+                x: 0,
+                y: 0,
+                em_dash_double_width: false,
+            }
+        }
+
+        fn with_em_dash_double_width(mut self) -> Self {
+            self.em_dash_double_width = true;
+            self
+        }
+
+        fn apply(&mut self, bytes: &[u8]) {
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == 0x1b {
+                    self.apply_escape(bytes, &mut i);
+                } else {
+                    let start = i;
+                    while i < bytes.len() && bytes[i] != 0x1b {
+                        i += 1;
+                    }
+                    let text = std::str::from_utf8(&bytes[start..i])
+                        .expect("emitted text must be valid UTF-8");
+                    for ch in text.chars() {
+                        self.put(ch);
+                    }
+                }
+            }
+        }
+
+        fn apply_escape(&mut self, bytes: &[u8], i: &mut usize) {
+            *i += 1;
+            match bytes.get(*i) {
+                Some(b']') => {
+                    // OSC: skip until BEL or ST.
+                    *i += 1;
+                    while *i < bytes.len() {
+                        if bytes[*i] == 0x07 {
+                            *i += 1;
+                            break;
+                        }
+                        if bytes[*i] == 0x1b && bytes.get(*i + 1) == Some(&b'\\') {
+                            *i += 2;
+                            break;
+                        }
+                        *i += 1;
+                    }
+                }
+                Some(b'[') => {
+                    // CSI: parameters/intermediates until a final byte.
+                    *i += 1;
+                    let start = *i;
+                    while *i < bytes.len() && !(0x40..=0x7e).contains(&bytes[*i]) {
+                        *i += 1;
+                    }
+                    if *i >= bytes.len() {
+                        return;
+                    }
+                    let final_byte = bytes[*i];
+                    let parameters = &bytes[start..*i];
+                    *i += 1;
+                    if final_byte == b'H' || final_byte == b'f' {
+                        self.move_to(parameters);
+                    }
+                }
+                Some(_) => *i += 1,
+                None => {}
+            }
+        }
+
+        fn move_to(&mut self, parameters: &[u8]) {
+            let text = std::str::from_utf8(parameters).unwrap_or("");
+            let mut parts = text.split(';');
+            let row = parts
+                .next()
+                .and_then(|part| part.parse::<u16>().ok())
+                .unwrap_or(1);
+            let column = parts
+                .next()
+                .and_then(|part| part.parse::<u16>().ok())
+                .unwrap_or(1);
+            self.y = row.saturating_sub(1).min(self.height.saturating_sub(1));
+            self.x = column.saturating_sub(1).min(self.width.saturating_sub(1));
+        }
+
+        fn put(&mut self, ch: char) {
+            if ch.is_control() {
+                return;
+            }
+            let width = if self.em_dash_double_width && ch == '—' {
+                2
+            } else {
+                u16::try_from(unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1))
+                    .unwrap_or(1)
+                    .max(1)
+            };
+            if self.x < self.width && self.y < self.height {
+                let index = usize::from(self.y) * usize::from(self.width) + usize::from(self.x);
+                self.cells[index] = ch.to_string();
+                for offset in 1..width {
+                    let trailing = index + usize::from(offset);
+                    if trailing < self.cells.len() {
+                        self.cells[trailing] = " ".to_owned();
+                    }
+                }
+            }
+            self.x = self.x.saturating_add(width);
+        }
+    }
+
+    fn screen_for(terminal: &TestTerminal) -> VtScreen {
+        let mut screen = VtScreen::new(terminal.width, terminal.height);
+        screen.apply(terminal.output());
+        screen
+    }
+
+    fn assert_screen_matches(terminal: &TestTerminal, screen: &VtScreen) {
+        let buffer = terminal.buffer();
+        assert_eq!(buffer.area.width, screen.width);
+        assert_eq!(buffer.area.height, screen.height);
+        for y in 0..screen.height {
+            for x in 0..screen.width {
+                let expected = buffer[(x, y)].symbol();
+                let actual =
+                    &screen.cells[usize::from(y) * usize::from(screen.width) + usize::from(x)];
+                assert_eq!(
+                    actual, expected,
+                    "emitted screen differs from the back buffer at ({x},{y})"
+                );
+            }
+        }
+    }
+
+    fn draw_plain(terminal: &mut TestTerminal, text: &str) {
+        terminal.draw(|buffer| {
+            buffer.set_string(0, 0, text, Style::default());
+            None
+        });
+    }
+
+    fn draw_linked(terminal: &mut TestTerminal, text: &str) {
+        terminal.draw(|buffer| {
+            let id = buffer.links.insert(&url_link("https://example.com"));
+            let area = buffer.area;
+            crate::clip::set_string_linked(buffer, 0, 0, text, Style::default(), id, area);
+            None
+        });
+    }
+
+    #[test]
+    fn test_vt_model_shorter_plain_text_over_longer() {
+        let mut terminal = TestTerminal::new(10, 1).with_hyperlinks(true);
+        draw_plain(&mut terminal, "ABCDEFGHIJ");
+        draw_plain(&mut terminal, "AB");
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_link_over_plain_text() {
+        let mut terminal = TestTerminal::new(10, 1).with_hyperlinks(true);
+        draw_plain(&mut terminal, "ABCDEFGHIJ");
+        draw_linked(&mut terminal, "AB");
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_plain_text_over_link() {
+        let mut terminal = TestTerminal::new(10, 1).with_hyperlinks(true);
+        draw_linked(&mut terminal, "ABCDEFGHIJ");
+        draw_plain(&mut terminal, "AB");
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_wide_characters_over_plain_text() {
+        let mut terminal = TestTerminal::new(10, 2).with_hyperlinks(true);
+        draw_plain(&mut terminal, "A—B世C");
+        draw_plain(&mut terminal, "A—B");
+        draw_plain(&mut terminal, "A世B");
+        draw_plain(&mut terminal, "AB");
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_wide_linked_run() {
+        let mut terminal = TestTerminal::new(10, 1).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            buffer.set_string(0, 0, "A世B", Style::default());
+            let id = buffer.links.insert(&url_link("https://example.com"));
+            buffer[(0, 0)].set_link(Some(id));
+            buffer[(3, 0)].set_link(Some(id));
+            None
+        });
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_links_window_matches_back_buffer() {
+        use crate::application::Application;
+        use crate::canvas::CellCanvas;
+        use crate::core::Rect;
+        use crate::hyperlink::HyperlinkMode;
+        use crate::link_label::LinkLabel;
+        use crate::static_text::StaticText;
+        use crate::window::Window;
+
+        let mut app = Application::new(Rect::new(0, 0, 60, 15)).with_hyperlinks(HyperlinkMode::On);
+        let mut window = Window::new(Rect::new(2, 2, 46, 10), "Links");
+        let url = "https://github.com/four-bytes/turbo-tui";
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 42, 1),
+            url,
+            Link::new(LinkTarget::Url(url.to_owned())),
+        )));
+        let issue = LinkTarget::IssueRef {
+            repo: Some("four-bytes/turbo-tui".to_owned()),
+            number: 54,
+        };
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 2, 42, 1),
+            "Issue four-bytes/turbo-tui#54",
+            Link::new(issue),
+        )));
+        let file = LinkTarget::FilePos {
+            path: "src/lib.rs".to_owned(),
+            line: 1,
+            col: None,
+        };
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 3, 42, 1),
+            "File src/lib.rs:1",
+            Link::new(file),
+        )));
+        window.add(Box::new(StaticText::new(
+            Rect::new(1, 5, 42, 1),
+            "OSC 8: on — Windows Terminal",
+        )));
+        app.add_window(window);
+
+        let mut terminal = TestTerminal::new(60, 15).with_hyperlinks(true);
+        terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_links_window_after_hover_and_drag() {
+        use crate::application::Application;
+        use crate::canvas::CellCanvas;
+        use crate::core::Rect;
+        use crate::hyperlink::HyperlinkMode;
+        use crate::link_label::LinkLabel;
+        use crate::static_text::StaticText;
+        use crate::window::Window;
+        use crossterm::event::{Event, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+        fn mouse(x: u16, y: u16, kind: MouseEventKind) -> Event {
+            Event::Mouse(MouseEvent {
+                kind,
+                column: x,
+                row: y,
+                modifiers: KeyModifiers::NONE,
+            })
+        }
+
+        let mut app = Application::new(Rect::new(0, 0, 60, 15)).with_hyperlinks(HyperlinkMode::On);
+        let mut window = Window::new(Rect::new(2, 2, 46, 10), "Links");
+        let url = "https://github.com/four-bytes/turbo-tui";
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 42, 1),
+            url,
+            Link::new(LinkTarget::Url(url.to_owned())),
+        )));
+        window.add(Box::new(StaticText::new(
+            Rect::new(1, 5, 42, 1),
+            "OSC 8: on — Windows Terminal",
+        )));
+        app.add_window(window);
+
+        let mut terminal = TestTerminal::new(60, 15).with_hyperlinks(true);
+        let frame = |app: &mut Application, terminal: &mut TestTerminal| {
+            terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+            assert_screen_matches(terminal, &screen_for(terminal));
+        };
+
+        frame(&mut app, &mut terminal);
+
+        // Hover the URL, then leave it again.
+        app.handle_crossterm_events(&[mouse(5, 4, MouseEventKind::Moved)]);
+        frame(&mut app, &mut terminal);
+        app.handle_crossterm_events(&[mouse(0, 0, MouseEventKind::Moved)]);
+        frame(&mut app, &mut terminal);
+
+        // Drag the Links window by its title bar (old area must be cleared).
+        app.handle_crossterm_events(&[
+            mouse(4, 2, MouseEventKind::Down(MouseButton::Left)),
+            mouse(9, 5, MouseEventKind::Drag(MouseButton::Left)),
+            mouse(9, 5, MouseEventKind::Up(MouseButton::Left)),
+        ]);
+        frame(&mut app, &mut terminal);
+    }
+
+    #[test]
+    fn test_vt_model_clipped_wide_characters() {
+        use crate::canvas::{Canvas, CellCanvas};
+
+        let mut terminal = TestTerminal::new(10, 2).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let area = buffer.area;
+            let mut canvas = CellCanvas::new(buffer);
+            canvas.draw_text(0, 0, "A世B—C", Style::default(), area);
+            None
+        });
+        terminal.draw(|buffer| {
+            let area = buffer.area;
+            let mut canvas = CellCanvas::new(buffer);
+            canvas.draw_text(0, 0, "A世B", Style::default(), area);
+            None
+        });
+        assert_screen_matches(&terminal, &screen_for(&terminal));
+    }
+
+    #[test]
+    fn test_vt_model_em_dash_rendered_double_width() {
+        use crate::canvas::{Canvas, CellCanvas};
+
+        let mut terminal = TestTerminal::new(40, 1).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let area = buffer.area;
+            let mut canvas = CellCanvas::new(buffer);
+            canvas.draw_text(0, 0, "OSC 8: on — Windows Terminal", Style::default(), area);
+            None
+        });
+
+        let mut screen = VtScreen::new(40, 1).with_em_dash_double_width();
+        screen.apply(terminal.output());
+        assert_screen_matches(&terminal, &screen);
     }
 }

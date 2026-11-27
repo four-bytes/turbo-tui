@@ -73,7 +73,9 @@ pub mod prelude {
     };
     pub use crate::command::*;
     pub use crate::container::Container;
-    pub use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect, Style};
+    pub use crate::core::{
+        Buffer, Cell, Color, Link, LinkId, LinkTable, LinkTarget, Modifier, Position, Rect, Style,
+    };
     pub use crate::desktop::Desktop;
     pub use crate::dialog::Dialog;
     pub use crate::editor::Editor;

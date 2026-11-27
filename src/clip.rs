@@ -5,7 +5,7 @@
 
 use crate::core::Buffer;
 use crate::core::Style;
-use crate::core::{Position, Rect};
+use crate::core::{LinkId, Position, Rect};
 
 /// Write a string to the buffer, clipping to the given rectangle.
 ///
@@ -22,6 +22,35 @@ use crate::core::{Position, Rect};
 /// * `style` — Style for each character.
 /// * `clip` — Clip rectangle — only cells within this rect are written.
 pub fn set_string_clipped(buf: &mut Buffer, x: u16, y: u16, text: &str, style: Style, clip: Rect) {
+    set_string_impl(buf, x, y, text, style, clip, None);
+}
+
+/// Write a string to the buffer as a link, clipping to the given rectangle.
+///
+/// Behaves like [`set_string_clipped`], but every written cell is tagged with
+/// `link` via [`crate::core::Cell::set_link`]. Cells outside `clip` are not
+/// written and therefore keep their previous link state.
+pub fn set_string_linked(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    text: &str,
+    style: Style,
+    link: LinkId,
+    clip: Rect,
+) {
+    set_string_impl(buf, x, y, text, style, clip, Some(link));
+}
+
+fn set_string_impl(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    text: &str,
+    style: Style,
+    clip: Rect,
+    link: Option<LinkId>,
+) {
     // Row entirely outside clip — skip everything
     if y < clip.y || y >= clip.y + clip.height {
         return;
@@ -36,7 +65,7 @@ pub fn set_string_clipped(buf: &mut Buffer, x: u16, y: u16, text: &str, style: S
         // Only write if within clip's horizontal range
         if col >= clip.x {
             if let Some(cell) = buf.cell_mut(Position::new(col, y)) {
-                cell.set_char(ch).set_style(style);
+                cell.set_char(ch).set_style(style).set_link(link);
             }
         }
         col = col.saturating_add(1);

@@ -6,7 +6,7 @@
 //! future canvases (e.g. a sub-cell graphics canvas) can expose a different
 //! [`Canvas::metric`] without changing any view code.
 
-use crate::core::{Buffer, Position, Rect, Style};
+use crate::core::{Buffer, Link, Position, Rect, Style};
 
 // ============================================================================
 // Semantic drawing types
@@ -173,6 +173,23 @@ pub trait Canvas {
     /// Draws `text` starting at `(x, y)`, clipped to `clip`.
     fn draw_text(&mut self, x: u16, y: u16, text: &str, style: Style, clip: Rect);
 
+    /// Draws `text` as a link, clipped to `clip`.
+    ///
+    /// The default implementation draws plain styled text and ignores `link`;
+    /// canvases that can carry link ids override it.
+    fn draw_text_link(
+        &mut self,
+        x: u16,
+        y: u16,
+        text: &str,
+        style: Style,
+        link: &Link,
+        clip: Rect,
+    ) {
+        let _ = link;
+        self.draw_text(x, y, text, style, clip);
+    }
+
     /// Draws a single character at `(x, y)` if it lies inside `clip`.
     fn put_char(&mut self, x: u16, y: u16, ch: char, style: Style, clip: Rect);
 
@@ -265,6 +282,19 @@ impl Canvas for CellCanvas<'_> {
 
     fn draw_text(&mut self, x: u16, y: u16, text: &str, style: Style, clip: Rect) {
         crate::clip::set_string_clipped(&mut *self.buffer, x, y, text, style, clip);
+    }
+
+    fn draw_text_link(
+        &mut self,
+        x: u16,
+        y: u16,
+        text: &str,
+        style: Style,
+        link: &Link,
+        clip: Rect,
+    ) {
+        let id = self.buffer.links.insert(link);
+        crate::clip::set_string_linked(&mut *self.buffer, x, y, text, style, id, clip);
     }
 
     fn put_char(&mut self, x: u16, y: u16, ch: char, style: Style, clip: Rect) {
@@ -561,5 +591,88 @@ mod tests {
         assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "╗");
         // Rows below the single-row frame stay untouched.
         assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), " ");
+    }
+
+    fn url_link(url: &str) -> Link {
+        Link::new(crate::core::LinkTarget::Url(url.to_owned()))
+    }
+
+    #[test]
+    fn test_draw_text_link_tags_cells_inside_clip() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 3));
+        let link = url_link("https://example.com");
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            let clip = Rect::new(2, 1, 3, 1);
+            canvas.draw_text_link(1, 1, "Hello", Style::default(), &link, clip);
+        }
+
+        // Cells outside the clip stay unlinked.
+        assert_eq!(buf.cell(Position::new(1, 1)).unwrap().link(), None);
+        assert_eq!(buf.cell(Position::new(5, 1)).unwrap().link(), None);
+        // Cells inside the clip carry the id and resolve to the link.
+        let id = buf.cell(Position::new(2, 1)).unwrap().link().unwrap();
+        assert_eq!(buf.cell(Position::new(3, 1)).unwrap().link(), Some(id));
+        assert_eq!(buf.cell(Position::new(4, 1)).unwrap().link(), Some(id));
+        assert_eq!(buf.links.get(id), Some(&link));
+    }
+
+    #[test]
+    fn test_draw_text_clears_link_after_linked_write() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
+        let link = url_link("https://example.com");
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            let clip = Rect::new(0, 0, 10, 1);
+            canvas.draw_text_link(0, 0, "abc", Style::default(), &link, clip);
+        }
+        assert!(buf.cell(Position::new(0, 0)).unwrap().link().is_some());
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.draw_text(0, 0, "abc", Style::default(), Rect::new(0, 0, 10, 1));
+        }
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().link(), None);
+        assert_eq!(buf.cell(Position::new(2, 0)).unwrap().link(), None);
+    }
+
+    /// Minimal canvas that records `draw_text` calls to check the default
+    /// `draw_text_link` delegation.
+    struct RecordingCanvas {
+        drawn: Vec<(u16, u16, String)>,
+    }
+
+    impl Canvas for RecordingCanvas {
+        fn area(&self) -> Rect {
+            Rect::new(0, 0, 20, 5)
+        }
+
+        fn draw_text(&mut self, x: u16, y: u16, text: &str, _style: Style, _clip: Rect) {
+            self.drawn.push((x, y, text.to_owned()));
+        }
+
+        fn put_char(&mut self, _x: u16, _y: u16, _ch: char, _style: Style, _clip: Rect) {}
+
+        fn put_symbol(&mut self, _x: u16, _y: u16, _symbol: &str, _style: Style, _clip: Rect) {}
+
+        fn fill(&mut self, _rect: Rect, _ch: char, _style: Style) {}
+
+        fn set_style(&mut self, _rect: Rect, _style: Style) {}
+
+        fn set_cursor(&mut self, _pos: Option<Position>) {}
+    }
+
+    #[test]
+    fn test_default_draw_text_link_delegates_to_draw_text() {
+        let mut canvas = RecordingCanvas { drawn: Vec::new() };
+        let link = url_link("https://example.com");
+        canvas.draw_text_link(
+            1,
+            2,
+            "hello",
+            Style::default(),
+            &link,
+            Rect::new(0, 0, 20, 5),
+        );
+        assert_eq!(canvas.drawn, vec![(1, 2, "hello".to_owned())]);
     }
 }

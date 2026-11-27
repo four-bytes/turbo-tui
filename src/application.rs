@@ -35,9 +35,10 @@
 use crate::canvas::Canvas;
 use crate::command::{
     CommandId, CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_CONTEXT_MENU, CM_DRAG_END, CM_DRAG_MOVE,
-    CM_DRAG_START, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
+    CM_DRAG_START, CM_DROPDOWN_CLOSED, CM_DROPDOWN_NAVIGATE, CM_OPEN_DROPDOWN, CM_OPEN_LINK,
+    CM_QUIT, CM_TILE,
 };
-use crate::core::{Position, Rect};
+use crate::core::{LinkTarget, Position, Rect};
 use crate::desktop::Desktop;
 use crate::hyperlink::{detect_current, HyperlinkMode, HyperlinkSupport};
 use crate::menu_bar::MenuBar;
@@ -125,6 +126,10 @@ pub struct Application {
     hyperlink_mode: HyperlinkMode,
     /// Resolved hyperlink capability decision.
     hyperlink_support: HyperlinkSupport,
+    /// Currently hovered link target, if any.
+    hovered_link: Option<LinkTarget>,
+    /// Link target requested via `CM_OPEN_LINK`, awaiting the consumer.
+    open_link: Option<LinkTarget>,
 }
 
 impl Application {
@@ -155,6 +160,8 @@ impl Application {
             dirty_rect: None,
             hyperlink_mode,
             hyperlink_support,
+            hovered_link: None,
+            open_link: None,
         }
     }
 
@@ -197,6 +204,42 @@ impl Application {
     #[must_use]
     pub const fn hyperlink_support(&self) -> &HyperlinkSupport {
         &self.hyperlink_support
+    }
+
+    // -------------------------------------------------------------------------
+    // Link interaction
+    // -------------------------------------------------------------------------
+
+    /// Returns the link target the mouse is currently hovering over, if any.
+    #[must_use]
+    pub fn hovered_link(&self) -> Option<&LinkTarget> {
+        self.hovered_link.as_ref()
+    }
+
+    /// Takes the link target requested via `CM_OPEN_LINK`.
+    ///
+    /// Returns the target and clears it. Consumers should call this after
+    /// [`handle_crossterm_events`](Application::handle_crossterm_events) and
+    /// open the returned target.
+    #[must_use]
+    pub fn take_open_link(&mut self) -> Option<LinkTarget> {
+        self.open_link.take()
+    }
+
+    /// Sets the status bar hint text.
+    ///
+    /// The hint is drawn right-aligned on the status bar. Does nothing when no
+    /// status bar is installed.
+    pub fn set_status_hint(&mut self, hint: Option<String>) {
+        if let Some(ref mut status_bar) = self.status_bar {
+            status_bar.set_hint(hint);
+        }
+    }
+
+    /// Returns the current status bar hint text, if a status bar is installed.
+    #[must_use]
+    pub fn status_hint(&self) -> Option<&str> {
+        self.status_bar.as_ref().and_then(StatusBar::hint)
     }
 
     // -------------------------------------------------------------------------
@@ -498,6 +541,11 @@ impl Application {
                 self.invalidate_rect(self.screen_size);
             }
             crossterm::event::Event::Mouse(mouse) => {
+                // A move resets the hover; link labels post `Some` again while
+                // the pointer is inside them (via the deferred queue).
+                if mouse.kind == crossterm::event::MouseEventKind::Moved {
+                    self.hovered_link = None;
+                }
                 let mut event = Event::mouse(*mouse);
                 self.dispatch(&mut event);
                 self.invalidate_rect(self.screen_size);
@@ -524,6 +572,11 @@ impl Application {
     /// 5. Application-level command handling (`CM_QUIT`, `CM_CLOSE`)
     /// 6. Deferred event queue processing
     pub fn dispatch(&mut self, event: &mut Event) {
+        // Link events are owned by the Application and never reach the views.
+        if self.handle_link_event(event) {
+            return;
+        }
+
         // 1. Overlay layer — if it consumed the event, stop here
         if self.overlay_manager.handle_event(event) && event.is_cleared() {
             self.process_deferred(event);
@@ -561,6 +614,27 @@ impl Application {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /// Handles link hover/activation events owned by the Application.
+    ///
+    /// Returns `true` when the event was a link event and has been consumed;
+    /// views never see these events.
+    fn handle_link_event(&mut self, event: &mut Event) -> bool {
+        match &event.kind {
+            EventKind::LinkHover(target) => {
+                self.hovered_link.clone_from(target);
+                event.handled = true;
+                true
+            }
+            EventKind::LinkActivate(target) => {
+                self.open_link = Some(target.clone());
+                self.last_unhandled_command = Some(CM_OPEN_LINK);
+                event.handled = true;
+                true
+            }
+            _ => false,
+        }
+    }
 
     /// Handle dropdown orchestration commands.
     ///
@@ -873,6 +947,11 @@ impl Application {
     ///
     /// [`process_deferred`]: Application::process_deferred
     fn dispatch_single(&mut self, event: &mut Event) {
+        // Link events are owned by the Application and never reach the views.
+        if self.handle_link_event(event) {
+            return;
+        }
+
         // 1. Overlay
         if self.overlay_manager.handle_event(event) && event.is_cleared() {
             return;
@@ -1015,6 +1094,63 @@ mod tests {
         assert!(app.menu_bar().is_none(), "no menu bar by default");
         assert!(app.status_bar().is_none(), "no status bar by default");
         assert!(app.overlay_manager().is_empty(), "no overlays by default");
+        assert!(app.hovered_link().is_none(), "no hovered link by default");
+    }
+
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_link_activate_sets_open_link_and_command() {
+        let mut app = Application::new(screen());
+        let target = LinkTarget::Url("https://example.com".to_owned());
+
+        let mut event = Event::link_activate(target.clone());
+        app.dispatch(&mut event);
+
+        assert!(event.handled, "link activation must be handled");
+        assert_eq!(app.take_open_link(), Some(target));
+        assert_eq!(
+            app.take_unhandled_command(),
+            Some(CM_OPEN_LINK),
+            "activation must surface CM_OPEN_LINK"
+        );
+        assert!(app.take_open_link().is_none(), "taking clears the target");
+    }
+
+    #[test]
+    fn test_application_link_hover_set_and_clear() {
+        let mut app = Application::new(screen());
+        let target = LinkTarget::IssueRef {
+            repo: None,
+            number: 54,
+        };
+
+        let mut hover = Event::link_hover(Some(target.clone()));
+        app.dispatch(&mut hover);
+        assert_eq!(app.hovered_link(), Some(&target));
+        assert!(hover.handled);
+
+        let mut clear = Event::link_hover(None);
+        app.dispatch(&mut clear);
+        assert!(app.hovered_link().is_none());
+        assert!(clear.handled);
+    }
+
+    #[test]
+    fn test_application_status_hint_set_and_clear() {
+        use crate::status_bar::status_bar_from_items;
+
+        let mut app = Application::new(screen());
+        // Without a status bar the hint is dropped.
+        app.set_status_hint(Some("ignored".to_owned()));
+        assert!(app.status_hint().is_none());
+
+        app.set_status_bar(status_bar_from_items(screen(), vec![]));
+        app.set_status_hint(Some("hovered".to_owned()));
+        assert_eq!(app.status_hint(), Some("hovered"));
+
+        app.set_status_hint(None);
+        assert!(app.status_hint().is_none());
     }
 
     // -------------------------------------------------------------------------

@@ -458,6 +458,8 @@ mod tests {
                 EventKind::Command(_) => "command",
                 EventKind::Broadcast(_) => "broadcast",
                 EventKind::Resize(_, _) => "resize",
+                EventKind::LinkHover(_) => "link-hover",
+                EventKind::LinkActivate(_) => "link-activate",
                 EventKind::None => "none",
             };
             self.events_received.borrow_mut().push(name.to_owned());
@@ -824,6 +826,8 @@ mod tests {
                 EventKind::Broadcast(_) => "broadcast",
                 EventKind::Resize(_, _) => "resize",
                 EventKind::Mouse(_) => "mouse",
+                EventKind::LinkHover(_) => "link-hover",
+                EventKind::LinkActivate(_) => "link-activate",
                 EventKind::None => "none",
             };
             self.log.borrow_mut().push(name.to_owned());

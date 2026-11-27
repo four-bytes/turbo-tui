@@ -1073,7 +1073,8 @@ impl View for Window {
                 }
             }
 
-            EventKind::None => {}
+            // Link events are handled by the Application, never by views.
+            EventKind::LinkHover(_) | EventKind::LinkActivate(_) | EventKind::None => {}
         }
 
         self.update_scrollbar_params();

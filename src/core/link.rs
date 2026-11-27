@@ -44,6 +44,30 @@ pub enum LinkTarget {
     Command(CommandId, Option<String>),
 }
 
+impl std::fmt::Display for LinkTarget {
+    /// Formats the target as a human-readable string.
+    ///
+    /// - `Url(url)` → `url`
+    /// - `IssueRef { repo, number }` → `repo#number`, or `#number` without repo
+    /// - `FilePos { path, line, col }` → `path:line:col`, or `path:line`
+    /// - `Command(id, Some(payload))` → `command <id>: <payload>`, or `command <id>`
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Url(url) => f.write_str(url),
+            Self::IssueRef { repo, number } => match repo {
+                Some(repo) => write!(f, "{repo}#{number}"),
+                None => write!(f, "#{number}"),
+            },
+            Self::FilePos { path, line, col } => match col {
+                Some(col) => write!(f, "{path}:{line}:{col}"),
+                None => write!(f, "{path}:{line}"),
+            },
+            Self::Command(id, Some(payload)) => write!(f, "command {id}: {payload}"),
+            Self::Command(id, None) => write!(f, "command {id}"),
+        }
+    }
+}
+
 /// One linkable target plus an optional human-readable title.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Link {
@@ -171,5 +195,52 @@ mod tests {
         table.clear();
         assert!(table.is_empty());
         assert_eq!(table.len(), 0);
+    }
+
+    #[test]
+    fn test_link_target_display_url() {
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        assert_eq!(target.to_string(), "https://example.com");
+    }
+
+    #[test]
+    fn test_link_target_display_issue_ref_with_and_without_repo() {
+        let with_repo = LinkTarget::IssueRef {
+            repo: Some("four-bytes/turbo-tui".to_owned()),
+            number: 54,
+        };
+        assert_eq!(with_repo.to_string(), "four-bytes/turbo-tui#54");
+
+        let without_repo = LinkTarget::IssueRef {
+            repo: None,
+            number: 54,
+        };
+        assert_eq!(without_repo.to_string(), "#54");
+    }
+
+    #[test]
+    fn test_link_target_display_file_pos_with_and_without_col() {
+        let with_col = LinkTarget::FilePos {
+            path: "src/lib.rs".to_owned(),
+            line: 1,
+            col: Some(7),
+        };
+        assert_eq!(with_col.to_string(), "src/lib.rs:1:7");
+
+        let without_col = LinkTarget::FilePos {
+            path: "src/lib.rs".to_owned(),
+            line: 1,
+            col: None,
+        };
+        assert_eq!(without_col.to_string(), "src/lib.rs:1");
+    }
+
+    #[test]
+    fn test_link_target_display_command_with_and_without_payload() {
+        let with_payload = LinkTarget::Command(42, Some("payload".to_owned()));
+        assert_eq!(with_payload.to_string(), "command 42: payload");
+
+        let without_payload = LinkTarget::Command(42, None);
+        assert_eq!(without_payload.to_string(), "command 42");
     }
 }

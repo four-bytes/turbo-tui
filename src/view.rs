@@ -96,6 +96,10 @@ pub enum EventKind {
     Broadcast(CommandId),
     /// Terminal resize event.
     Resize(u16, u16),
+    /// A link is hovered (Some) or the hover was cleared (None).
+    LinkHover(Option<crate::core::LinkTarget>),
+    /// A link was activated (Ctrl+click or Enter on a focused link).
+    LinkActivate(crate::core::LinkTarget),
     /// No event (cleared).
     None,
 }
@@ -151,6 +155,18 @@ impl Event {
     #[must_use]
     pub fn resize(width: u16, height: u16) -> Self {
         Self::new(EventKind::Resize(width, height))
+    }
+
+    /// Create a link hover event (`Some` sets the hover, `None` clears it).
+    #[must_use]
+    pub fn link_hover(target: Option<crate::core::LinkTarget>) -> Self {
+        Self::new(EventKind::LinkHover(target))
+    }
+
+    /// Create a link activation event.
+    #[must_use]
+    pub fn link_activate(target: crate::core::LinkTarget) -> Self {
+        Self::new(EventKind::LinkActivate(target))
     }
 
     /// Clear this event (mark as handled and set kind to None).

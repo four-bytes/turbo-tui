@@ -5,6 +5,7 @@
 - Inline link model in `turbo_tui::core`: `Link`, `LinkId`, `LinkTarget`, `LinkTable`; `Cell` carries an optional link id; `Canvas::draw_text_link` with a plain-text default and `CellCanvas` link-aware writing (Issue #57, part of #54)
 - OSC 8 hyperlink emission with URL sanitisation/scheme allowlist and capability detection (override, XTVERSION answer mapping, terminal env, tmux/screen) with an off-by-default safe fallback (Issue #58, part of #54)
 - Link theme pens: `link`, `link_hover`, `link_visited` in `Theme`, JSON themes and all 7 shipped themes, with WCAG AA contrast tests (Issue #63, part of #54/#59)
+- In-app link interaction: `LinkLabel`, link hover/activate events, `CM_OPEN_LINK`, `Application::take_open_link`, platform opener (xdg-open/open/wslview/cmd) and demo links (Issue #64, part of #54/#59)
 
 ## v0.5.0 — 2026-11-27
 

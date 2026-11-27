@@ -28,7 +28,7 @@ use crossterm::{
 use std::io;
 use std::time::{Duration, Instant};
 use turbo_tui::canvas::CellCanvas;
-use turbo_tui::core::Rect;
+use turbo_tui::core::{Link, LinkTarget, Rect};
 use turbo_tui::terminal::Terminal;
 use turbo_tui::{
     application::Application,
@@ -36,8 +36,10 @@ use turbo_tui::{
     command::{CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_NEXT_THEME, CM_OK, CM_QUIT, CM_TILE},
     editor::Editor,
     horizontal_bar::{BarEntry, HorizontalBar},
+    link_label::LinkLabel,
     listbox::ListBox,
     menu_bar::{menu_bar_from_menus, Menu, MenuItem},
+    opener::open_url,
     static_text::StaticText,
     status_bar::{KB_ALT_X, KB_F10, KB_F2},
     syntax::RustHighlighter,
@@ -94,6 +96,7 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
     let theme_names = theme::registered_names();
 
     let mut app = Application::new(Rect::new(0, 0, width, height));
+    terminal.set_hyperlinks(app.hyperlink_support().enabled);
 
     // Setup menu bar (needs theme_names for dynamic theme submenu)
     setup_menu_bar(&mut app, &theme_names);
@@ -154,6 +157,20 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
 
             // Coalesces consecutive Moved/Drag events, dispatches the batch.
             app.handle_crossterm_events(&events);
+
+            // Reflect the hovered link in the status bar and open activated
+            // links through the platform handler.
+            app.set_status_hint(app.hovered_link().map(ToString::to_string));
+            if let Some(target) = app.take_open_link() {
+                match target {
+                    LinkTarget::Url(url) => {
+                        if let Err(e) = open_url(&url) {
+                            app.set_status_hint(Some(format!("open failed: {e}")));
+                        }
+                    }
+                    other => app.set_status_hint(Some(format!("internal link: {other}"))),
+                }
+            }
 
             // Handle commands from menu
             if let Some(cmd) = app.take_unhandled_command() {
@@ -384,6 +401,58 @@ fn add_demo_windows(app: &mut Application) {
     // Window 7 is added before window 6 to preserve the original z-order.
     add_editor_window(app);
     app.add_window(win6);
+
+    // Window 8: Links — interactive LinkLabels
+    add_links_window(app);
+}
+
+/// Adds the interactive link demo window.
+fn add_links_window(app: &mut Application) {
+    let support = app.hyperlink_support();
+    let support_line = format!(
+        "OSC 8: {} — {}",
+        if support.enabled { "on" } else { "off" },
+        support.reason
+    );
+
+    let mut win8 = Window::new(Rect::new(18, 3, 44, 10), "Links").with_min_size(30, 7);
+
+    let url_text = "https://github.com/four-bytes/turbo-tui";
+    win8.add(Box::new(LinkLabel::new(
+        Rect::new(1, 1, 40, 1),
+        url_text,
+        Link::new(LinkTarget::Url(url_text.to_owned())),
+    )));
+
+    let issue_target = LinkTarget::IssueRef {
+        repo: Some("four-bytes/turbo-tui".to_owned()),
+        number: 54,
+    };
+    let issue_text = format!("Issue {issue_target}");
+    win8.add(Box::new(LinkLabel::new(
+        Rect::new(1, 2, 40, 1),
+        issue_text,
+        Link::new(issue_target),
+    )));
+
+    let file_target = LinkTarget::FilePos {
+        path: "src/lib.rs".to_owned(),
+        line: 1,
+        col: None,
+    };
+    let file_text = format!("File {file_target}");
+    win8.add(Box::new(LinkLabel::new(
+        Rect::new(1, 3, 40, 1),
+        file_text,
+        Link::new(file_target),
+    )));
+
+    win8.add(Box::new(StaticText::new(
+        Rect::new(1, 5, 40, 1),
+        &support_line,
+    )));
+
+    app.add_window(win8);
 }
 
 /// Adds the editor demo window (window 7).

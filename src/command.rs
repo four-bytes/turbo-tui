@@ -103,6 +103,10 @@ pub const CM_MINIMIZE: CommandId = 146;
 /// Close all windows on the desktop.
 pub const CM_CLOSE_ALL: CommandId = 147;
 
+// Link commands (160-179)
+/// Open a link target. The target is exposed via `Application::take_open_link()`.
+pub const CM_OPEN_LINK: CommandId = 160;
+
 /// Commands >= `INTERNAL_COMMAND_BASE` are internal view commands
 /// and will NOT close modal dialogs.
 pub const INTERNAL_COMMAND_BASE: CommandId = 1000;

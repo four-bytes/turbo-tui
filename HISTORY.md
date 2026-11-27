@@ -12,6 +12,7 @@
 - New `turbo_tui::canvas` module: `Canvas` trait (`metric`, `area`, `draw_text`, `put_char`, `fill`, `set_style`, `set_cursor`) and `CellCanvas` wrapping `&mut Buffer`, with a temporary `buffer_mut()` escape hatch (epic #10, issue #16)
 - S5a: core views (frame, window, desktop) draw via `Canvas` primitives; the temporary `buffer_mut()` escape hatch is gone from the core view group (epic #10, issue #17)
 - S5b: bars and menus (horizontal_bar, menu_box) draw via `Canvas` primitives; the `buffer_mut()` escape hatch is gone from this group (epic #10, issue #18)
+- S5c: widgets (button, static_text, input_line, listbox, scrollbar) draw via `Canvas` primitives; the `buffer_mut()` escape hatch is gone from this group (epic #10, issue #19)
 
 ### Changed (BREAKING)
 - Own terminal backend: `turbo_tui::terminal::Terminal<W: Write>` (persistent front/back buffers, cell diff via crossterm, cursor handling) and `TestTerminal` replace Ratatui's `Terminal`/`Frame` and `TestBackend`.

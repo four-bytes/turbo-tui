@@ -16,7 +16,6 @@
 //! ```
 
 use crate::canvas::Canvas;
-use crate::core::Buffer;
 use crate::core::Rect;
 use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId};
@@ -91,7 +90,7 @@ impl StaticText {
     }
 
     /// Draw the text to the buffer, clipped to the given area.
-    fn draw_text(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_text(&self, canvas: &mut dyn Canvas, clip: Rect) {
         if self.text.is_empty() {
             return;
         }
@@ -107,7 +106,7 @@ impl StaticText {
         };
 
         let style = theme::with_current(|t| t.static_text);
-        crate::clip::set_string_clipped(buf, x, bounds.y, &self.text, style, clip);
+        canvas.draw_text(x, bounds.y, &self.text, style, clip);
     }
 }
 
@@ -125,9 +124,7 @@ impl View for StaticText {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
-        self.draw_text(buf, clip);
+        self.draw_text(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -160,6 +157,7 @@ impl View for StaticText {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Buffer;
     use crate::view::SF_VISIBLE;
 
     #[test]

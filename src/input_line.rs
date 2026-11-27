@@ -14,7 +14,6 @@
 //! ```
 
 use crate::canvas::Canvas;
-use crate::clip;
 use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
@@ -228,8 +227,6 @@ impl View for InputLine {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
         let b = self.base.bounds();
         let draw_area = b.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -246,19 +243,13 @@ impl View for InputLine {
         });
 
         // Fill background with style
-        for row in draw_area.y..draw_area.y + draw_area.height {
-            for col in draw_area.x..draw_area.x + draw_area.width {
-                if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                    cell.set_char(' ').set_style(style);
-                }
-            }
-        }
+        canvas.fill(draw_area, ' ', style);
 
         // Draw text clipped to bounds
         #[allow(clippy::cast_possible_truncation)]
         let available = b.width as usize;
         let display = self.display_text(available);
-        clip::set_string_clipped(buf, b.x, b.y, &display, style, clip);
+        canvas.draw_text(b.x, b.y, &display, style, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {

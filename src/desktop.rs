@@ -760,7 +760,7 @@ mod tests {
         desktop.draw(&mut crate::canvas::CellCanvas::new(&mut buf), bounds);
 
         // The buffer cells should reflect the theme's desktop background.
-        // Compare fg/bg only — Ratatui cells carry an extra underline_color(Reset)
+        // Compare fg/bg only — cells carry an extra underline_color(Reset)
         // that is not part of the theme style.
         let (theme_bg, theme_char) = theme::with_current(|t| (t.desktop_bg, t.desktop_char));
         let cell = buf.cell(Position::new(0, 0)).unwrap();

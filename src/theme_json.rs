@@ -66,7 +66,7 @@ pub enum ColorValue {
 }
 
 impl ColorValue {
-    /// Convert to a ratatui `Color`.
+    /// Convert to a core `Color`.
     ///
     /// Returns `None` if the color name is invalid.
     fn to_color(&self) -> Option<Color> {
@@ -106,7 +106,7 @@ impl ColorValue {
         }
     }
 
-    /// Create from a ratatui `Color`.
+    /// Create from a core `Color`.
     fn from_color(color: Color) -> Self {
         let name = match color {
             Color::Black => "Black".to_owned(),
@@ -153,7 +153,7 @@ fn is_false(v: &bool) -> bool {
 }
 
 impl StyleValue {
-    /// Convert to a ratatui `Style`.
+    /// Convert to a core `Style`.
     fn to_style(&self) -> Style {
         let mut style = Style::default();
         if let Some(fg) = self.fg.to_color() {
@@ -168,7 +168,7 @@ impl StyleValue {
         style
     }
 
-    /// Create from a ratatui `Style`.
+    /// Create from a core `Style`.
     fn from_style(style: Style) -> Self {
         Self {
             fg: style.fg.map_or_else(

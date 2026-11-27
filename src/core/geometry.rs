@@ -1,7 +1,7 @@
 //! Geometry primitives: [`Position`], [`Rect`] and [`Size`].
 //!
-//! These types mirror the subset of Ratatui's geometry API that turbo-tui
-//! uses, so the rest of the crate can keep importing them from `crate::core`.
+//! These types provide the geometry API that turbo-tui uses, so the rest of
+//! the crate can import them from `crate::core`.
 
 use std::cmp::{max, min};
 

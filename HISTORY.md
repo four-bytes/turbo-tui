@@ -1,4 +1,4 @@
-## Unreleased
+## v0.4.0 — 2026-11-27
 
 ### Performance
 - Event coalescing in the event loop against drag/mouse lag (Issue #7)
@@ -8,7 +8,7 @@
 
 ### Refactor
 - Core type seam: new `turbo_tui::core` module re-exporting `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier`, `Style`; all crate/test/example imports now go through it (prepares the own backend, epic #10, issue #13)
-- Own core types: `turbo_tui::core` now provides its own `Rect`, `Position`, `Color`, `Modifier`, `Style`, `Cell` and `Buffer` (Ratatui-compatible API subset, wide-character aware via `unicode-width` + `unicode-segmentation`) behind temporary `From` conversions used by `Application::draw` (epic #10, issue #14)
+- Own core types: `turbo_tui::core` now provides its own `Rect`, `Position`, `Color`, `Modifier`, `Style`, `Cell` and `Buffer` (Ratatui-compatible API subset, wide-character aware via `unicode-width` + `unicode-segmentation`), used directly throughout the crate (epic #10, issue #14)
 - New `turbo_tui::canvas` module: `Canvas` trait (`metric`, `area`, `draw_text`, `put_char`, `fill`, `set_style`, `set_cursor`) and `CellCanvas` wrapping `&mut Buffer`, with a temporary `buffer_mut()` escape hatch (epic #10, issue #16)
 - S5a: core views (frame, window, desktop) draw via `Canvas` primitives; the temporary `buffer_mut()` escape hatch is gone from the core view group (epic #10, issue #17)
 - S5b: bars and menus (horizontal_bar, menu_box) draw via `Canvas` primitives; the `buffer_mut()` escape hatch is gone from this group (epic #10, issue #18)
@@ -17,8 +17,15 @@
 
 ### Changed (BREAKING)
 - Own terminal backend: `turbo_tui::terminal::Terminal<W: Write>` (persistent front/back buffers, cell diff via crossterm, cursor handling) and `TestTerminal` replace Ratatui's `Terminal`/`Frame` and `TestBackend`.
-- `Application::draw(&mut core::Buffer) -> Option<Position>` replaces `Application::draw(&mut ratatui::Frame)` (returns the cursor position). Part of the v0.4.0 breaking release.
-- `View::draw(&self, canvas: &mut dyn Canvas, clip: Rect)` replaces the `&mut Buffer` signature; `Application::draw` now takes `&mut dyn Canvas`. All views still draw through the temporary `Canvas::buffer_mut()` escape hatch (14 sites) until the S5 widget migration.
+- `Application::draw(&mut dyn Canvas) -> Option<Position>` replaces `Application::draw(&mut ratatui::Frame)` (returns the cursor position). Part of the v0.4.0 breaking release. (The S3 intermediate used `&mut core::Buffer`; superseded by the S4 `Canvas` form.)
+- `View::draw(&self, canvas: &mut dyn Canvas, clip: Rect)` replaces the `&mut Buffer` signature; `Application::draw` now takes `&mut dyn Canvas`. All views were migrated to `Canvas` primitives across S5a–S5d; the `buffer_mut()` escape hatch was removed in S6.
+
+### Migration (v0.4.0)
+- **Core types moved:** `Buffer`, `Cell`, `Position`, `Rect`, `Color`, `Modifier` and `Style` now live in `turbo_tui::core` with turbo-tui's own implementations (Ratatui-compatible API). Replace `use ratatui::{buffer,layout,style}::…` with `use turbo_tui::core::…`.
+- **Application rendering:** `Application::draw(&mut self, canvas: &mut dyn Canvas) -> Option<Position>` replaces `Application::draw(&mut ratatui::Frame)`. The application no longer owns a terminal; callers supply the canvas.
+- **View rendering:** `View::draw(&self, canvas: &mut dyn Canvas, clip: Rect)` replaces the `&mut Buffer` signature. The temporary `Canvas::buffer_mut()` escape hatch has been removed.
+- **Terminal backend:** `turbo_tui::terminal::Terminal<W: Write>` and `TestTerminal` replace Ratatui's `Terminal`/`CrosstermBackend`/`TestBackend`.
+- **Dependency:** The `ratatui` dependency is removed; rendering now runs on turbo-tui's own cell backend.
 
 ## v0.3.2 — 2026-05-26
 

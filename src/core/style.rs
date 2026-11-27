@@ -1,6 +1,6 @@
 //! Color and style types: [`Color`], [`Modifier`] and [`Style`].
 //!
-//! Mirrors the Ratatui API subset used by turbo-tui. [`Modifier`] is a
+//! Provides the color/style API subset used by turbo-tui. [`Modifier`] is a
 //! hand-rolled bitfield instead of a `bitflags` dependency.
 
 use std::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, Not};

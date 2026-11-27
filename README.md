@@ -4,9 +4,9 @@
 [![Crates.io](https://img.shields.io/crates/v/turbo-tui.svg)](https://crates.io/crates/turbo-tui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Borland Turbo Vision windowing patterns for [Ratatui](https://github.com/ratatui/ratatui).
+Standalone Rust terminal UI crate — Borland Turbo Vision windowing patterns.
 
-Overlapping windows, modal dialogs, dropdown menus, and more — all rendering through Ratatui's `Frame`/`Buffer` system.
+Overlapping windows, modal dialogs, dropdown menus, and more — rendered through turbo-tui's own `core`/`Canvas`/`Terminal` stack (crossterm cell diff).
 
 ## Features
 
@@ -22,7 +22,7 @@ Overlapping windows, modal dialogs, dropdown menus, and more — all rendering t
 
 ## Status
 
-🟢 **v0.2.3 — Released** — 357 tests, 21 source files, ~15,000 lines. Clippy pedantic clean, zero unsafe.
+🟢 **v0.4.0 — Released** — 565 unit + 8 integration + 4 doc tests, 34 source files, ~24,000 lines. Clippy pedantic clean, zero unsafe.
 
 ## Quick Start
 
@@ -33,72 +33,134 @@ turbo-tui = { git = "https://github.com/four-bytes/turbo-tui" }
 
 ## Usage Examples
 
+Imports mirror `examples/demo.rs` (the canonical example). `turbo_tui::prelude::*`
+exports the core types (`Application`, `Window`, `Dialog`, `Desktop`, `Rect`,
+`Terminal`, `CellCanvas`, `CM_*`, …) but **not** widgets like `Button` /
+`StaticText` or the menu/status constructors — those live in their own modules.
+
 ### Window with Builder Lite
 
 ```rust
-use turbo_tui::prelude::*;
+use turbo_tui::button::Button;
+use turbo_tui::command::CM_OK;
+use turbo_tui::core::Rect;
+use turbo_tui::desktop::Desktop;
+use turbo_tui::window::Window;
 
 let mut desktop = Desktop::new(Rect::new(0, 0, 80, 24));
-
-// Basic window
-let mut win = Window::new(Rect::new(5, 5, 40, 15), "Editor");
 
 // Builder Lite pattern
 let mut win = Window::new(Rect::new(5, 5, 40, 15), "Editor")
     .with_min_size(20, 8)
     .with_scrollbars(true, false)
     .with_closeable(true)
-    .with_resizable(true);
+    .with_resizable(true)
+    .with_content_size(120, 40);
+
+win.add(Box::new(Button::new(Rect::new(5, 10, 10, 1), "OK", CM_OK, true)));
+desktop.add_window(win); // Window by value -> ViewId
 
 // Preset constructors
-let mut palette = Window::palette(Rect::new(50, 2, 20, 10), "Colors");
-let mut tool = Window::tool(Rect::new(1, 20, 15, 5), "Tools");
-
-win.insert(Box::new(Button::new("OK", CM_OK, Rect::new(5, 10, 10, 1))));
-desktop.add_window(Box::new(win));
+let _editor = Window::editor(Rect::new(5, 3, 35, 12), "Editor");
+let _palette = Window::palette(Rect::new(50, 2, 20, 10), "Colors");
+let _tool = Window::tool(Rect::new(1, 20, 15, 5), "Tools");
 ```
 
 ### Menu Bar
 
 ```rust
-use turbo_tui::prelude::*;
+use turbo_tui::command::{CM_OPEN, CM_QUIT, CM_SAVE};
+use turbo_tui::core::Rect;
+use turbo_tui::menu_bar::{menu_bar_from_menus, Menu, MenuItem};
 
 let menu = Menu::new("~F~ile", vec![
-    MenuItem::action("~O~pen", CM_OPEN),
-    MenuItem::action("~S~ave", CM_SAVE),
+    MenuItem::new("~O~pen", CM_OPEN),
+    MenuItem::new("~S~ave", CM_SAVE),
     MenuItem::separator(),
-    MenuItem::action("E~x~it", CM_QUIT),
+    MenuItem::new("E~x~it", CM_QUIT),
 ]);
 
-let mut menu_bar = MenuBar::new(Rect::new(0, 0, 80, 1));
-menu_bar.add_entries(menu_bar_from_menus(vec![menu]));
+let menu_bar = menu_bar_from_menus(Rect::new(0, 0, 80, 1), vec![menu]);
+```
+
+### Status Bar
+
+```rust
+use turbo_tui::command::{CM_NEXT_THEME, CM_QUIT};
+use turbo_tui::core::Rect;
+use turbo_tui::status_bar::{status_bar_from_items, StatusItem, KB_ALT_X, KB_F2};
+
+let status_bar = status_bar_from_items(
+    Rect::new(0, 23, 80, 1),
+    vec![
+        StatusItem::new("~Alt+X~ Quit", CM_QUIT, KB_ALT_X),
+        StatusItem::new("~F2~ Theme", CM_NEXT_THEME, KB_F2),
+    ],
+);
 ```
 
 ### Modal Dialog
 
 ```rust
-use turbo_tui::prelude::*;
+use turbo_tui::button::Button;
+use turbo_tui::command::{CM_NO, CM_YES};
+use turbo_tui::core::Rect;
+use turbo_tui::dialog::Dialog;
+use turbo_tui::static_text::StaticText;
 
 let mut dlg = Dialog::new(Rect::new(20, 8, 40, 10), "Confirm");
-dlg.insert(Box::new(StaticText::new("Save changes?", Rect::new(5, 3, 30, 1))));
-dlg.insert(Box::new(Button::new("~Y~es", CM_YES, Rect::new(5, 6, 10, 1))));
-dlg.insert(Box::new(Button::new("~N~o", CM_NO, Rect::new(20, 6, 10, 1))));
+dlg.add(Box::new(StaticText::new(Rect::new(5, 3, 30, 1), "Save changes?")));
+dlg.add(Box::new(Button::new(Rect::new(5, 6, 10, 1), "~Y~es", CM_YES, true)));
+dlg.add(Box::new(Button::new(Rect::new(20, 6, 10, 1), "~N~o", CM_NO, false)));
+```
 
-// Run modal — returns the command that closed it
-let result = dlg.run(&mut terminal, &mut theme)?;
+There is no `Dialog::run` — the dialog is a `View`. Your event loop draws it
+via a `Canvas` and dispatches events to it; once a button closes the dialog,
+`dlg.result()` yields the closing command:
+
+```rust
+if let Some(cmd) = dlg.result() {
+    // cmd == CM_YES or CM_NO — the command that closed the dialog
+}
 ```
 
 ### Application Event Loop
 
 ```rust
-use turbo_tui::prelude::*;
+use turbo_tui::application::Application;
+use turbo_tui::canvas::CellCanvas;
+use turbo_tui::command::CM_QUIT;
+use turbo_tui::core::Rect;
+use turbo_tui::terminal::Terminal;
 
-let mut app = Application::new()?;
+let mut app = Application::new(Rect::new(0, 0, 80, 24)); // plain value, not a Result
 app.set_menu_bar(menu_bar);
 app.set_status_bar(status_bar);
-app.set_desktop(desktop);
+app.add_window(win); // Window by value -> ViewId
 
-app.run()?; // Blocks until CM_QUIT
+let mut terminal = Terminal::new(std::io::stdout(), 80, 24);
+
+// The event loop is consumer-owned. Simplified below — see examples/demo.rs
+// for the full crossterm setup (raw mode, alternate screen, mouse capture,
+// event coalescing, frame pacing).
+loop {
+    // 1. Poll crossterm yourself -> Vec<crossterm::event::Event>, then dispatch:
+    app.handle_crossterm_events(&events);
+
+    // 2. Drain app-level commands (CM_QUIT, CM_TILE, …):
+    if let Some(cmd) = app.take_unhandled_command() {
+        if cmd == CM_QUIT {
+            app.quit();
+        }
+    }
+
+    // 3. Render one frame; the closure gets &mut Buffer and returns the cursor:
+    terminal.draw(|buf| app.draw(&mut CellCanvas::new(buf)))?;
+
+    if !app.is_running() {
+        break;
+    }
+}
 ```
 
 ## API Documentation
@@ -107,45 +169,53 @@ app.run()?; // Blocks until CM_QUIT
 
 Every interactive element implements `View`:
 
-- `draw(&self, buf: &mut Buffer, theme: &Theme, clip: ClipRegion)` — Render the view
-- `handle_event(&mut self, event: &mut Event) -> bool` — Handle input events (`true` = consumed)
-- `state_flags(&self) -> StateFlags` / `set_state_flags(&mut self, flags: StateFlags)` — Query/set state
+- `draw(&self, canvas: &mut dyn Canvas, clip: Rect)` — Render the view
+- `handle_event(&mut self, event: &mut Event)` — Handle input events (set `event.handled = true` to consume)
+- `state(&self) -> u16` / `set_state(&mut self, state: u16)` — Query/set state flags (`SF_*`)
+- `options(&self) -> u16` — Option flags (`OF_*`, e.g. `OF_PRE_PROCESS`)
+- `id(&self) -> ViewId` — Stable identity (atomic counter, survives moves)
 - `bounds(&self) -> Rect` / `set_bounds(&mut self, bounds: Rect)` — Geometry
-- `view_id(&self) -> ViewId` — Stable identity (atomic counter, survives moves)
-- `cursor_position(&self) -> Option<Position>` — Optional cursor position for Ratatui
+- `cursor_position(&self) -> Option<Position>` — Optional cursor position
+- `on_focus(&mut self)` / `on_blur(&mut self)` — Lifecycle hooks
 
 ### `Application` Struct
 
-Orchestrates the entire event loop:
+Orchestrates windows, menu bar, status bar and event dispatch. The event loop
+itself is consumer-owned:
 
-- `run(&mut self) -> Result<()>` — Main event loop (blocks until `CM_QUIT`)
-- `post_event(&mut self, event: Event)` — Queue deferred events
-- `theme(&self) -> &Theme` / `set_theme(&mut self, theme: Theme)` — Global theme
-- `set_menu_bar(&mut self, menu_bar: MenuBar)` — Attach optional menu bar
-- `set_status_bar(&mut self, status_bar: StatusLine)` — Attach optional status bar
-- `set_desktop(&mut self, desktop: Desktop)` — Attach desktop with windows
+- `Application::new(screen_size: Rect) -> Application` — Construct (plain value, not a `Result`)
+- `add_window(&mut self, window: Window) -> ViewId` — Add a window to the desktop
+- `set_menu_bar(&mut self, menu_bar: MenuBar)` / `set_status_bar(&mut self, status_bar: StatusBar)` — Attach optional bars
+- `handle_crossterm_event(&mut self, event: &crossterm::event::Event)` / `handle_crossterm_events(&mut self, events: &[crossterm::event::Event])` — Dispatch input (coalesces mouse motion)
+- `take_unhandled_command(&mut self) -> Option<CommandId>` — Drain app-level commands
+- `is_running(&self) -> bool` / `quit(&mut self)` — Loop control
+- `draw(&mut self, canvas: &mut dyn Canvas) -> Option<Position>` — Render one frame, returns the cursor position
+- `resize(&mut self, width: u16, height: u16)` — Apply a terminal resize
 
 ### `Window` Struct
 
 Overlapping window with drag, resize, and zoom:
 
 - `Window::new(bounds: Rect, title: &str)` — Base constructor
-- `Window::with_config(bounds: Rect, title: &str, config: FrameConfig)` — From config
+- `Window::editor/palette/tool(bounds: Rect, title: &str)` — Presets
+- `Window::with_config(bounds: Rect, title: &str, config: impl Into<FrameConfig>)` — From config
 - `with_min_size(self, w: u16, h: u16) -> Self` — Builder: minimum size
 - `with_drag_limits(self, limits: Rect) -> Self` — Builder: drag bounds
 - `with_scrollbars(self, v: bool, h: bool) -> Self` — Builder: scrollbars
 - `with_closeable(self, v: bool) -> Self` — Builder: close button
 - `with_resizable(self, v: bool) -> Self` — Builder: resize handle
+- `with_content_size(self, w: u16, h: u16) -> Self` — Builder: logical content size for scrolling
+- `add(&mut self, child: Box<dyn View>) -> ViewId` — Add a child view
 - `minimize(&mut self)` — Collapse to task shelf (managed by Desktop)
 - `minimized_width(&self) -> u16` — Width when minimized
 
 ## Architecture
 
-turbo-tui does **not** replace Ratatui — it extends it. All rendering goes through Ratatui's `Frame` and `Buffer`. The patterns are adapted from [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed), reimplemented for the Ratatui ecosystem.
+turbo-tui is a standalone terminal UI crate with its own cell-based rendering backend: `turbo_tui::core` (`Buffer`, `Cell`, `Rect`, `Style`, …), `turbo_tui::terminal::Terminal` (persistent front/back buffers, cell diff via crossterm) and `turbo_tui::canvas::Canvas`. The windowing patterns are adapted from [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed).
 
 ```
 Application
-└── Ratatui Terminal
+└── turbo-tui Terminal (crossterm diff)
     └── turbo-tui views
         ├── Desktop (background + window manager)
         │   ├── Window 1 (back)
@@ -160,7 +230,7 @@ Application
 ### Running Tests
 
 ```bash
-cargo test                      # Run all 357 tests
+cargo test                      # Run all 565 tests
 cargo clippy -- -D warnings     # Lint (pedantic enabled)
 cargo fmt                       # Format code
 cargo run --example demo        # Run the interactive demo

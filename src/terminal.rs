@@ -20,7 +20,7 @@ use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect};
 
 /// Maps a turbo-tui [`Color`] to the equivalent crossterm color.
 ///
-/// The named colors follow the same mapping Ratatui uses: turbo-tui's
+/// The named colors follow a consistent ANSI mapping: turbo-tui's
 /// `Red` is the normal ANSI red, which crossterm calls `DarkRed`.
 fn map_color(color: Color) -> CrosstermColor {
     match color {
@@ -49,7 +49,7 @@ fn map_color(color: Color) -> CrosstermColor {
 /// Returns the row-major `(x, y)` positions of the cells that changed between
 /// `front` and `back`.
 ///
-/// Mirrors `ratatui_core`'s `Buffer::diff`: cells hidden behind a preceding
+/// Buffer diffing: cells hidden behind a preceding
 /// multi-width grapheme are skipped, cells invalidated by a multi-width symbol
 /// change are re-emitted, and VS16 emoji presentation sequences get explicit
 /// trailing-cell clears.

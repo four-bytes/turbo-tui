@@ -1035,8 +1035,8 @@ mod tests {
         base.set_bounds(Rect::new(5, 5, 15, 15));
         // Should invalidate both old and new bounds
         let dr = base.dirty_rect().unwrap();
-        assert!(dr.x <= 0);
-        assert!(dr.y <= 0);
+        assert_eq!(dr.x, 0);
+        assert_eq!(dr.y, 0);
         assert!(dr.x + dr.width >= 20);
         assert!(dr.y + dr.height >= 20);
     }

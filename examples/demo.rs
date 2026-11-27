@@ -380,6 +380,14 @@ fn add_demo_windows(app: &mut Application) {
     let mut drop_list = ListBox::new(Rect::new(1, 1, 20, 6)).with_items(drop_items);
     drop_list.set_options(drop_list.get_options() | OF_DROP_TARGET);
     win6.add(Box::new(drop_list));
+
+    // Window 7 is added before window 6 to preserve the original z-order.
+    add_editor_window(app);
+    app.add_window(win6);
+}
+
+/// Adds the editor demo window (window 7).
+fn add_editor_window(app: &mut Application) {
     // Window 7: Editor — text editor with Rust syntax highlighting
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let demo_path = manifest_dir.join("examples").join("demo.rs");
@@ -394,6 +402,4 @@ fn add_demo_windows(app: &mut Application) {
         .with_content_size(55, 16);
     win7.add(Box::new(editor));
     app.add_window(win7);
-
-    app.add_window(win6);
 }

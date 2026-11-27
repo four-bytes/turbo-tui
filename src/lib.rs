@@ -1,12 +1,12 @@
-//! turbo-tui — Ratatui extension crate bringing Borland Turbo Vision windowing
-//! patterns to modern Rust terminal applications.
+//! turbo-tui — a Rust terminal UI crate bringing Borland Turbo Vision windowing
+//! patterns to modern terminal applications.
 
 // Forbid unsafe code in the entire crate.
 #![forbid(unsafe_code)]
 // Enable pedantic Clippy lints.
 #![warn(clippy::pedantic)]
 
-// Core type seam (re-exports Ratatui cell/geometry/style types)
+// Core type seam (own cell/geometry/style types)
 pub mod core;
 
 // Level 0: Foundation

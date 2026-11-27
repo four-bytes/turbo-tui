@@ -1,13 +1,13 @@
 [package]
 name = "turbo-tui"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 authors = ["Robby Beyer <robby@four-bytes.de>"]
 license = "MIT"
 repository = "https://github.com/four-bytes/turbo-tui"
 homepage = "https://github.com/four-bytes/turbo-tui"
-description = "Borland Turbo Vision windowing patterns for Ratatui"
-keywords = ["tui", "terminal", "ui", "ratatui", "windowing"]
+description = "Borland Turbo Vision windowing patterns for Rust terminal applications"
+keywords = ["tui", "terminal", "ui", "windowing"]
 categories = ["command-line-interface", "gui"]
 readme = "README.md"
 
@@ -16,7 +16,6 @@ default = ["json-themes"]
 json-themes = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
-ratatui = "0.30"
 crossterm = "0.28"
 unicode-segmentation = "1"
 unicode-width = "0.2"

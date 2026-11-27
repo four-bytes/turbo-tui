@@ -8,7 +8,7 @@
 - In-app link interaction: `LinkLabel`, link hover/activate events, `CM_OPEN_LINK`, `Application::take_open_link`, platform opener (xdg-open/open/wslview/cmd) and demo links (Issue #64, part of #54/#59)
 
 ### Fixed
-- OSC 8 hyperlinks carry a stable `id=` parameter, close before every cursor move and at the end of each frame, and suppress the SGR underline when the terminal draws its own link decoration (Windows Terminal double-line and stale-region artefacts); the underline policy is documented on `Terminal::set_hyperlinks` and in the README (Issue #68, part of #54)
+- OSC 8 hyperlinks carry a stable `id=` parameter, close before every cursor move and at the end of each frame, and suppress the SGR underline when the terminal draws its own link decoration (Windows Terminal double-line and stale-region artefacts); emission is off by default in `Auto` mode while mouse capture is active, because Windows Terminal keeps its hover decoration on old cells — links keep the theme underline and in-app `CM_OPEN_LINK`, and `TURBO_TUI_HYPERLINKS=on` or `HyperlinkMode::On` forces emission; policy documented on `Terminal::set_hyperlinks` and in the README (Issue #68, part of #54)
 
 ## v0.5.0 — 2026-11-27
 

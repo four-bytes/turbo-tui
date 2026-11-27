@@ -19,6 +19,13 @@
 //!
 //! When nothing identifies a known-capable terminal the result is disabled.
 //! Hyperlinks are off unless detection (or an explicit override) says otherwise.
+//!
+//! Detection and emission are separate decisions. turbo-tui's windowing model
+//! captures mouse events (terminal mode 1003), and Windows Terminal keeps its
+//! hyperlink hover decoration on the old cells after a redraw. `Auto` emission
+//! is therefore off while mouse capture is active; [`emission_support`] applies
+//! that policy and an explicit [`HyperlinkMode::On`] (or
+//! `TURBO_TUI_HYPERLINKS=on`) still forces emission.
 
 use crate::core::{Link, LinkTarget};
 
@@ -29,10 +36,11 @@ pub const DEFAULT_LINK_SCHEMES: [&str; 3] = ["http", "https", "file"];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HyperlinkMode {
     /// Detect support from the environment and, if present, the XTVERSION
-    /// answer.
+    /// answer. Emission is additionally gated off by [`emission_support`] while
+    /// mouse capture is active.
     #[default]
     Auto,
-    /// Force hyperlinks on regardless of detection.
+    /// Force hyperlinks on regardless of detection and mouse capture.
     On,
     /// Force hyperlinks off regardless of detection.
     Off,
@@ -222,6 +230,39 @@ fn from_env_fallback(env: &dyn Fn(&str) -> Option<String>) -> Option<HyperlinkSu
 #[must_use]
 pub fn detect_current(mode: HyperlinkMode, xtversion: Option<&str>) -> HyperlinkSupport {
     detect(mode, xtversion, &|key| std::env::var(key).ok())
+}
+
+/// Applies the mouse-capture emission policy to a detection result.
+///
+/// turbo-tui's windowing model captures mouse events (terminal mode 1003). While
+/// mouse capture is active, Windows Terminal keeps its hyperlink hover
+/// decoration on the old cells after a redraw, which OSC 8 cannot invalidate.
+/// [`HyperlinkMode::Auto`] therefore reports emission **disabled** in that mode,
+/// even when the terminal was detected as capable. Links still render with the
+/// theme underline and stay activatable in-app (`CM_OPEN_LINK`).
+///
+/// An explicit [`HyperlinkMode::On`] — the builder option or
+/// `TURBO_TUI_HYPERLINKS=on` — still forces emission; callers pass that decision
+/// in `forced` so this policy stays independent of reason strings. Detection
+/// itself is unchanged; only the emission decision is gated.
+#[must_use]
+pub fn emission_support(
+    detected: HyperlinkSupport,
+    mode: HyperlinkMode,
+    mouse_capture: bool,
+    forced: bool,
+) -> HyperlinkSupport {
+    if mode == HyperlinkMode::Auto && mouse_capture && detected.enabled && !forced {
+        HyperlinkSupport {
+            enabled: false,
+            reason: format!(
+                "{}; emission off while mouse capture is active (TURBO_TUI_HYPERLINKS=on forces it)",
+                detected.reason
+            ),
+        }
+    } else {
+        detected
+    }
 }
 
 /// Sanitises a [`LinkTarget::Url`] for OSC 8 emission.
@@ -552,6 +593,57 @@ mod tests {
         let support = detect_with(&[], HyperlinkMode::Auto, None);
         assert!(!support.enabled);
         assert_eq!(support.reason, "unknown terminal");
+    }
+
+    // -- mouse capture emission policy --------------------------------------
+
+    #[test]
+    fn test_emission_auto_with_mouse_capture_disables_detected_support() {
+        let detected = detect_with(&[("WT_SESSION", "1")], HyperlinkMode::Auto, None);
+        let emission = emission_support(detected, HyperlinkMode::Auto, true, false);
+        assert!(!emission.enabled);
+        assert!(emission.reason.starts_with("Windows Terminal"));
+        assert!(emission.reason.contains("mouse capture is active"));
+    }
+
+    #[test]
+    fn test_emission_auto_without_mouse_capture_keeps_detected_support() {
+        let detected = detect_with(&[("WT_SESSION", "1")], HyperlinkMode::Auto, None);
+        let emission = emission_support(detected, HyperlinkMode::Auto, false, false);
+        assert!(emission.enabled);
+        assert_eq!(emission.reason, "Windows Terminal");
+    }
+
+    #[test]
+    fn test_emission_on_mode_forces_past_mouse_capture() {
+        let detected = detect_with(&[], HyperlinkMode::On, None);
+        let emission = emission_support(detected, HyperlinkMode::On, true, true);
+        assert!(emission.enabled);
+        assert_eq!(emission.reason, "forced on");
+    }
+
+    #[test]
+    fn test_emission_env_on_forces_past_mouse_capture() {
+        let detected = detect_with(&[("TURBO_TUI_HYPERLINKS", "on")], HyperlinkMode::Auto, None);
+        let emission = emission_support(detected, HyperlinkMode::Auto, true, true);
+        assert!(emission.enabled);
+        assert_eq!(emission.reason, "forced by TURBO_TUI_HYPERLINKS");
+    }
+
+    #[test]
+    fn test_emission_off_mode_stays_off_with_mouse_capture() {
+        let detected = detect_with(&[], HyperlinkMode::Off, None);
+        let emission = emission_support(detected, HyperlinkMode::Off, true, false);
+        assert!(!emission.enabled);
+        assert_eq!(emission.reason, "disabled by mode");
+    }
+
+    #[test]
+    fn test_emission_auto_already_disabled_reason_is_unchanged() {
+        let detected = detect_with(&[("TMUX", "/tmp/tmux")], HyperlinkMode::Auto, None);
+        let emission = emission_support(detected, HyperlinkMode::Auto, true, false);
+        assert!(!emission.enabled);
+        assert_eq!(emission.reason, "tmux: hyperlink support unverified");
     }
 
     // -- sanitized_url ------------------------------------------------------

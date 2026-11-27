@@ -19,26 +19,39 @@ Overlapping windows, modal dialogs, dropdown menus, and more — rendered throug
 - **Status Bar** — Context-sensitive shortcuts, click-to-execute
 - **Scrollbars** — Vertical/horizontal with draggable thumb, active/inactive styling
 - **JSON Themes** — 7 built-in themes with full JSON serialization
-- **Inline Links** — OSC 8 hyperlinks with stable ids, capability detection and a single-underline policy
+- **Inline Links** — in-app link activation plus optional OSC 8 (off by default under mouse capture)
 
 ## Hyperlinks and underline policy
 
-OSC 8 emission is opt-in: enable it with
-`Terminal::set_hyperlinks(app.hyperlink_support().enabled)` or the
-`Application::with_hyperlinks` builder. Every emitted link is written as
-`ESC ] 8 ; id=<id> ; <url> ESC \`, using the buffer's stable link id so the
-terminal can track a link region exactly. The sequence is closed before every
-cursor move and at the end of every frame.
+turbo-tui captures the mouse (terminal mode 1003) for drag, resize and in-app
+link activation. In that mode Windows Terminal keeps its hyperlink **hover
+decoration** — dotted normally, solid while hovered — on the old cells after a
+redraw, and OSC 8 cannot force the terminal to invalidate it. Emission is
+therefore **off by default while mouse capture is active**. Links still render
+with the theme underline and remain activatable in-app: `Ctrl+click` or Enter on
+a focused `LinkLabel` posts `CM_OPEN_LINK`.
+
+Detection is unchanged: `Application::hyperlink_support()` still reports whether
+the terminal is capable. Emission applies the mouse-capture policy on top:
+
+- `TURBO_TUI_HYPERLINKS=on` (or `1`/`true`) forces OSC 8 emission.
+- `Application::with_hyperlinks(HyperlinkMode::On)` forces it from the builder.
+- `Application::with_mouse_capture(false)` keeps `Auto` detection active for
+  consumers that do not capture the mouse.
+- `TURBO_TUI_HYPERLINKS=off` disables emission when no builder override is set.
+
+Consumers pass the resulting flag to
+`Terminal::set_hyperlinks(app.hyperlink_support().enabled)`. When emission is
+on, every link is written as `ESC ] 8 ; id=<id> ; <url> ESC \`, using the
+buffer's stable link id so the terminal can track a link region exactly. The
+sequence is closed before every cursor move and at the end of every frame.
 
 When a cell is actually wrapped in OSC 8, turbo-tui suppresses that cell's SGR
-underline (`SGR 4`). Terminals such as Windows Terminal draw their own hyperlink
-decoration; emitting SGR 4 as well produces a second line that can survive a
-redraw as an artefact. Emitted links therefore rely on the terminal's decoration
-plus the `link` / `link_hover` / `link_visited` theme colours.
-
-Links that are not emitted — hyperlinks disabled, non-URL targets (`FilePos`,
-`IssueRef`, `Command`), or a URL rejected by the scheme allowlist — keep the
-theme pens unchanged, including their SGR underline.
+underline (`SGR 4`), so the terminal's own decoration is the only underline.
+Links that are not emitted — the default under mouse capture, non-URL targets
+(`FilePos`, `IssueRef`, `Command`), or a URL rejected by the scheme allowlist —
+keep the `link` / `link_hover` / `link_visited` theme pens, including their SGR
+underline.
 
 ## Status
 

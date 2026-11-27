@@ -96,6 +96,9 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
     let theme_names = theme::registered_names();
 
     let mut app = Application::new(Rect::new(0, 0, width, height));
+    // OSC 8 is off by default while mouse capture is active (Windows Terminal
+    // leaves its hover decoration behind on redraws). Links stay activatable
+    // in-app; set TURBO_TUI_HYPERLINKS=on to emit real OSC 8 links.
     terminal.set_hyperlinks(app.hyperlink_support().enabled);
 
     // Setup menu bar (needs theme_names for dynamic theme submenu)

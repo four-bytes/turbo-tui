@@ -40,7 +40,7 @@ use crate::command::{
 };
 use crate::core::{LinkTarget, Position, Rect};
 use crate::desktop::Desktop;
-use crate::hyperlink::{detect_current, HyperlinkMode, HyperlinkSupport};
+use crate::hyperlink::{detect_current, emission_support, HyperlinkMode, HyperlinkSupport};
 use crate::menu_bar::MenuBar;
 use crate::menu_bar::MenuItem;
 use crate::menu_box::MenuBox;
@@ -124,6 +124,12 @@ pub struct Application {
     dirty_rect: Option<Rect>,
     /// How OSC 8 hyperlink emission is selected.
     hyperlink_mode: HyperlinkMode,
+    /// The XTVERSION answer the caller supplied, if any. Kept so later builder
+    /// calls can recompute support without losing it.
+    xtversion: Option<String>,
+    /// Whether turbo-tui assumes the terminal is in mouse-capture mode (1003).
+    /// Defaults to `true`; in [`HyperlinkMode::Auto`] this suppresses OSC 8.
+    mouse_capture: bool,
     /// Resolved hyperlink capability decision.
     hyperlink_support: HyperlinkSupport,
     /// Currently hovered link target, if any.
@@ -144,7 +150,11 @@ impl Application {
     #[must_use]
     pub fn new(screen_size: Rect) -> Self {
         let hyperlink_mode = HyperlinkMode::from_env();
+        let mouse_capture = true;
         let hyperlink_support = detect_current(hyperlink_mode, None);
+        let forced = hyperlink_mode == HyperlinkMode::On;
+        let hyperlink_support =
+            emission_support(hyperlink_support, hyperlink_mode, mouse_capture, forced);
         Self {
             screen_size,
             desktop: Desktop::new(screen_size),
@@ -159,6 +169,8 @@ impl Application {
             drag_payload: None,
             dirty_rect: None,
             hyperlink_mode,
+            xtversion: None,
+            mouse_capture,
             hyperlink_support,
             hovered_link: None,
             open_link: None,
@@ -169,16 +181,21 @@ impl Application {
     // Hyperlinks
     // -------------------------------------------------------------------------
 
-    /// Selects the hyperlink mode and recomputes support without an XTVERSION
-    /// answer (Builder Lite).
+    /// Selects the hyperlink mode and recomputes support (Builder Lite).
+    ///
+    /// [`HyperlinkMode::Auto`] stays off while [`mouse_capture`] is active (the
+    /// default), because Windows Terminal keeps its link hover decoration on old
+    /// cells after a redraw. [`HyperlinkMode::On`] forces OSC 8 emission.
     ///
     /// The application does **not** own the terminal: pass
     /// [`hyperlink_support`](Application::hyperlink_support)'s `enabled` flag to
     /// [`Terminal::set_hyperlinks`](crate::terminal::Terminal::set_hyperlinks).
+    ///
+    /// [`mouse_capture`]: Application::mouse_capture
     #[must_use]
     pub fn with_hyperlinks(mut self, mode: HyperlinkMode) -> Self {
         self.hyperlink_mode = mode;
-        self.hyperlink_support = detect_current(mode, None);
+        self.recompute_hyperlink_support();
         self
     }
 
@@ -187,11 +204,34 @@ impl Application {
     ///
     /// The answer is the reply to `CSI > 0 q`. The active query belongs to the
     /// shared startup query round (see [`crate::hyperlink`]); this method only
-    /// consumes an answer the caller has already read.
+    /// consumes an answer the caller has already read. The answer is kept, so
+    /// later builder calls do not lose it.
     #[must_use]
     pub fn with_xtversion(mut self, answer: &str) -> Self {
-        self.hyperlink_support = detect_current(self.hyperlink_mode, Some(answer));
+        self.xtversion = Some(answer.to_owned());
+        self.recompute_hyperlink_support();
         self
+    }
+
+    /// Declares whether terminal mouse capture (mode 1003) is active.
+    ///
+    /// turbo-tui's windowing model needs mouse events, so this defaults to
+    /// `true`. While it is active, [`HyperlinkMode::Auto`] emission is disabled
+    /// (Windows Terminal keeps its hyperlink hover decoration on old cells after
+    /// a redraw); links keep the theme underline and in-app activation. Pass
+    /// `false` for a keyboard-only consumer, or force
+    /// [`HyperlinkMode::On`] / `TURBO_TUI_HYPERLINKS=on` to emit anyway.
+    #[must_use]
+    pub fn with_mouse_capture(mut self, active: bool) -> Self {
+        self.mouse_capture = active;
+        self.recompute_hyperlink_support();
+        self
+    }
+
+    /// Returns whether turbo-tui assumes terminal mouse capture is active.
+    #[must_use]
+    pub const fn mouse_capture(&self) -> bool {
+        self.mouse_capture
     }
 
     /// Returns the selected hyperlink mode.
@@ -204,6 +244,16 @@ impl Application {
     #[must_use]
     pub const fn hyperlink_support(&self) -> &HyperlinkSupport {
         &self.hyperlink_support
+    }
+
+    /// Re-detects support and applies the mouse-capture emission policy.
+    fn recompute_hyperlink_support(&mut self) {
+        let detected = detect_current(self.hyperlink_mode, self.xtversion.as_deref());
+        let forced = self.hyperlink_mode == HyperlinkMode::On
+            || (self.hyperlink_mode == HyperlinkMode::Auto
+                && HyperlinkMode::from_env() == HyperlinkMode::On);
+        self.hyperlink_support =
+            emission_support(detected, self.hyperlink_mode, self.mouse_capture, forced);
     }
 
     // -------------------------------------------------------------------------
@@ -2153,5 +2203,53 @@ mod tests {
         assert_eq!(app.hyperlink_mode(), HyperlinkMode::Off);
         assert!(!app.hyperlink_support().enabled);
         assert_eq!(app.hyperlink_support().reason, "disabled by mode");
+    }
+
+    #[test]
+    fn test_application_mouse_capture_defaults_active() {
+        let app = Application::new(screen());
+        assert!(app.mouse_capture(), "turbo-tui assumes mouse capture");
+    }
+
+    #[test]
+    fn test_application_forced_on_survives_default_mouse_capture() {
+        let app = Application::new(screen()).with_hyperlinks(HyperlinkMode::On);
+        assert!(app.mouse_capture());
+        assert!(
+            app.hyperlink_support().enabled,
+            "HyperlinkMode::On must force emission past mouse capture"
+        );
+        assert_eq!(app.hyperlink_support().reason, "forced on");
+    }
+
+    #[test]
+    fn test_application_with_mouse_capture_false_keeps_forced_on() {
+        let app = Application::new(screen())
+            .with_hyperlinks(HyperlinkMode::On)
+            .with_mouse_capture(false);
+        assert!(!app.mouse_capture());
+        assert!(app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "forced on");
+    }
+
+    #[test]
+    fn test_application_mouse_capture_toggle_recomputes_support() {
+        let app = Application::new(screen())
+            .with_hyperlinks(HyperlinkMode::Off)
+            .with_mouse_capture(false)
+            .with_mouse_capture(true);
+        assert!(app.mouse_capture());
+        assert!(!app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "disabled by mode");
+    }
+
+    #[test]
+    fn test_application_builder_calls_keep_xtversion_answer() {
+        let app = Application::new(screen())
+            .with_xtversion("WezTerm 20240203")
+            .with_hyperlinks(HyperlinkMode::Auto)
+            .with_mouse_capture(false)
+            .with_hyperlinks(HyperlinkMode::Off);
+        assert_eq!(app.xtversion.as_deref(), Some("WezTerm 20240203"));
     }
 }

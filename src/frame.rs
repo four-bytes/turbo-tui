@@ -10,7 +10,7 @@
 //! - Optional horizontal scrollbar on the bottom border
 //!
 //! Frame does NOT manage children — it only draws the border decoration.
-//! Use [`Window`] for a complete window with Frame + interior Container.
+//! Use [`crate::window::Window`] for a complete window with Frame + interior Container.
 
 use crate::canvas::{Canvas, FrameGadgets, FrameKind, FrameSpec, GadgetState};
 use crate::cell_skin::ButtonTray;
@@ -198,7 +198,7 @@ impl FrameConfig {
 /// - Optional horizontal scrollbar on the bottom border
 ///
 /// Frame does NOT manage children — it only draws the border decoration.
-/// Use [`Window`] for a complete window with Frame + interior Container.
+/// Use [`crate::window::Window`] for a complete window with Frame + interior Container.
 ///
 /// # Example
 ///

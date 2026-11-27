@@ -26,7 +26,6 @@
 
 use crate::canvas::Canvas;
 use crate::command::CommandId;
-use crate::core::Buffer;
 use crate::core::Rect;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
@@ -111,8 +110,8 @@ impl Button {
         self.label.replace('~', "")
     }
 
-    /// Draw the button content to the buffer.
-    fn draw_button(&self, buf: &mut Buffer, clip: Rect) {
+    /// Draw the button content onto the canvas.
+    fn draw_button(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let bounds = self.base.bounds();
 
         let display = self.display_label();
@@ -138,7 +137,7 @@ impl Button {
             }
         });
 
-        crate::clip::set_string_clipped(buf, x, y, &button_text, style, clip);
+        canvas.draw_text(x, y, &button_text, style, clip);
     }
 
     /// Check if a mouse event is inside the button bounds.
@@ -162,9 +161,7 @@ impl View for Button {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
-        self.draw_button(buf, clip);
+        self.draw_button(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -232,6 +229,7 @@ impl View for Button {
 mod tests {
     use super::*;
     use crate::command::CM_OK;
+    use crate::core::Buffer;
     use crate::view::SF_VISIBLE;
     use crossterm::event::{KeyModifiers, MouseEvent};
 

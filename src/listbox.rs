@@ -19,8 +19,7 @@
 //! ```
 
 use crate::canvas::Canvas;
-use crate::clip;
-use crate::core::{Position, Rect};
+use crate::core::Rect;
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE};
 use crossterm::event::{KeyCode, MouseButton, MouseEventKind};
@@ -307,8 +306,6 @@ impl View for ListBox {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
         let bounds = self.base_bounds();
         let draw_area = bounds.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -349,17 +346,12 @@ impl View for ListBox {
             };
 
             // Fill entire row background
-            for col in bounds.x..bounds.x + content_width {
-                if col >= clip.x && col < clip.x + clip.width {
-                    if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                        cell.set_char(' ').set_style(style);
-                    }
-                }
-            }
+            let row_rect = Rect::new(bounds.x, row, content_width, 1).intersection(clip);
+            canvas.fill(row_rect, ' ', style);
 
             // Draw item text (clipped)
             if let Some(item) = self.items.get(item_idx) {
-                clip::set_string_clipped(buf, bounds.x, row, item, style, clip);
+                canvas.draw_text(bounds.x, row, item, style, clip);
             }
         }
 
@@ -371,13 +363,8 @@ impl View for ListBox {
             if row < clip.y || row >= clip.y + clip.height {
                 continue;
             }
-            for col in bounds.x..bounds.x + content_width {
-                if col >= clip.x && col < clip.x + clip.width {
-                    if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                        cell.set_char(' ').set_style(normal_style);
-                    }
-                }
-            }
+            let row_rect = Rect::new(bounds.x, row, content_width, 1).intersection(clip);
+            canvas.fill(row_rect, ' ', normal_style);
         }
 
         // Draw scrollbar if needed
@@ -409,9 +396,7 @@ impl View for ListBox {
                         }
                     };
 
-                    if let Some(cell) = buf.cell_mut(Position::new(sb_col, sb_row)) {
-                        cell.set_char(ch).set_style(style);
-                    }
+                    canvas.put_char(sb_col, sb_row, ch, style, clip);
                 }
             }
         }

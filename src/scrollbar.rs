@@ -568,8 +568,6 @@ impl View for ScrollBar {
 
     #[allow(clippy::too_many_lines)]
     fn draw(&self, canvas: &mut dyn Canvas, area: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
         // Don't draw if hidden
         if !self.is_visible() {
             return;
@@ -630,34 +628,23 @@ impl View for ScrollBar {
                     let buf_row = bounds.y + u16::try_from(row).unwrap_or(0);
                     let buf_col = bounds.x;
 
-                    if buf_row >= area.y
-                        && buf_row < area.y + area.height
-                        && buf_col >= area.x
-                        && buf_col < area.x + area.width
-                    {
-                        let Some(cell) = buf.cell_mut((buf_col, buf_row)) else {
-                            continue;
-                        };
-
-                        let (ch, style) = if row == 0 {
-                            // Up arrow
-                            (V_UP, arrow_style)
-                        } else if row >= height.saturating_sub(1) {
-                            // Down arrow
-                            (V_DOWN, arrow_style)
+                    let (ch, style) = if row == 0 {
+                        // Up arrow
+                        (V_UP, arrow_style)
+                    } else if row >= height.saturating_sub(1) {
+                        // Down arrow
+                        (V_DOWN, arrow_style)
+                    } else {
+                        // Track area
+                        let track_pos = row - 1;
+                        if track_pos == thumb_pos {
+                            (V_THUMB, thumb_style)
                         } else {
-                            // Track area
-                            let track_pos = row - 1;
-                            if track_pos == thumb_pos {
-                                (V_THUMB, thumb_style)
-                            } else {
-                                (V_TRACK, track_style)
-                            }
-                        };
+                            (V_TRACK, track_style)
+                        }
+                    };
 
-                        cell.set_char(ch);
-                        cell.set_style(style);
-                    }
+                    canvas.put_char(buf_col, buf_row, ch, style, area);
                 }
             }
             Orientation::Horizontal => {
@@ -668,34 +655,23 @@ impl View for ScrollBar {
                 for col in 0..width {
                     let buf_col = start_col + u16::try_from(col).unwrap_or(0);
 
-                    if buf_col >= area.x
-                        && buf_col < area.x + area.width
-                        && row >= area.y
-                        && row < area.y + area.height
-                    {
-                        let Some(cell) = buf.cell_mut((buf_col, row)) else {
-                            continue;
-                        };
-
-                        let (ch, style) = if col == 0 {
-                            // Left arrow
-                            (H_LEFT, arrow_style)
-                        } else if col >= width.saturating_sub(1) {
-                            // Right arrow
-                            (H_RIGHT, arrow_style)
+                    let (ch, style) = if col == 0 {
+                        // Left arrow
+                        (H_LEFT, arrow_style)
+                    } else if col >= width.saturating_sub(1) {
+                        // Right arrow
+                        (H_RIGHT, arrow_style)
+                    } else {
+                        // Track area
+                        let track_pos = col - 1;
+                        if track_pos == thumb_pos {
+                            (H_THUMB, thumb_style)
                         } else {
-                            // Track area
-                            let track_pos = col - 1;
-                            if track_pos == thumb_pos {
-                                (H_THUMB, thumb_style)
-                            } else {
-                                (H_TRACK, track_style)
-                            }
-                        };
+                            (H_TRACK, track_style)
+                        }
+                    };
 
-                        cell.set_char(ch);
-                        cell.set_style(style);
-                    }
+                    canvas.put_char(buf_col, row, ch, style, area);
                 }
             }
         }

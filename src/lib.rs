@@ -46,9 +46,13 @@ pub mod terminal;
 // OSC 8 hyperlink capability detection and URL sanitisation
 pub mod hyperlink;
 
+// Platform opener for external links (http/https only)
+pub mod opener;
+
 // Level 5: Widgets
 pub mod button;
 pub mod input_line;
+pub mod link_label;
 pub mod listbox;
 pub mod menu_bar;
 pub mod menu_box;
@@ -85,9 +89,11 @@ pub mod prelude {
     pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
     pub use crate::hyperlink::{HyperlinkMode, HyperlinkSupport};
     pub use crate::input_line::InputLine;
+    pub use crate::link_label::LinkLabel;
     pub use crate::listbox::ListBox;
     pub use crate::memo::Memo;
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
+    pub use crate::opener::open_url;
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
     pub use crate::scrollbar::{ScrollBar, ScrollBarVisibility};
     pub use crate::syntax::{PlainTextHighlighter, RustHighlighter, SyntaxHighlighter};

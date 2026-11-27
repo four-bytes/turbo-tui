@@ -329,6 +329,8 @@ mod tests {
                 EventKind::Command(c) => format!("Command({c})"),
                 EventKind::Broadcast(c) => format!("Broadcast({c})"),
                 EventKind::Resize(w, h) => format!("Resize({w},{h})"),
+                EventKind::LinkHover(target) => format!("LinkHover({target:?})"),
+                EventKind::LinkActivate(target) => format!("LinkActivate({target:?})"),
                 EventKind::None => "None".to_string(),
             };
             self.received_events.borrow_mut().push(desc);

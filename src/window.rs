@@ -1013,12 +1013,16 @@ impl View for Window {
                             self.frame.update_hover(col, row);
                             // Update scrollbar hover state
                             self.frame.update_scrollbar_hover(col, row);
-                            // Also forward to interior for child hover tracking
-                            self.interior.handle_event(event);
                         } else {
-                            // Outside window — clear all hover states
+                            // Outside window — clear frame hover states
                             self.frame.clear_hover();
                             self.frame.clear_scrollbar_hover();
+                        }
+                        // Always forward moves so interior children can clear
+                        // their own hover state once the pointer leaves them
+                        // (e.g. a `LinkLabel` that was hovered).
+                        if !self.is_minimized() {
+                            self.interior.handle_event(event);
                         }
                     }
 
@@ -1073,7 +1077,8 @@ impl View for Window {
                 }
             }
 
-            EventKind::None => {}
+            // Link events are handled by the Application, never by views.
+            EventKind::LinkHover(_) | EventKind::LinkActivate(_) | EventKind::None => {}
         }
 
         self.update_scrollbar_params();

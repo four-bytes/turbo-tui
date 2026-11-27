@@ -5,27 +5,18 @@
 //! - Track area for page stepping
 //! - Draggable thumb for direct positioning
 
-use crate::canvas::{scroll_thumb_position, Canvas, ScrollHover, ScrollSpec};
+use crate::canvas::{Canvas, ScrollHover, ScrollSpec};
+use crate::cell_skin::scroll_thumb_position;
 use crate::core::Rect;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::any::Any;
 
 use crate::command::CM_SCROLL_CHANGED;
-use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase};
 
-// ============================================================================
-// Orientation
-// ============================================================================
-
-/// Scrollbar orientation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Orientation {
-    /// Vertical scrollbar (up/down arrows).
-    Vertical,
-    /// Horizontal scrollbar (left/right arrows).
-    Horizontal,
-}
+// Keep `turbo_tui::scrollbar::Orientation` working; the enum now lives on the
+// neutral canvas layer.
+pub use crate::canvas::Orientation;
 
 /// Which part of the scrollbar is hovered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,9 +273,8 @@ impl ScrollBar {
             Orientation::Horizontal => i32::from(bounds.width.saturating_sub(2)),
         };
         usize::try_from(scroll_thumb_position(
-            self.value,
-            self.min_val,
-            self.max_val,
+            self.value - self.min_val,
+            self.max_val - self.min_val,
             track_size,
         ))
         .unwrap_or(0)
@@ -551,37 +541,6 @@ impl View for ScrollBar {
             return;
         }
 
-        // Get theme styles
-        let (track_style, thumb_style, arrows_style) = theme::with_current(|t| {
-            if self.window_dragging {
-                let style = t.window_frame_dragging;
-                return (style, style, style);
-            }
-            if !self.active {
-                return (
-                    t.scrollbar_track_inactive,
-                    t.scrollbar_thumb_inactive,
-                    t.scrollbar_arrows_inactive,
-                );
-            }
-            let track = if self.hovered == ScrollBarHover::Track {
-                t.scrollbar_track_hover
-            } else {
-                t.scrollbar_track
-            };
-            let thumb = if self.hovered == ScrollBarHover::Thumb {
-                t.scrollbar_thumb_hover
-            } else {
-                t.scrollbar_thumb
-            };
-            let arrows = if self.hovered == ScrollBarHover::Arrow {
-                t.scrollbar_arrows_hover
-            } else {
-                t.scrollbar_arrows
-            };
-            (track, thumb, arrows)
-        });
-
         let hover = match self.hovered {
             ScrollBarHover::None => ScrollHover::None,
             ScrollBarHover::Track => ScrollHover::Track,
@@ -590,16 +549,12 @@ impl View for ScrollBar {
         };
 
         let spec = ScrollSpec {
-            value: self.value,
-            min: self.min_val,
-            max: self.max_val,
-            page: self.page_step,
+            position: self.value - self.min_val,
+            total: self.max_val - self.min_val,
+            visible: self.page_step,
             active: self.active,
             hover,
-            dragging: self.dragging_thumb,
-            track_style,
-            thumb_style,
-            arrows_style,
+            dragging: self.window_dragging,
         };
 
         canvas.draw_scrollbar(bounds, self.orientation, &spec, area);
@@ -640,7 +595,7 @@ impl View for ScrollBar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::canvas::{H_LEFT, H_RIGHT, V_DOWN, V_UP};
+    use crate::cell_skin::{H_LEFT, H_RIGHT, V_DOWN, V_UP};
     use crate::core::Buffer;
 
     #[test]

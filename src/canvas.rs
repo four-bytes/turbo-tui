@@ -7,11 +7,14 @@
 //! [`Canvas::metric`] without changing any view code.
 
 use crate::core::{Buffer, Position, Rect, Style};
-use crate::scrollbar::Orientation;
 
 // ============================================================================
 // Semantic drawing types
 // ============================================================================
+//
+// These types are deliberately neutral: they contain no theme, style or
+// cell-encoding data, so they can move to a shared crate without an API break.
+// All character/theme behaviour lives in the crate-internal `cell_skin` module.
 
 /// Visual elevation of a bevel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,55 +53,31 @@ pub enum Gadget {
     Arrow(Direction),
 }
 
-/// Interaction state of a [`Gadget`].
+/// Semantic gadget state.
+///
+/// `Inactive` and `Dragging` are neutral UI states needed to reproduce the
+/// inactive-window and drag-time cell styles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GadgetState {
-    /// Idle, not hovered or pressed.
+    /// The owning window is not focused.
+    Inactive,
+    /// Idle and focused.
     Normal,
-    /// Currently pressed.
-    Pressed,
     /// Currently hovered by the pointer.
     Hover,
+    /// Currently pressed.
+    Pressed,
+    /// The owning window is being dragged or resized.
+    Dragging,
 }
 
-/// The six glyphs that make up a rectangular border.
-#[derive(Clone, Copy, Debug)]
-pub struct BorderChars {
-    /// Top-left corner.
-    pub tl: char,
-    /// Top-right corner.
-    pub tr: char,
-    /// Bottom-left corner.
-    pub bl: char,
-    /// Bottom-right corner.
-    pub br: char,
-    /// Horizontal edge.
-    pub h: char,
-    /// Vertical edge.
-    pub v: char,
-}
-
-/// Rendering description for one [`Gadget`].
-///
-/// The semantic fields ([`GadgetSpec::kind`], [`GadgetSpec::state`],
-/// [`GadgetSpec::rect`]) describe *what* to draw. The fields
-/// [`GadgetSpec::chars`], [`GadgetSpec::len`] and [`GadgetSpec::style`] are the
-/// resolved cell fallback used by the default [`Canvas::draw_gadget`]; a pixel
-/// canvas ignores them and renders the semantic gadget instead.
-#[derive(Clone, Copy, Debug)]
-pub struct GadgetSpec {
-    /// Which gadget this is.
-    pub kind: Gadget,
-    /// Current interaction state.
-    pub state: GadgetState,
-    /// Target rectangle in canvas units.
-    pub rect: Rect,
-    /// Cell fallback glyphs (up to eight).
-    pub chars: [char; 8],
-    /// Number of valid entries in [`GadgetSpec::chars`].
-    pub len: u8,
-    /// Cell fallback style.
-    pub style: Style,
+/// Orientation of a scrollbar (or another one-dimensional element).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Orientation {
+    /// Vertical orientation.
+    Vertical,
+    /// Horizontal orientation.
+    Horizontal,
 }
 
 /// Which scrollbar element is hovered.
@@ -114,104 +93,65 @@ pub enum ScrollHover {
     Arrow,
 }
 
-/// Rendering description for a scrollbar.
-///
-/// The numeric fields describe the scroll state semantically; the
-/// `*_style` fields are the resolved cell fallback and are ignored by pixel
-/// canvases.
-#[derive(Clone, Copy, Debug)]
-pub struct ScrollSpec {
-    /// Current scroll value.
-    pub value: i32,
-    /// Minimum value.
-    pub min: i32,
-    /// Maximum value.
-    pub max: i32,
-    /// Page step size.
-    pub page: i32,
-    /// Whether the owning window is focused.
-    pub active: bool,
-    /// Which element the pointer currently hovers.
-    pub hover: ScrollHover,
-    /// Whether the thumb is being dragged.
-    pub dragging: bool,
-    /// Resolved cell-fallback style for the track.
-    pub track_style: Style,
-    /// Resolved cell-fallback style for the thumb.
-    pub thumb_style: Style,
-    /// Resolved cell-fallback style for the arrows.
-    pub arrows_style: Style,
+/// The kind of frame to render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    /// Regular overlapping window.
+    Window,
+    /// Modal dialog.
+    Dialog,
+    /// Single-line group/panel frame.
+    Single,
 }
 
-/// Rendering description for a frame border and its title-bar gadgets.
+/// Presence and state of the interactive frame gadgets.
 ///
-/// Geometry, theme resolution and hit-testing stay in the view; this struct is
-/// the resolved input to [`Canvas::draw_frame`]. The style fields are the cell
-/// fallback and are ignored by pixel canvases.
+/// `None` means the gadget is not shown at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameGadgets {
+    /// Close button.
+    pub close: Option<GadgetState>,
+    /// Minimize button.
+    pub minimize: Option<GadgetState>,
+    /// Maximize/zoom button.
+    pub maximize: Option<GadgetState>,
+    /// Resize grip in the bottom-right corner.
+    pub resize_grip: Option<GadgetState>,
+}
+
+/// Semantic description of a frame border, title and gadgets.
+///
+/// Geometry, hit-testing and theme resolution stay in the view; this is the
+/// neutral input to [`Canvas::draw_frame`].
 #[derive(Debug)]
 pub struct FrameSpec<'a> {
     /// Frame title (without the surrounding spaces).
     pub title: &'a str,
+    /// Frame kind.
+    pub kind: FrameKind,
     /// Whether the owning window is focused.
     pub active: bool,
     /// Whether the owning window is being dragged or resized.
     pub dragging: bool,
-    /// Resolved cell-fallback style for the border.
-    pub frame_style: Style,
-    /// Resolved cell-fallback style for the title.
-    pub title_style: Style,
-    /// Optional fill style for the entire title-bar row.
-    pub title_bar_bg: Option<Style>,
-    /// Border glyphs.
-    pub border: BorderChars,
-    /// Close button, if present.
-    pub close: Option<GadgetSpec>,
-    /// Minimize button, if present.
-    pub minimize: Option<GadgetSpec>,
-    /// Maximize button, if present.
-    pub maximize: Option<GadgetSpec>,
-    /// Resize grip, if present (replaces the bottom-right corner).
-    pub resize_grip: Option<GadgetSpec>,
-    /// First column available for the title.
-    pub title_start: u16,
-    /// First column occupied by right-side buttons.
-    pub title_end: u16,
+    /// Presence and state of the frame gadgets.
+    pub gadgets: FrameGadgets,
 }
 
-// ============================================================================
-// Scrollbar glyphs (shared cell fallback)
-// ============================================================================
-
-/// Vertical scrollbar: up arrow.
-pub(crate) const V_UP: char = '▲';
-/// Vertical scrollbar: down arrow.
-pub(crate) const V_DOWN: char = '▼';
-/// Vertical scrollbar: track (empty area).
-pub(crate) const V_TRACK: char = '░';
-/// Vertical scrollbar: thumb.
-pub(crate) const V_THUMB: char = '█';
-/// Horizontal scrollbar: left arrow.
-pub(crate) const H_LEFT: char = '◄';
-/// Horizontal scrollbar: right arrow.
-pub(crate) const H_RIGHT: char = '►';
-/// Horizontal scrollbar: track (empty area).
-pub(crate) const H_TRACK: char = '░';
-/// Horizontal scrollbar: thumb.
-pub(crate) const H_THUMB: char = '█';
-
-/// Computes the thumb offset in track cells for a scrollbar.
-///
-/// `track_size` is the number of cells between the two arrow buttons. The
-/// result is clamped to `0..=track_size-1`; a non-positive track size returns
-/// `0`.
-#[must_use]
-pub(crate) fn scroll_thumb_position(value: i32, min: i32, max: i32, track_size: i32) -> i32 {
-    if track_size <= 0 {
-        return 0;
-    }
-    let range = (max - min).max(1);
-    let pos = (value - min) * track_size / range;
-    pos.clamp(0, track_size - 1)
+/// Semantic description of a scrollbar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollSpec {
+    /// Offset from the minimum (`value - min`).
+    pub position: i32,
+    /// Scroll range (`max - min`), at least zero.
+    pub total: i32,
+    /// Page/visible size; semantic only, not used by the cell fallback.
+    pub visible: i32,
+    /// Whether the owning window is focused.
+    pub active: bool,
+    /// Which element the pointer currently hovers.
+    pub hover: ScrollHover,
+    /// Whether the owning window is being dragged.
+    pub dragging: bool,
 }
 
 /// A drawing surface for views.
@@ -249,123 +189,13 @@ pub trait Canvas {
     /// Places the terminal cursor, or hides it when `None`.
     fn set_cursor(&mut self, pos: Option<Position>);
 
-    /// Draws a frame border with title and gadgets.
+    /// Draws a frame border, title and gadgets.
     ///
-    /// The default implementation is a pure cell renderer driven by the
-    /// resolved [`FrameSpec`]. Every write is clipped to `clip` exactly as the
-    /// caller passes it (never an intersected draw area). Pixel canvases
-    /// override this to render the semantic frame.
+    /// The default implementation delegates to the crate-internal cell skin,
+    /// which reproduces the historical character output byte-for-byte. Pixel
+    /// canvases override this to render semantically.
     fn draw_frame(&mut self, rect: Rect, spec: &FrameSpec<'_>, clip: Rect) {
-        if rect.width < 2 || rect.height < 1 {
-            return;
-        }
-        let draw_area = rect.intersection(clip);
-        if draw_area.width == 0 || draw_area.height == 0 {
-            return;
-        }
-
-        // Optional title-bar background fills the whole top row.
-        if let Some(bg) = spec.title_bar_bg {
-            for col in (rect.x + 1)..(rect.x + rect.width - 1) {
-                self.put_char(col, rect.y, ' ', bg, clip);
-            }
-        }
-
-        // Top corners.
-        self.put_char(rect.x, rect.y, spec.border.tl, spec.frame_style, clip);
-        self.put_char(
-            rect.x + rect.width - 1,
-            rect.y,
-            spec.border.tr,
-            spec.frame_style,
-            clip,
-        );
-
-        // Top horizontal edge.
-        for col in (rect.x + 1)..(rect.x + rect.width - 1) {
-            self.put_char(col, rect.y, spec.border.h, spec.frame_style, clip);
-        }
-
-        // Title-bar gadgets.
-        if let Some(gadget) = &spec.close {
-            self.draw_gadget(gadget, clip);
-        }
-        if let Some(gadget) = &spec.minimize {
-            self.draw_gadget(gadget, clip);
-        }
-        if let Some(gadget) = &spec.maximize {
-            self.draw_gadget(gadget, clip);
-        }
-
-        // Title, centered within the full frame width and clipped to the tray.
-        if !spec.title.is_empty() {
-            let title_full = format!(" {} ", spec.title);
-            let title_chars: Vec<char> = title_full.chars().collect();
-            #[allow(clippy::cast_possible_truncation)]
-            let title_len = title_chars.len() as u16;
-            let available = spec.title_end.saturating_sub(spec.title_start);
-
-            if available >= 2 {
-                let ideal_start = rect.x + (rect.width.saturating_sub(title_len)) / 2;
-                let clamped_start = ideal_start.max(spec.title_start);
-
-                let vis_start = clamped_start;
-                let vis_end = (clamped_start + title_len).min(spec.title_end);
-
-                if vis_end > vis_start {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let vis_count = (vis_end - vis_start) as usize;
-
-                    let truncated_right = (clamped_start + title_len) > spec.title_end;
-
-                    for (i, &ch) in title_chars.iter().take(vis_count).enumerate() {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let col = vis_start + i as u16;
-                        let draw_ch = if truncated_right && i == vis_count - 1 {
-                            '…'
-                        } else {
-                            ch
-                        };
-                        self.put_char(col, rect.y, draw_ch, spec.title_style, clip);
-                    }
-                }
-            }
-        }
-
-        if rect.height >= 2 {
-            // Side borders (both columns). A visible scrollbar is drawn later
-            // by the view and overwrites the right column cell-for-cell.
-            for row in (rect.y + 1)..(rect.y + rect.height - 1) {
-                self.put_char(rect.x, row, spec.border.v, spec.frame_style, clip);
-                self.put_char(
-                    rect.x + rect.width - 1,
-                    row,
-                    spec.border.v,
-                    spec.frame_style,
-                    clip,
-                );
-            }
-
-            // Bottom corners and horizontal edge.
-            let bottom = rect.y + rect.height - 1;
-            self.put_char(rect.x, bottom, spec.border.bl, spec.frame_style, clip);
-            for col in (rect.x + 1)..(rect.x + rect.width - 1) {
-                self.put_char(col, bottom, spec.border.h, spec.frame_style, clip);
-            }
-
-            // Bottom-right corner, replaced by the resize grip when present.
-            if let Some(gadget) = &spec.resize_grip {
-                self.draw_gadget(gadget, clip);
-            } else {
-                self.put_char(
-                    rect.x + rect.width - 1,
-                    bottom,
-                    spec.border.br,
-                    spec.frame_style,
-                    clip,
-                );
-            }
-        }
+        crate::cell_skin::draw_frame(self, rect, spec, clip);
     }
 
     /// Draws a bevel.
@@ -376,24 +206,21 @@ pub trait Canvas {
     /// to draw actual shading.
     fn draw_bevel(&mut self, _rect: Rect, _bevel: Bevel, _clip: Rect) {}
 
-    /// Draws a single [`Gadget`] from its resolved cell fallback.
+    /// Draws a single [`Gadget`] at `rect` in `state`.
     ///
-    /// The default implementation writes `spec.chars[0..spec.len]` starting at
-    /// `spec.rect.x`, all on `spec.rect.y`, with `spec.style`, clipped to
-    /// `clip`.
-    fn draw_gadget(&mut self, spec: &GadgetSpec, clip: Rect) {
-        for (i, &ch) in spec.chars.iter().take(spec.len as usize).enumerate() {
-            let col = spec.rect.x + u16::try_from(i).unwrap_or(0);
-            self.put_char(col, spec.rect.y, ch, spec.style, clip);
-        }
+    /// The default implementation delegates to the crate-internal cell skin,
+    /// which resolves the glyphs and style from the current theme and clips
+    /// every write to `clip`.
+    fn draw_gadget(&mut self, rect: Rect, gadget: Gadget, state: GadgetState, clip: Rect) {
+        crate::cell_skin::draw_gadget(self, rect, gadget, state, clip);
     }
 
     /// Draws a scrollbar.
     ///
-    /// The default implementation is a pure cell renderer driven by the
-    /// resolved [`ScrollSpec`]: the first and last cells become arrow buttons,
-    /// the cell at the thumb offset is the thumb and everything else is track.
-    /// Empty rectangles are ignored.
+    /// The default implementation delegates to the crate-internal cell skin:
+    /// the first and last cells become arrow buttons, the cell at the thumb
+    /// offset is the thumb and everything else is track. Empty rectangles are
+    /// ignored.
     fn draw_scrollbar(
         &mut self,
         rect: Rect,
@@ -401,57 +228,7 @@ pub trait Canvas {
         spec: &ScrollSpec,
         clip: Rect,
     ) {
-        if rect.width == 0 || rect.height == 0 {
-            return;
-        }
-        let draw_area = rect.intersection(clip);
-        if draw_area.width == 0 || draw_area.height == 0 {
-            return;
-        }
-
-        let track_size = match orientation {
-            Orientation::Vertical => i32::from(rect.height.saturating_sub(2)),
-            Orientation::Horizontal => i32::from(rect.width.saturating_sub(2)),
-        };
-        let thumb_pos = usize::try_from(scroll_thumb_position(
-            spec.value, spec.min, spec.max, track_size,
-        ))
-        .unwrap_or(0);
-
-        match orientation {
-            Orientation::Vertical => {
-                let height = rect.height as usize;
-                for row in 0..height {
-                    let buf_row = rect.y + u16::try_from(row).unwrap_or(0);
-                    let (ch, style) = if row == 0 {
-                        (V_UP, spec.arrows_style)
-                    } else if row >= height.saturating_sub(1) {
-                        (V_DOWN, spec.arrows_style)
-                    } else if row - 1 == thumb_pos {
-                        (V_THUMB, spec.thumb_style)
-                    } else {
-                        (V_TRACK, spec.track_style)
-                    };
-                    self.put_char(rect.x, buf_row, ch, style, clip);
-                }
-            }
-            Orientation::Horizontal => {
-                let width = rect.width as usize;
-                for col in 0..width {
-                    let buf_col = rect.x + u16::try_from(col).unwrap_or(0);
-                    let (ch, style) = if col == 0 {
-                        (H_LEFT, spec.arrows_style)
-                    } else if col >= width.saturating_sub(1) {
-                        (H_RIGHT, spec.arrows_style)
-                    } else if col - 1 == thumb_pos {
-                        (H_THUMB, spec.thumb_style)
-                    } else {
-                        (H_TRACK, spec.track_style)
-                    };
-                    self.put_char(buf_col, rect.y, ch, style, clip);
-                }
-            }
-        }
+        crate::cell_skin::draw_scrollbar(self, rect, orientation, spec, clip);
     }
 }
 
@@ -642,44 +419,47 @@ mod tests {
         assert_eq!(canvas.cursor(), None);
     }
 
-    fn sample_scroll_spec(value: i32) -> ScrollSpec {
+    fn sample_scroll_spec(position: i32) -> ScrollSpec {
         ScrollSpec {
-            value,
-            min: 0,
-            max: 100,
-            page: 1,
+            position,
+            total: 100,
+            visible: 1,
             active: true,
             hover: ScrollHover::None,
             dragging: false,
-            track_style: Style::default(),
-            thumb_style: Style::default(),
-            arrows_style: Style::default(),
+        }
+    }
+
+    fn setup_default_theme() {
+        crate::theme::set(crate::theme::Theme::turbo_vision());
+    }
+
+    fn no_gadgets() -> FrameGadgets {
+        FrameGadgets {
+            close: None,
+            minimize: None,
+            maximize: None,
+            resize_grip: None,
         }
     }
 
     #[test]
     fn test_draw_gadget_writes_glyphs_and_respects_clip() {
+        setup_default_theme();
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 3));
-        let mut chars = ['\0'; 8];
-        chars[0] = 'A';
-        chars[1] = 'B';
-        chars[2] = 'C';
-        let spec = GadgetSpec {
-            kind: Gadget::Close,
-            state: GadgetState::Normal,
-            rect: Rect::new(2, 1, 3, 1),
-            chars,
-            len: 3,
-            style: Style::default(),
-        };
         {
             let mut canvas = CellCanvas::new(&mut buf);
-            // Clip covers only the first two gadget cells.
-            canvas.draw_gadget(&spec, Rect::new(2, 1, 2, 1));
+            // Default close text is "[■]"; clip covers only the first two cells.
+            canvas.draw_gadget(
+                Rect::new(2, 1, 3, 1),
+                Gadget::Close,
+                GadgetState::Normal,
+                Rect::new(2, 1, 2, 1),
+            );
         }
 
-        assert_eq!(buf.cell(Position::new(2, 1)).unwrap().symbol(), "A");
-        assert_eq!(buf.cell(Position::new(3, 1)).unwrap().symbol(), "B");
+        assert_eq!(buf.cell(Position::new(2, 1)).unwrap().symbol(), "[");
+        assert_eq!(buf.cell(Position::new(3, 1)).unwrap().symbol(), "■");
         assert_eq!(buf.cell(Position::new(4, 1)).unwrap().symbol(), " ");
     }
 
@@ -697,7 +477,7 @@ mod tests {
             );
         }
 
-        // track_size = 4, value 50 → 50 * 4 / 100 = 2 → thumb at row 1 + 2.
+        // track_size = 4, position 50 → 50 * 4 / 100 = 2 → thumb at row 1 + 2.
         assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "▲");
         assert_eq!(buf.cell(Position::new(0, 5)).unwrap().symbol(), "▼");
         assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), "░");
@@ -718,7 +498,7 @@ mod tests {
             );
         }
 
-        // track_size = 4, value 50 → thumb at column 1 + 2.
+        // track_size = 4, position 50 → thumb at column 1 + 2.
         assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "◄");
         assert_eq!(buf.cell(Position::new(5, 0)).unwrap().symbol(), "►");
         assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "█");
@@ -728,28 +508,12 @@ mod tests {
     fn test_draw_primitives_empty_and_tiny_rect_do_not_panic() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 4, 2));
         let spec = sample_scroll_spec(0);
-        let border = BorderChars {
-            tl: '┌',
-            tr: '┐',
-            bl: '└',
-            br: '┘',
-            h: '─',
-            v: '│',
-        };
         let frame_spec = FrameSpec {
             title: "",
+            kind: FrameKind::Dialog,
             active: false,
             dragging: false,
-            frame_style: Style::default(),
-            title_style: Style::default(),
-            title_bar_bg: None,
-            border,
-            close: None,
-            minimize: None,
-            maximize: None,
-            resize_grip: None,
-            title_start: 0,
-            title_end: 0,
+            gadgets: no_gadgets(),
         };
         {
             let mut canvas = CellCanvas::new(&mut buf);
@@ -778,38 +542,23 @@ mod tests {
 
     #[test]
     fn test_draw_frame_height_one_draws_only_top_row() {
+        setup_default_theme();
         let mut buf = Buffer::empty(Rect::new(0, 0, 6, 3));
-        let border = BorderChars {
-            tl: '┌',
-            tr: '┐',
-            bl: '└',
-            br: '┘',
-            h: '─',
-            v: '│',
-        };
         let spec = FrameSpec {
             title: "",
+            kind: FrameKind::Single,
             active: true,
             dragging: false,
-            frame_style: Style::default(),
-            title_style: Style::default(),
-            title_bar_bg: None,
-            border,
-            close: None,
-            minimize: None,
-            maximize: None,
-            resize_grip: None,
-            title_start: 0,
-            title_end: 0,
+            gadgets: no_gadgets(),
         };
         {
             let mut canvas = CellCanvas::new(&mut buf);
             canvas.draw_frame(Rect::new(0, 0, 4, 1), &spec, Rect::new(0, 0, 6, 3));
         }
 
-        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "┌");
-        assert_eq!(buf.cell(Position::new(1, 0)).unwrap().symbol(), "─");
-        assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "┐");
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "╔");
+        assert_eq!(buf.cell(Position::new(1, 0)).unwrap().symbol(), "═");
+        assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "╗");
         // Rows below the single-row frame stay untouched.
         assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), " ");
     }

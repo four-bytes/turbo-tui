@@ -201,9 +201,11 @@ All rendering goes through turbo-tui's own `core::Buffer` via the `Canvas` trait
 The `Canvas` trait exposes two layers of drawing:
 
 - **Low-level primitives** — `draw_text`, `put_char`, `put_symbol`, `fill`, `set_style`, `set_cursor`.
-- **Semantic primitives** — `draw_frame`, `draw_bevel`, `draw_gadget`, `draw_scrollbar`, driven by resolved specs (`FrameSpec`, `GadgetSpec`, `ScrollSpec`) plus `BorderChars`, `Bevel`, `Gadget`, `GadgetState`, `Direction` and `ScrollHover`.
+- **Semantic primitives** — `draw_frame`, `draw_bevel`, `draw_gadget`, `draw_scrollbar`, driven by neutral specs (`FrameSpec`, `FrameGadgets`, `ScrollSpec`) plus `FrameKind`, `Bevel`, `Gadget`, `GadgetState`, `Direction`, `Orientation` and `ScrollHover`.
 
-Semantic primitives have cell-based default implementations that reproduce the historical character output byte-for-byte, so `CellCanvas` needs no overrides. Pixel/sub-cell canvases ignore the `*_style` and `chars` fallback fields and render the semantic information instead (`draw_bevel`, for example, is a no-op on cell canvases because they encode elevation in styles and text). Views keep all hit-testing, geometry and theme resolution; the specs only carry the resolved result.
+The semantic types are deliberately free of theme, style and cell-encoding types (`Style`, glyph arrays, resolved theme data). They contain only primitives (`u16`, `i32`, `bool`, `&str`, `Rect`) and the enums themselves, so they can be moved into a shared crate without an API break.
+
+Semantic primitives have cell-based default implementations that reproduce the historical character output byte-for-byte. All theme lookups and glyphs live in the crate-internal `cell_skin` module, so `CellCanvas` needs no overrides and the public types stay neutral. Pixel/sub-cell canvases override the defaults and render the semantic information directly (`draw_bevel`, for example, is a no-op on cell canvases because they encode elevation in styles and text). Views keep all hit-testing and geometry; the specs only carry the resolved semantic state.
 
 
 ## Future: TachyonFX Integration Point

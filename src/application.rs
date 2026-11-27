@@ -1075,13 +1075,44 @@ fn motion_kind(ev: &crossterm::event::Event) -> Option<crossterm::event::MouseEv
 mod tests {
     use super::*;
     use crate::command::{
-        CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_QUIT, CM_TILE,
+        CM_CASCADE, CM_CLOSE, CM_CLOSE_ALL, CM_DROPDOWN_CLOSED, CM_OPEN_DROPDOWN, CM_OPEN_LINK,
+        CM_QUIT, CM_TILE,
     };
-    use crate::core::{Position, Rect};
+    use crate::core::{Link, LinkTarget, Position, Rect};
+    use crate::link_label::LinkLabel;
     use crate::view::{Event, EventKind};
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
     fn screen() -> Rect {
         Rect::new(0, 0, 80, 24)
+    }
+
+    fn ct_mouse(
+        column: u16,
+        row: u16,
+        kind: MouseEventKind,
+        modifiers: KeyModifiers,
+    ) -> crossterm::event::Event {
+        crossterm::event::Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers,
+        })
+    }
+
+    /// Builds an application with a window whose first `LinkLabel` sits at the
+    /// absolute position `(2, 2)`.
+    fn app_with_window_link(target: LinkTarget) -> Application {
+        let mut app = Application::new(screen());
+        let mut window = Window::new(Rect::new(0, 0, 20, 8), "Links");
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 10, 1),
+            "example",
+            Link::new(target),
+        )));
+        app.add_window(window);
+        app
     }
 
     // -------------------------------------------------------------------------
@@ -1151,6 +1182,73 @@ mod tests {
 
         app.set_status_hint(None);
         assert!(app.status_hint().is_none());
+    }
+
+    #[test]
+    fn test_application_hover_follows_mouse_through_window() {
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target.clone());
+
+        // Move onto the label (interior origin (1,1) + child offset (1,1)).
+        app.handle_crossterm_events(&[ct_mouse(2, 2, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        assert_eq!(app.hovered_link(), Some(&target));
+
+        // Move far outside the window and every label.
+        app.handle_crossterm_events(&[ct_mouse(60, 20, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        assert!(
+            app.hovered_link().is_none(),
+            "leaving all labels must clear the hover"
+        );
+    }
+
+    #[test]
+    fn test_application_hover_batch_ends_outside_labels() {
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target);
+
+        // Inside then outside in one batch: coalescing keeps the last move, so
+        // the batch must end with no hover.
+        app.handle_crossterm_events(&[
+            ct_mouse(2, 2, MouseEventKind::Moved, KeyModifiers::NONE),
+            ct_mouse(60, 20, MouseEventKind::Moved, KeyModifiers::NONE),
+        ]);
+
+        assert!(app.hovered_link().is_none());
+    }
+
+    #[test]
+    fn test_application_ctrl_click_link_activates_through_window() {
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target.clone());
+
+        app.handle_crossterm_events(&[ct_mouse(
+            2,
+            2,
+            MouseEventKind::Down(MouseButton::Left),
+            KeyModifiers::CONTROL,
+        )]);
+
+        assert_eq!(app.take_open_link(), Some(target));
+        assert_eq!(
+            app.take_unhandled_command(),
+            Some(CM_OPEN_LINK),
+            "activation must surface CM_OPEN_LINK"
+        );
+    }
+
+    #[test]
+    fn test_application_plain_click_link_does_not_activate() {
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target);
+
+        app.handle_crossterm_events(&[ct_mouse(
+            2,
+            2,
+            MouseEventKind::Down(MouseButton::Left),
+            KeyModifiers::NONE,
+        )]);
+
+        assert!(app.take_open_link().is_none());
     }
 
     // -------------------------------------------------------------------------

@@ -161,5 +161,20 @@ mod tests {
         assert!(validated_url("javascript:alert(1)").is_none());
         assert!(validated_url("").is_none());
         assert!(validated_url("https:").is_none());
+        assert!(validated_url("example.com").is_none());
+        assert!(validated_url(" https://example.com").is_none());
+    }
+
+    #[test]
+    fn test_open_url_rejects_unsafe_without_spawning() {
+        for url in [
+            "file:///etc/passwd",
+            "data:text/plain,hello",
+            "javascript:alert(1)",
+            "",
+        ] {
+            let error = open_url(url).expect_err("unsafe URL must be rejected");
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        }
     }
 }

@@ -8,7 +8,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │ Consumer Application (e.g., four-code)                       │
 │                                                              │
-│  terminal.draw(|frame| app.draw(frame));                     │
+│  terminal.draw(|buf| app.draw(&mut CellCanvas::new(buf)));   │
 │  app.handle_crossterm_event(&event);                         │
 └──────────────────┬──────────────────────────────────────────┘
                    │
@@ -39,8 +39,8 @@
 └──────────────────────────────────────────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────────────────────┐
-│ Ratatui (rendering)                                          │
-│  Frame → Buffer → Terminal → crossterm                       │
+│ core/terminal/canvas (rendering)                             │
+│  Canvas → Buffer → Terminal → crossterm                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -176,30 +176,30 @@ Load:     theme::load_themes_from_dir(path)      ← JSON files (feature-gated)
 ## Rendering Pipeline
 
 ```
-Application::draw(frame)
+Application::draw(canvas)
   │
-  ├── MenuBar.draw(buf, clip)           ← Row 0
+  ├── MenuBar.draw(canvas, clip)        ← Row 0
   │
-  ├── Desktop.draw(buf, clip)
+  ├── Desktop.draw(canvas, clip)
   │     ├── draw_background()           ← Fill with theme desktop_bg
-  │     └── Container.draw(buf, clip)   ← Z-order: back to front
+  │     └── Container.draw(canvas, clip) ← Z-order: back to front
   │           └── for each child:
-  │                 Window.draw(buf, clip)
+  │                 Window.draw(canvas, clip)
   │                   ├── fill_interior()    ← Prevent bleed-through
   │                   ├── Frame.draw()       ← Borders + scrollbars
   │                   └── Container.draw()   ← Interior children
   │
-  ├── StatusLine.draw(buf, clip)        ← Last row
+  ├── StatusLine.draw(canvas, clip)     ← Last row
   │
-  └── OverlayManager.draw(buf)         ← On top of everything
+  └── OverlayManager.draw(canvas)      ← On top of everything
 ```
 
-All rendering goes through Ratatui's `Buffer`. turbo-tui never writes to the terminal directly.
+All rendering goes through turbo-tui's own `core::Buffer` via the `Canvas` trait. `terminal::Terminal` keeps persistent front/back buffers and writes the cell diff to the terminal via crossterm — views never write to the terminal directly.
 
 ## Future: TachyonFX Integration Point
 
 ```
-Application::draw(frame)
+Application::draw(canvas)
   ├── (existing render pipeline)
   └── optional: EffectManager.process_effects(elapsed, buf, area)
        └── Post-render buffer transforms (fade, slide, color shift)

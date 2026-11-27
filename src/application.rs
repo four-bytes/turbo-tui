@@ -1540,9 +1540,6 @@ mod tests {
         use crate::view::{ViewBase, OF_SELECTABLE};
         use std::sync::Mutex;
 
-        // Track the clip rect that was actually passed to child views
-        let last_clip: std::sync::Arc<Mutex<Option<Rect>>> = std::sync::Arc::new(Mutex::new(None));
-
         // A custom view that records the clip rect it receives
         struct ClipRecorder {
             base: ViewBase,
@@ -1583,6 +1580,9 @@ mod tests {
                 self
             }
         }
+
+        // Track the clip rect that was actually passed to child views
+        let last_clip: std::sync::Arc<Mutex<Option<Rect>>> = std::sync::Arc::new(Mutex::new(None));
 
         let recorded_clone = std::sync::Arc::clone(&last_clip);
         let mut app = Application::new(screen());

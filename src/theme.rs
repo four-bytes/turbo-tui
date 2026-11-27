@@ -2,7 +2,7 @@
 //!
 //! turbo-tui uses a thread-local global theme that all widgets read during
 //! rendering. This follows the Borland Turbo Vision palette chain pattern
-//! but simplified for Ratatui's `Style` system.
+//! but simplified for turbo-tui's `Style` system.
 //!
 //! # Usage
 //!

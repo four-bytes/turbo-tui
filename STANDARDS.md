@@ -19,8 +19,9 @@ missing_panics_doc = "allow"
 
 ### Edition & Dependencies
 - **Edition:** 2021
-- **ratatui:** 0.29
 - **crossterm:** 0.28
+- **unicode-width:** 0.2
+- **unicode-segmentation:** 1
 - **serde/serde_json:** 1.x (optional, behind `json-themes` feature)
 - **No dev-dependencies** — all tests use only std + production deps
 
@@ -51,7 +52,7 @@ missing_panics_doc = "allow"
 ### Imports
 - Group by: std → external crates → crate-internal
 - Use specific imports, not glob (except in test modules where `use super::*` is OK)
-- `use crate::` for internal, `use ratatui::` / `use crossterm::` for external
+- `use crate::core::…` internally, `use crossterm::` for external
 
 ---
 
@@ -64,7 +65,7 @@ pub trait View {
     fn id(&self) -> ViewId;
     fn bounds(&self) -> Rect;
     fn set_bounds(&mut self, bounds: Rect);
-    fn draw(&self, buf: &mut Buffer, clip: Rect);
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect);
     fn handle_event(&mut self, event: &mut Event);
     fn can_focus(&self) -> bool;
     fn state(&self) -> u16;
@@ -142,10 +143,10 @@ When adding a new widget (e.g., `gauge.rs`):
 //!
 //! Displays a horizontal progress bar with optional label.
 
+use crate::canvas::Canvas;
+use crate::core::{Buffer, Rect};
 use crate::theme;
 use crate::view::{View, ViewBase, ViewId};
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
 use std::any::Any;
 
 /// A horizontal progress bar.
@@ -175,7 +176,7 @@ impl View for Gauge {
     fn id(&self) -> ViewId { self.base.id() }
     fn bounds(&self) -> Rect { self.base.bounds() }
     fn set_bounds(&mut self, bounds: Rect) { self.base.set_bounds(bounds); }
-    fn draw(&self, buf: &mut Buffer, clip: Rect) { /* render */ }
+    fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) { /* render */ }
     fn handle_event(&mut self, _event: &mut crate::view::Event) {}
     fn can_focus(&self) -> bool { false }
     fn state(&self) -> u16 { self.base.state() }

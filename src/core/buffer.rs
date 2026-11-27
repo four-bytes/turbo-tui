@@ -1,6 +1,6 @@
 //! Terminal buffer types: [`Cell`] and [`Buffer`].
 //!
-//! Mirrors the Ratatui API subset used by turbo-tui, including grapheme-aware
+//! Provides the buffer API used by turbo-tui, including grapheme-aware
 //! width handling in [`Buffer::set_string`] via `unicode-segmentation` and
 //! `unicode-width`.
 

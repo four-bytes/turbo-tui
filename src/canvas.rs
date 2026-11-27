@@ -42,12 +42,6 @@ pub trait Canvas {
 
     /// Places the terminal cursor, or hides it when `None`.
     fn set_cursor(&mut self, pos: Option<Position>);
-
-    /// TEMPORARY escape hatch for the S5 migration; removed in S6.
-    ///
-    /// Prefer the dedicated canvas methods. This exposes the underlying
-    /// [`Buffer`] so not-yet-migrated code keeps compiling during S5.
-    fn buffer_mut(&mut self) -> &mut Buffer;
 }
 
 /// A [`Canvas`] backed by a mutable [`Buffer`].
@@ -73,12 +67,6 @@ impl<'a> CellCanvas<'a> {
     #[must_use]
     pub fn cursor(&self) -> Option<Position> {
         self.cursor
-    }
-
-    /// Consumes the canvas and returns the borrowed buffer.
-    #[must_use]
-    pub fn into_inner(self) -> &'a mut Buffer {
-        self.buffer
     }
 }
 
@@ -127,10 +115,6 @@ impl Canvas for CellCanvas<'_> {
     fn set_cursor(&mut self, pos: Option<Position>) {
         self.cursor = pos;
     }
-
-    fn buffer_mut(&mut self) -> &mut Buffer {
-        &mut *self.buffer
-    }
 }
 
 #[cfg(test)]
@@ -156,189 +140,83 @@ mod tests {
     #[test]
     fn test_draw_text_respects_clip() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 5));
-        let mut canvas = CellCanvas::new(&mut buf);
-        // Clip covers columns 5..10 on row 1 only.
-        let clip = Rect::new(5, 1, 5, 1);
-        canvas.draw_text(3, 1, "HelloWorld", Style::default(), clip);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            // Clip covers columns 5..10 on row 1 only.
+            let clip = Rect::new(5, 1, 5, 1);
+            canvas.draw_text(3, 1, "HelloWorld", Style::default(), clip);
+        }
 
         // Columns 3 and 4 are left of the clip — untouched.
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(3, 1))
-                .unwrap()
-                .symbol(),
-            " "
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(4, 1))
-                .unwrap()
-                .symbol(),
-            " "
-        );
+        assert_eq!(buf.cell(Position::new(3, 1)).unwrap().symbol(), " ");
+        assert_eq!(buf.cell(Position::new(4, 1)).unwrap().symbol(), " ");
         // Columns 5..10 are inside the clip and receive the corresponding chars.
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(5, 1))
-                .unwrap()
-                .symbol(),
-            "l"
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(6, 1))
-                .unwrap()
-                .symbol(),
-            "l"
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(7, 1))
-                .unwrap()
-                .symbol(),
-            "o"
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(8, 1))
-                .unwrap()
-                .symbol(),
-            "W"
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(9, 1))
-                .unwrap()
-                .symbol(),
-            "o"
-        );
+        assert_eq!(buf.cell(Position::new(5, 1)).unwrap().symbol(), "l");
+        assert_eq!(buf.cell(Position::new(6, 1)).unwrap().symbol(), "l");
+        assert_eq!(buf.cell(Position::new(7, 1)).unwrap().symbol(), "o");
+        assert_eq!(buf.cell(Position::new(8, 1)).unwrap().symbol(), "W");
+        assert_eq!(buf.cell(Position::new(9, 1)).unwrap().symbol(), "o");
         // Column 10 is past the clip — untouched.
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(10, 1))
-                .unwrap()
-                .symbol(),
-            " "
-        );
+        assert_eq!(buf.cell(Position::new(10, 1)).unwrap().symbol(), " ");
     }
 
     #[test]
     fn test_put_char_outside_clip_is_ignored() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
-        let mut canvas = CellCanvas::new(&mut buf);
         let clip = Rect::new(5, 5, 2, 2);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.put_char(0, 0, 'X', Style::default(), clip);
+            canvas.put_char(5, 5, 'Y', Style::default(), clip);
+        }
 
-        canvas.put_char(0, 0, 'X', Style::default(), clip);
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(0, 0))
-                .unwrap()
-                .symbol(),
-            " "
-        );
-
+        // Outside the clip the character is ignored.
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), " ");
         // Inside the clip the character is written.
-        canvas.put_char(5, 5, 'Y', Style::default(), clip);
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(5, 5))
-                .unwrap()
-                .symbol(),
-            "Y"
-        );
+        assert_eq!(buf.cell(Position::new(5, 5)).unwrap().symbol(), "Y");
     }
 
     #[test]
     fn test_put_symbol_writes_multi_char_symbol() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 5));
-        let mut canvas = CellCanvas::new(&mut buf);
         let clip = Rect::new(2, 1, 3, 1);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.put_symbol(2, 1, "ab", Style::default(), clip);
+            // Outside the clip nothing is written.
+            canvas.put_symbol(0, 0, "cd", Style::default(), clip);
+        }
 
-        canvas.put_symbol(2, 1, "ab", Style::default(), clip);
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(2, 1))
-                .unwrap()
-                .symbol(),
-            "ab"
-        );
-
-        // Outside the clip nothing is written.
-        canvas.put_symbol(0, 0, "cd", Style::default(), clip);
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(0, 0))
-                .unwrap()
-                .symbol(),
-            " "
-        );
+        assert_eq!(buf.cell(Position::new(2, 1)).unwrap().symbol(), "ab");
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), " ");
     }
 
     #[test]
     fn test_fill_clamps_to_buffer_area() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 3));
-        let mut canvas = CellCanvas::new(&mut buf);
-        // Extends past the right and bottom edges of the 10x3 buffer.
-        canvas.fill(Rect::new(8, 0, 10, 5), '#', Style::default());
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            // Extends past the right and bottom edges of the 10x3 buffer.
+            canvas.fill(Rect::new(8, 0, 10, 5), '#', Style::default());
+        }
 
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(7, 0))
-                .unwrap()
-                .symbol(),
-            " "
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(8, 0))
-                .unwrap()
-                .symbol(),
-            "#"
-        );
-        assert_eq!(
-            canvas
-                .buffer_mut()
-                .cell(Position::new(9, 2))
-                .unwrap()
-                .symbol(),
-            "#"
-        );
+        assert_eq!(buf.cell(Position::new(7, 0)).unwrap().symbol(), " ");
+        assert_eq!(buf.cell(Position::new(8, 0)).unwrap().symbol(), "#");
+        assert_eq!(buf.cell(Position::new(9, 2)).unwrap().symbol(), "#");
     }
 
     #[test]
     fn test_set_style_applies_to_rect() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 5));
-        let mut canvas = CellCanvas::new(&mut buf);
-        let style = Style::default().fg(Color::Red);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            let style = Style::default().fg(Color::Red);
+            canvas.set_style(Rect::new(1, 1, 3, 2), style);
+        }
 
-        canvas.set_style(Rect::new(1, 1, 3, 2), style);
-
-        assert_eq!(
-            canvas.buffer_mut().cell(Position::new(1, 1)).unwrap().fg,
-            Color::Red
-        );
-        assert_eq!(
-            canvas.buffer_mut().cell(Position::new(3, 2)).unwrap().fg,
-            Color::Red
-        );
-        assert_eq!(
-            canvas.buffer_mut().cell(Position::new(0, 0)).unwrap().fg,
-            Color::Reset
-        );
+        assert_eq!(buf.cell(Position::new(1, 1)).unwrap().fg, Color::Red);
+        assert_eq!(buf.cell(Position::new(3, 2)).unwrap().fg, Color::Red);
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().fg, Color::Reset);
     }
 
     #[test]
@@ -351,17 +229,5 @@ mod tests {
 
         canvas.set_cursor(None);
         assert_eq!(canvas.cursor(), None);
-    }
-
-    #[test]
-    fn test_buffer_mut_escape_hatch_provides_direct_access() {
-        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 5));
-        {
-            let mut canvas = CellCanvas::new(&mut buf);
-            let inner = canvas.buffer_mut();
-            inner.set_string(0, 0, "AB", Style::default());
-        }
-        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "A");
-        assert_eq!(buf.cell(Position::new(1, 0)).unwrap().symbol(), "B");
     }
 }

@@ -2,28 +2,35 @@
 
 ## Project Overview
 
-**turbo-tui** is a Ratatui extension crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
+**turbo-tui** is a Rust terminal UI crate that brings Borland Turbo Vision windowing patterns to modern Rust terminal applications.
 
 - **Language:** Rust
-- **Status:** v0.2.2 — Released (v0.2 merged to `main`)
+- **Status:** v0.4.0 — Released
 - **Org:** four-bytes (Four\ namespace)
 - **Crate type:** Library (no binary)
 - **Repo:** https://github.com/four-bytes/turbo-tui
 - **Consumer:** `four-code` terminal IDE (`~/four-code`)
-- **Deps:** ratatui 0.29, crossterm 0.28
+- **Deps:** crossterm 0.28, unicode-width 0.2, unicode-segmentation 1
 
 ## Architecture
 
-Single crate, 21 source files (~14,600 lines total):
+Single crate, 34 source files (~24,000 lines total):
 
 ```
 src/
 ├── lib.rs              # Public API + prelude exports
 ├── command.rs          # CommandId (u16), CommandSet bitfield, 25+ CM_* constants
-├── theme.rs            # Theme struct, 4 Themes (dark, borland_classic, modern, matrix)
+├── theme.rs            # Theme struct, built-in Theme::turbo_vision() + JSON themes in themes/ (dark, matrix, modern, turbo-vision, windows-classic, windows)
 ├── theme_json.rs       # JSON theme serialization, border presets, color roundtrip
 ├── view.rs             # View trait, ViewBase, StateFlags, OptionFlags, Event system, deferred queue, lifecycle hooks
 ├── clip.rs             # ClipRegion for intersection clipping
+├── core/
+│   ├── mod.rs          # Core cell, geometry and style types
+│   ├── geometry.rs     # Geometry primitives: Position, Rect, Size
+│   ├── style.rs        # Color and style types: Color, Modifier, Style
+│   └── buffer.rs       # Terminal buffer types: Cell, Buffer
+├── canvas.rs           # Canvas trait + CellCanvas for view rendering
+├── terminal.rs         # Terminal<W: Write> + TestTerminal: persistent buffers, cell diff
 ├── container/
 │   ├── mod.rs          # Container struct + public API (renamed from Group)
 │   ├── dispatch.rs     # Three-phase event dispatch + mouse capture
@@ -37,20 +44,25 @@ src/
 ├── horizontal_bar.rs   # Unified HorizontalBar: BarEntry (Action/Dropdown), DropDirection (Up/Down)
 ├── menu_bar.rs         # Thin wrapper: MenuItem, Menu types, MenuBar = HorizontalBar alias
 ├── menu_box.rs         # Standalone dropdown menu box
-├── status_line.rs      # Thin wrapper: StatusItem, KB_* constants, StatusLine = HorizontalBar alias
+├── status_bar.rs       # Thin wrapper: StatusItem, KB_* constants, StatusBar = HorizontalBar alias
 ├── scrollbar.rs        # Vertical/horizontal scrollbar with thumb drag
 ├── button.rs           # Clickable button with hotkey support
 ├── static_text.rs      # Non-interactive text label
+├── input_line.rs       # InputLine — single-line text input widget
+├── listbox.rs          # ListBox — scrollable selectable list widget
+├── memo.rs             # Memo — multi-line text editor widget
+├── editor.rs           # Editor — text editor with file I/O, syntax highlighting
+├── syntax.rs           # Syntax highlighting for text editors
 └── msgbox.rs           # Pre-built message/confirm/error dialog factories
 examples/
-└── demo.rs             # Interactive demo: Application + MenuBar + Windows + Buttons + StatusLine
+└── demo.rs             # Interactive demo: Application + MenuBar + Windows + Buttons + StatusBar
 ```
 
 ## Development Workflow
 
 ```bash
 cargo check                     # Quick syntax check (fastest)
-cargo test                      # Run all 284 tests
+cargo test                      # Run all 565 tests
 cargo clippy -- -D warnings     # Lint (pedantic enabled)
 cargo fmt                       # Format
 cargo run --example demo        # Run the interactive demo
@@ -70,7 +82,7 @@ No Makefile — use cargo directly.
 - LF line endings only, real umlauts (ä, ö, ü, ß)
 
 ### Design Patterns (from Borland Turbo Vision)
-- **Rendering:** Through Ratatui `Frame`/`Buffer` — NOT a standalone terminal framework
+- **Rendering:** Own cell backend (`core`/`terminal`/`canvas`) — standalone cell renderer via crossterm
 - **CommandSet:** Owned by Application struct, NOT thread-local/global
 - **No raw pointers:** No `*const dyn View` owner pointers — event-based communication instead
 - **Command convention:** Commands < 1000 close modal dialogs, >= 1000 (`INTERNAL_COMMAND_BASE`) are internal view commands
@@ -87,7 +99,7 @@ No Makefile — use cargo directly.
 
 ## Key Design Decisions
 
-1. **turbo-tui extends Ratatui** — it's NOT a standalone framework. All rendering goes through Ratatui's `Frame`/`Buffer`.
+1. **turbo-tui owns its rendering stack** — no Ratatui dependency. Rendering goes through `turbo_tui::core` (`Buffer`, `Cell`, `Style`), `turbo_tui::canvas::Canvas` and `turbo_tui::terminal::Terminal` (cell diff via crossterm).
 2. **Crate name `turbo-tui`** is reserved on crates.io.
 3. **Three-phase dispatch** is critical: StatusBar uses `OF_PRE_PROCESS` to intercept F-keys before they reach focused windows. Without this, F1/F5/F10 would go to the focused window first.
 4. **Mouse events** route front-to-back (reverse Z-order) with hit-testing. Keyboard/command events use three-phase dispatch through the focused child.
@@ -234,7 +246,7 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 ## Agent Strategy
 
 - **~70% developer-mid** (Kimi K2): Logic, state machines, widget implementations
-- **~30% developer** (Sonnet): Ratatui rendering, complex mouse/integration code, debugging
+- **~30% developer** (Sonnet): rendering / cell backend, complex mouse/integration code, debugging
 - **developer-mini** (free): Config changes, small mechanical edits, boilerplate
 
 ## Project Documentation Map

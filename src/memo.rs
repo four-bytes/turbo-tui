@@ -15,7 +15,6 @@
 //! ```
 
 use crate::canvas::Canvas;
-use crate::clip;
 use crate::core::{Position, Rect};
 use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase, ViewId, OF_SELECTABLE, SF_FOCUSED};
@@ -359,8 +358,6 @@ impl View for Memo {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
         let bounds = self.base.bounds();
         let draw_area = bounds.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -380,13 +377,7 @@ impl View for Memo {
         let visible_cols = usize::from(bounds.width);
 
         // Fill background for all visible rows
-        for row in draw_area.y..draw_area.y + draw_area.height {
-            for col in draw_area.x..draw_area.x + draw_area.width {
-                if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                    cell.set_char(' ').set_style(style);
-                }
-            }
-        }
+        canvas.fill(draw_area, ' ', style);
 
         // Draw visible lines
         let max_visible = self.text.len().saturating_sub(self.scroll.0);
@@ -405,7 +396,7 @@ impl View for Memo {
                 } else {
                     ""
                 };
-                clip::set_string_clipped(buf, bounds.x, row, visible_text, style, clip);
+                canvas.draw_text(bounds.x, row, visible_text, style, clip);
 
                 // Fill remainder of line width with background
                 let text_width = visible_text.len().min(visible_cols);
@@ -413,9 +404,7 @@ impl View for Memo {
                     let fill_start = bounds.x + u16::try_from(text_width).unwrap_or(0);
                     for col in fill_start..bounds.x + u16::try_from(visible_cols).unwrap_or(0) {
                         if col >= clip.x && col < clip.x + clip.width {
-                            if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                                cell.set_char(' ').set_style(style);
-                            }
+                            canvas.put_char(col, row, ' ', style, clip);
                         }
                     }
                 }
@@ -431,9 +420,7 @@ impl View for Memo {
             }
             for col in bounds.x..bounds.x + u16::try_from(visible_cols).unwrap_or(0) {
                 if col >= clip.x && col < clip.x + clip.width {
-                    if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                        cell.set_char(' ').set_style(style);
-                    }
+                    canvas.put_char(col, row, ' ', style, clip);
                 }
             }
         }

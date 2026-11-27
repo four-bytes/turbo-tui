@@ -43,6 +43,9 @@ pub mod overlay;
 // Terminal backend: persistent buffers, diffing and crossterm output
 pub mod terminal;
 
+// OSC 8 hyperlink capability detection and URL sanitisation
+pub mod hyperlink;
+
 // Level 5: Widgets
 pub mod button;
 pub mod input_line;
@@ -80,6 +83,7 @@ pub mod prelude {
     pub use crate::dialog::Dialog;
     pub use crate::editor::Editor;
     pub use crate::frame::{Frame, FrameConfig, FrameHover, FrameType};
+    pub use crate::hyperlink::{HyperlinkMode, HyperlinkSupport};
     pub use crate::input_line::InputLine;
     pub use crate::listbox::ListBox;
     pub use crate::memo::Memo;

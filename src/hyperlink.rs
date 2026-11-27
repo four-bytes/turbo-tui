@@ -385,6 +385,17 @@ mod tests {
     }
 
     #[test]
+    fn test_tmux_wins_over_xtversion() {
+        let support = detect_with(
+            &[("TMUX", "/tmp/tmux")],
+            HyperlinkMode::Auto,
+            Some("WezTerm 20240203"),
+        );
+        assert!(!support.enabled);
+        assert_eq!(support.reason, "tmux: hyperlink support unverified");
+    }
+
+    #[test]
     fn test_screen_disables() {
         let support = detect_with(&[("TERM", "screen-256color")], HyperlinkMode::Auto, None);
         assert!(!support.enabled);
@@ -495,6 +506,10 @@ mod tests {
         let new = detect_with(&[("KONSOLE_VERSION", "200800")], HyperlinkMode::Auto, None);
         assert!(new.enabled);
         assert_eq!(new.reason, "Konsole >= 20.08");
+
+        let boundary = detect_with(&[("KONSOLE_VERSION", "200799")], HyperlinkMode::Auto, None);
+        assert!(!boundary.enabled);
+        assert_eq!(boundary.reason, "Konsole too old for OSC 8");
 
         let old = detect_with(&[("KONSOLE_VERSION", "200700")], HyperlinkMode::Auto, None);
         assert!(!old.enabled);
@@ -625,6 +640,51 @@ mod tests {
         assert_eq!(
             sanitized_url(&link, &default_schemes()),
             Some("HTTPS://Example.com/Path".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_sanitized_url_adversarial_inputs() {
+        let schemes = default_schemes();
+
+        // Control chars inside a disallowed scheme cannot smuggle it through:
+        // stripping happens before the allowlist check, so it is still rejected.
+        assert_eq!(
+            sanitized_url(&url_link("java\x1bscript:alert(1)"), &schemes),
+            None
+        );
+        assert_eq!(
+            sanitized_url(&url_link("java\x07script:alert(1)"), &schemes),
+            None
+        );
+
+        // Control chars inside an allowed URL are stripped, not emitted.
+        assert_eq!(
+            sanitized_url(&url_link("https:\x1b//host"), &schemes),
+            Some("https://host".to_owned())
+        );
+        assert_eq!(
+            sanitized_url(&url_link("\u{9b}https://x"), &schemes),
+            Some("https://x".to_owned())
+        );
+
+        // A scheme without a colon, an empty URL and unlisted schemes are
+        // rejected.
+        assert_eq!(sanitized_url(&url_link("https"), &schemes), None);
+        assert_eq!(sanitized_url(&url_link(""), &schemes), None);
+        assert_eq!(
+            sanitized_url(&url_link("data:text/html,<b>x</b>"), &schemes),
+            None
+        );
+        assert_eq!(
+            sanitized_url(&url_link("mailto:someone@example.com"), &schemes),
+            None
+        );
+
+        // `file:/` (single slash) is accepted because `file` is allowed.
+        assert_eq!(
+            sanitized_url(&url_link("file:/tmp/x"), &schemes),
+            Some("file:/tmp/x".to_owned())
         );
     }
 }

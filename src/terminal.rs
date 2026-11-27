@@ -775,6 +775,16 @@ mod tests {
         assert_eq!(close_count(&output), 1, "exactly one close");
         assert_eq!(prefix_count(&output), 2, "one open plus one close sequence");
         assert!(output.contains("https://example.com"));
+        let open = output
+            .find("\x1b]8;;https://example.com")
+            .expect("open sequence");
+        let a = output.find('A').expect("first linked cell");
+        let b = output.find('B').expect("second linked cell");
+        let close = output.find("\x1b]8;;\x1b\\").expect("close sequence");
+        assert!(
+            open < a && a < b && b < close,
+            "the run must open before the text and close after it"
+        );
     }
 
     #[test]
@@ -795,6 +805,65 @@ mod tests {
         assert_eq!(prefix_count(&output), 4, "two opens plus two closes");
         assert!(output.contains("https://example.com/a"));
         assert!(output.contains("https://example.com/b"));
+        let open_a = output
+            .find("\x1b]8;;https://example.com/a")
+            .expect("open a");
+        let a = output.find('A').expect("first cell");
+        let close = output.find("\x1b]8;;\x1b\\").expect("first close");
+        let open_b = output
+            .find("\x1b]8;;https://example.com/b")
+            .expect("open b");
+        let b = output.find('B').expect("second cell");
+        assert!(
+            open_a < a && a < close && close < open_b && open_b < b,
+            "the first link must close before the second opens"
+        );
+    }
+
+    #[test]
+    fn test_terminal_hyperlinks_single_cell_run() {
+        let mut terminal = Terminal::new(Vec::new(), 4, 1).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(1, 0)].set_symbol("X").set_link(Some(id));
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert_eq!(close_count(&output), 1);
+        assert_eq!(prefix_count(&output), 2);
+        let open = output
+            .find("\x1b]8;;https://example.com")
+            .expect("open sequence");
+        let x = output.find('X').expect("linked cell");
+        let close = output.find("\x1b]8;;\x1b\\").expect("close sequence");
+        assert!(open < x && x < close);
+    }
+
+    #[test]
+    fn test_terminal_hyperlinks_row_wrap_reopens() {
+        let mut terminal = Terminal::new(Vec::new(), 3, 2).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(2, 0)].set_symbol("A").set_link(Some(id));
+                buffer[(0, 1)].set_symbol("B").set_link(Some(id));
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert_eq!(
+            close_count(&output),
+            2,
+            "a line break is not a contiguous run"
+        );
+        assert_eq!(prefix_count(&output), 4, "close then reopen across the row");
+        let a = output.find('A').expect("first cell");
+        let b = output.find('B').expect("second cell");
+        assert!(a < b, "row-major order is preserved");
     }
 
     #[test]
@@ -813,9 +882,24 @@ mod tests {
         let output = String::from_utf8_lossy(terminal.writer());
         assert_eq!(close_count(&output), 2, "close before and after the gap");
         assert_eq!(prefix_count(&output), 4, "reopened around the gap");
-        assert!(output.contains('A'));
-        assert!(output.contains('B'));
-        assert!(output.contains('C'));
+        let first_open = output
+            .find("\x1b]8;;https://example.com")
+            .expect("first open");
+        let a = output.find('A').expect("first cell");
+        let first_close = output.find("\x1b]8;;\x1b\\").expect("close before the gap");
+        let b = output.find('B').expect("unlinked cell");
+        let second_open = output
+            .rfind("\x1b]8;;https://example.com")
+            .expect("reopen after the gap");
+        let c = output.find('C').expect("re-linked cell");
+        assert!(
+            first_open < a
+                && a < first_close
+                && first_close < b
+                && b < second_open
+                && second_open < c,
+            "the link must close before the unlinked cell and reopen after it"
+        );
     }
 
     #[test]

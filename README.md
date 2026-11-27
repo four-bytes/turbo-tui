@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/four-bytes/turbo-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/four-bytes/turbo-tui/actions)
 [![Crates.io](https://img.shields.io/crates/v/turbo-tui.svg)](https://crates.io/crates/turbo-tui)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Standalone Rust terminal UI crate — Borland Turbo Vision windowing patterns.
 
@@ -211,7 +211,7 @@ Overlapping window with drag, resize, and zoom:
 
 ## Architecture
 
-turbo-tui is a standalone terminal UI crate with its own cell-based rendering backend: `turbo_tui::core` (`Buffer`, `Cell`, `Rect`, `Style`, …), `turbo_tui::terminal::Terminal` (persistent front/back buffers, cell diff via crossterm) and `turbo_tui::canvas::Canvas`. The windowing patterns are adapted from [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed).
+turbo-tui is a standalone terminal UI crate with its own cell-based rendering backend: `turbo_tui::core` (`Buffer`, `Cell`, `Rect`, `Style`, …), `turbo_tui::terminal::Terminal` (persistent front/back buffers, cell diff via crossterm) and `turbo_tui::canvas::Canvas`. The windowing patterns are adapted from [turbo-vision-4-rust](https://github.com/aovestdipaperino/turbo-vision-4-rust) (MIT licensed); no source code was copied.
 
 ```
 Application
@@ -263,4 +263,4 @@ Having grown up with Turbo Pascal 5, TASM, and later Borland Pascal for Protecte
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE). Versions up to and including v0.4.0 were released under MIT.

@@ -1,9 +1,9 @@
 [package]
 name = "turbo-tui"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Robby Beyer <robby@four-bytes.de>"]
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/four-bytes/turbo-tui"
 homepage = "https://github.com/four-bytes/turbo-tui"
 description = "Borland Turbo Vision windowing patterns for Rust terminal applications"

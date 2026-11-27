@@ -42,7 +42,7 @@ These follow from decisions that are already made:
 | **M3** | Data widgets and the open-port web GUI; covers the DevOps and vibe-coding use cases | #44, #45 |
 | **M4** | Proportional fonts and free pixel positioning; groundwork for four-office | #36 · four-bytes/four-sixel-lab#23 |
 
-Licensing is settled before the next release: turbo-tui, so far released under MIT, moves to Apache-2.0 with v0.4.0 (#38; earlier versions stay MIT). FourSix gets its own public Apache-2.0 repo before turbo-tui depends on it (four-bytes/four-sixel-lab#49).
+Licensing is settled before the next release: turbo-tui, so far released under MIT, moves to Apache-2.0 with v0.5.0 (#38; v0.4.0 and earlier stay MIT). FourSix gets its own public Apache-2.0 repo before turbo-tui depends on it (four-bytes/four-sixel-lab#49).
 
 ## 6. Non-goals for now
 

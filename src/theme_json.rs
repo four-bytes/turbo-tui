@@ -1369,6 +1369,24 @@ mod tests {
     }
 
     #[test]
+    fn test_wcag_contrast_formula_sanity() {
+        let black = ColorValue::Named("#000000".to_owned());
+        let white = ColorValue::Named("#FFFFFF".to_owned());
+
+        let bw = contrast_ratio(&black, &white);
+        assert!(
+            (bw - 21.0).abs() < 1e-6,
+            "black vs white should be 21.0, got {bw}"
+        );
+
+        let same = contrast_ratio(&black, &black);
+        assert!(
+            (same - 1.0).abs() < 1e-6,
+            "a colour against itself should be 1.0, got {same}"
+        );
+    }
+
+    #[test]
     fn test_workbench_theme_contrast() {
         let path = std::path::Path::new("themes/workbench.json");
         if !path.exists() {

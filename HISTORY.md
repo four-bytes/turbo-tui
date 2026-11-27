@@ -13,6 +13,7 @@
 - S5a: core views (frame, window, desktop) draw via `Canvas` primitives; the temporary `buffer_mut()` escape hatch is gone from the core view group (epic #10, issue #17)
 - S5b: bars and menus (horizontal_bar, menu_box) draw via `Canvas` primitives; the `buffer_mut()` escape hatch is gone from this group (epic #10, issue #18)
 - S5c: widgets (button, static_text, input_line, listbox, scrollbar) draw via `Canvas` primitives; the `buffer_mut()` escape hatch is gone from this group (epic #10, issue #19)
+- S5d: editor/memo draw via `Canvas` primitives; the `buffer_mut()` escape hatch is now unused by all views (epic #10, issue #20)
 
 ### Changed (BREAKING)
 - Own terminal backend: `turbo_tui::terminal::Terminal<W: Write>` (persistent front/back buffers, cell diff via crossterm, cursor handling) and `TestTerminal` replace Ratatui's `Terminal`/`Frame` and `TestBackend`.

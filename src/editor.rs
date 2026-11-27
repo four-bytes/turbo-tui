@@ -20,11 +20,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::canvas::Canvas;
-use crate::core::Buffer;
 use crate::core::{Position, Rect};
 use std::any::Any;
 
-use crate::clip;
 use crate::memo::Memo;
 use crate::syntax::{PlainTextHighlighter, SyntaxHighlighter};
 use crate::theme;
@@ -244,7 +242,7 @@ impl Editor {
     }
 
     /// Draw syntax-highlighted text.
-    fn draw_highlighted(&self, buf: &mut Buffer, clip: Rect) {
+    fn draw_highlighted(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let bounds = self.base.bounds();
         let draw_area = bounds.intersection(clip);
         if draw_area.width == 0 || draw_area.height == 0 {
@@ -285,9 +283,7 @@ impl Editor {
                     // Fill empty line with background
                     for col in bounds.x..bounds.x + u16::try_from(visible_lines).unwrap_or(0) {
                         if col >= clip.x && col < clip.x + clip.width {
-                            if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                                cell.set_char(' ').set_style(base_style);
-                            }
+                            canvas.put_char(col, row, ' ', base_style, clip);
                         }
                     }
                     continue;
@@ -301,7 +297,7 @@ impl Editor {
                     // patch() replaces fg/modifiers from the highlight style
                     // but keeps bg from base_style (since syntax tokens don't set bg).
                     let merged_style = base_style.patch(*style);
-                    clip::set_string_clipped(buf, x, row, token, merged_style, clip);
+                    canvas.draw_text(x, row, token, merged_style, clip);
                     #[allow(clippy::cast_possible_truncation)]
                     {
                         x = x.saturating_add(token.len() as u16);
@@ -316,9 +312,7 @@ impl Editor {
                     let fill_end = bounds.x + u16::try_from(visible_width).unwrap_or(0);
                     for col in fill_start..fill_end {
                         if col >= clip.x && col < clip.x + clip.width {
-                            if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                                cell.set_char(' ').set_style(base_style);
-                            }
+                            canvas.put_char(col, row, ' ', base_style, clip);
                         }
                     }
                 }
@@ -334,9 +328,7 @@ impl Editor {
             }
             for col in bounds.x..bounds.x + u16::try_from(visible_lines).unwrap_or(0) {
                 if col >= clip.x && col < clip.x + clip.width {
-                    if let Some(cell) = buf.cell_mut(Position::new(col, row)) {
-                        cell.set_char(' ').set_style(base_style);
-                    }
+                    canvas.put_char(col, row, ' ', base_style, clip);
                 }
             }
         }
@@ -367,9 +359,7 @@ impl View for Editor {
     }
 
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
-        self.draw_highlighted(buf, clip);
+        self.draw_highlighted(canvas, clip);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -443,6 +433,7 @@ impl View for Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::Buffer;
     use crate::view::SF_VISIBLE;
     use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
 

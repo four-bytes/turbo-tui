@@ -19,12 +19,31 @@ use unicode_width::UnicodeWidthStr;
 use crate::core::{Buffer, Cell, Color, LinkId, LinkTable, Modifier, Position, Rect};
 use crate::hyperlink::{sanitized_url, DEFAULT_LINK_SCHEMES};
 
-/// Begins an OSC 8 hyperlink with no parameters: `ESC ] 8 ; ;`.
-const OSC8_OPEN: &[u8] = b"\x1b]8;;";
+/// Begins an OSC 8 hyperlink with a stable id parameter: `ESC ] 8 ; id=`.
+///
+/// The id lets the terminal track a link region exactly instead of grouping
+/// every cell that shares the same URI. Windows Terminal does the latter when
+/// the id is absent, which merges unrelated links and leaves stale decorations
+/// behind when a region moves.
+const OSC8_OPEN_ID: &[u8] = b"\x1b]8;id=";
+/// Separates the OSC 8 `id` parameter from the URI: `;`.
+const OSC8_PARAM_SEPARATOR: &[u8] = b";";
 /// Ends an OSC 8 control string: `ESC \`.
 const OSC8_ST: &[u8] = b"\x1b\\";
 /// Closes an OSC 8 hyperlink: `ESC ] 8 ; ; ESC \`.
 const OSC8_CLOSE: &[u8] = b"\x1b]8;;\x1b\\";
+
+/// Writes an OSC 8 hyperlink opener carrying the link's stable id.
+///
+/// The emitted sequence is `ESC ] 8 ; id=<id> ; <url> ESC \`.
+fn write_link_open<W: Write>(writer: &mut W, id: LinkId, url: &str) -> io::Result<()> {
+    writer.write_all(OSC8_OPEN_ID)?;
+    let id_value = id.get();
+    write!(writer, "{id_value}")?;
+    writer.write_all(OSC8_PARAM_SEPARATOR)?;
+    writer.write_all(url.as_bytes())?;
+    writer.write_all(OSC8_ST)
+}
 
 /// Maps a turbo-tui [`Color`] to the equivalent crossterm color.
 ///
@@ -116,7 +135,12 @@ fn position_of(area: Rect, index: usize) -> (u16, u16) {
 ///
 /// The attribute reset comes first because crossterm's reset clears the colors
 /// as well; colors and modifiers are applied afterwards.
-fn queue_cell<W: Write>(writer: &mut W, cell: &Cell) -> io::Result<()> {
+///
+/// `underline` controls whether an `UNDERLINED` modifier is emitted as SGR 4.
+/// Hyperlink-aware emission passes `false` for cells that are actually wrapped
+/// in OSC 8, so the terminal's own link decoration is the only underline (see
+/// [`Terminal::set_hyperlinks`]).
+fn queue_cell<W: Write>(writer: &mut W, cell: &Cell, underline: bool) -> io::Result<()> {
     queue!(
         writer,
         SetAttribute(Attribute::Reset),
@@ -133,7 +157,7 @@ fn queue_cell<W: Write>(writer: &mut W, cell: &Cell) -> io::Result<()> {
     if cell.modifier.contains(Modifier::ITALIC) {
         queue!(writer, SetAttribute(Attribute::Italic))?;
     }
-    if cell.modifier.contains(Modifier::UNDERLINED) {
+    if underline && cell.modifier.contains(Modifier::UNDERLINED) {
         queue!(writer, SetAttribute(Attribute::Underlined))?;
     }
     if cell.modifier.contains(Modifier::SLOW_BLINK) {
@@ -170,6 +194,85 @@ fn resolve_cell_link(
     let link = links.get(id)?;
     let url = sanitized_url(link, allowed_schemes)?;
     Some((id, url))
+}
+
+/// Emits the cell updates between `front` and `back` to `writer`.
+///
+/// Shared by [`Terminal`] and [`TestTerminal`] so both exercise the same diff
+/// and OSC 8 code path.
+fn emit_updates<W: Write>(
+    writer: &mut W,
+    front: &Buffer,
+    back: &Buffer,
+    hyperlinks: bool,
+    allowed_schemes: &[String],
+) -> io::Result<()> {
+    if hyperlinks {
+        emit_linked_updates(writer, front, back, allowed_schemes)
+    } else {
+        for (x, y) in diff_updates(front, back) {
+            queue!(writer, MoveTo(x, y))?;
+            queue_cell(writer, &back[(x, y)], true)?;
+        }
+        Ok(())
+    }
+}
+
+/// Emits the diff with run-aware OSC 8 hyperlink wrapping.
+///
+/// A run continues while updates share a row, are horizontally adjacent and
+/// resolve to the same link id. Outside a run the active link is closed *before*
+/// the cursor moves. The link is always closed after the last update, so a frame
+/// never ends with an open hyperlink.
+///
+/// Linked cells that are actually wrapped in OSC 8 drop their SGR underline; the
+/// terminal's own link decoration is the only underline. See
+/// [`Terminal::set_hyperlinks`] for the policy.
+fn emit_linked_updates<W: Write>(
+    writer: &mut W,
+    front: &Buffer,
+    back: &Buffer,
+    allowed_schemes: &[String],
+) -> io::Result<()> {
+    let mut active: Option<LinkId> = None;
+    let mut prev: Option<(u16, u16)> = None;
+
+    for (x, y) in diff_updates(front, back) {
+        let cell = &back[(x, y)];
+        let resolved = resolve_cell_link(&back.links, allowed_schemes, cell);
+        let target = resolved.as_ref().map(|(id, _)| *id);
+
+        let contiguous =
+            prev.is_some_and(|(px, py)| py == y && px.saturating_add(1) == x) && target == active;
+
+        if !contiguous {
+            if active.is_some() {
+                writer.write_all(OSC8_CLOSE)?;
+                active = None;
+            }
+            queue!(writer, MoveTo(x, y))?;
+        }
+
+        if target != active {
+            if active.is_some() {
+                writer.write_all(OSC8_CLOSE)?;
+                active = None;
+            }
+            if let Some((id, url)) = &resolved {
+                write_link_open(writer, *id, url)?;
+                active = Some(*id);
+            }
+        }
+
+        queue_cell(writer, cell, resolved.is_none())?;
+        prev = Some((x, y));
+    }
+
+    if active.is_some() {
+        writer.write_all(OSC8_CLOSE)?;
+    }
+
+    Ok(())
 }
 
 /// A terminal that renders into persistent front and back buffers.
@@ -230,7 +333,24 @@ impl<W: Write> Terminal<W> {
 
     /// Enables or disables OSC 8 hyperlink emission.
     ///
-    /// When enabled, linked cells are wrapped in `ESC]8;;url ESC\` sequences.
+    /// When enabled, every emitted link is opened as
+    /// `ESC ] 8 ; id=<id> ; <url> ESC \` using the buffer's stable link id, is
+    /// closed before each cursor move, and is closed again at the end of every
+    /// frame. The id lets terminals track a link region exactly instead of
+    /// grouping all cells that share a URI.
+    ///
+    /// # Underline policy
+    ///
+    /// A cell that is actually wrapped in OSC 8 does **not** emit its
+    /// `UNDERLINED` modifier as SGR 4. Terminals such as Windows Terminal draw
+    /// their own hyperlink decoration; emitting SGR 4 as well produces a second
+    /// line that can survive redraws as an artefact. Emitted links therefore
+    /// rely on the terminal decoration plus the theme foreground colour.
+    ///
+    /// Links that are not emitted — hyperlinks disabled, non-URL targets, or a
+    /// URL rejected by the scheme allowlist — keep the theme `link*` pens,
+    /// including their SGR underline.
+    ///
     /// The consumer should pass
     /// [`Application::hyperlink_support`](crate::application::Application::hyperlink_support)'s
     /// `enabled` flag here.
@@ -292,15 +412,13 @@ impl<W: Write> Terminal<W> {
     ///
     /// Returns any error produced while writing to the underlying writer.
     pub fn flush(&mut self) -> io::Result<()> {
-        if self.hyperlinks {
-            self.flush_linked()?;
-        } else {
-            for (x, y) in diff_updates(&self.front, &self.back) {
-                let cell = self.back[(x, y)].clone();
-                queue!(self.writer, MoveTo(x, y))?;
-                queue_cell(&mut self.writer, &cell)?;
-            }
-        }
+        emit_updates(
+            &mut self.writer,
+            &self.front,
+            &self.back,
+            self.hyperlinks,
+            &self.allowed_schemes,
+        )?;
         self.front = self.back.clone();
 
         match self.cursor {
@@ -320,55 +438,6 @@ impl<W: Write> Terminal<W> {
         }
 
         self.writer.flush()
-    }
-
-    /// Emits the diff with run-aware OSC 8 hyperlink wrapping.
-    ///
-    /// A run continues while updates share a row, are horizontally adjacent and
-    /// resolve to the same link id. Outside a run the active link is closed and
-    /// the cursor is moved explicitly. The link is closed after the last update.
-    fn flush_linked(&mut self) -> io::Result<()> {
-        let mut active: Option<LinkId> = None;
-        let mut prev: Option<(u16, u16)> = None;
-
-        for (x, y) in diff_updates(&self.front, &self.back) {
-            let cell = self.back[(x, y)].clone();
-            let resolved = resolve_cell_link(&self.back.links, &self.allowed_schemes, &cell);
-            let target = resolved.as_ref().map(|(id, _)| *id);
-
-            let contiguous = prev.is_some_and(|(px, py)| py == y && px.saturating_add(1) == x)
-                && target == active;
-
-            if !contiguous {
-                if active.is_some() {
-                    self.writer.write_all(OSC8_CLOSE)?;
-                    active = None;
-                }
-                queue!(self.writer, MoveTo(x, y))?;
-            }
-
-            if target != active {
-                if active.is_some() {
-                    self.writer.write_all(OSC8_CLOSE)?;
-                    active = None;
-                }
-                if let Some((id, url)) = resolved {
-                    self.writer.write_all(OSC8_OPEN)?;
-                    self.writer.write_all(url.as_bytes())?;
-                    self.writer.write_all(OSC8_ST)?;
-                    active = Some(id);
-                }
-            }
-
-            queue_cell(&mut self.writer, &cell)?;
-            prev = Some((x, y));
-        }
-
-        if active.is_some() {
-            self.writer.write_all(OSC8_CLOSE)?;
-        }
-
-        Ok(())
     }
 
     /// Clears the screen and resets both buffers.
@@ -430,8 +499,9 @@ impl<W: Write> Terminal<W> {
 /// An in-memory terminal used by tests instead of a real backend.
 ///
 /// It keeps persistent front and back buffers and performs the same cell-level
-/// diff as [`Terminal`], but records the frame in memory instead of writing
-/// escape sequences.
+/// diff (and OSC 8 emission) as [`Terminal`]. Emitted escape bytes are recorded
+/// in [`TestTerminal::output`] instead of being written to a real terminal, so
+/// tests can assert on the exact sequence.
 pub struct TestTerminal {
     width: u16,
     height: u16,
@@ -439,6 +509,9 @@ pub struct TestTerminal {
     back: Buffer,
     cursor: Option<Position>,
     changed: usize,
+    output: Vec<u8>,
+    hyperlinks: bool,
+    allowed_schemes: Vec<String>,
 }
 
 impl TestTerminal {
@@ -453,10 +526,45 @@ impl TestTerminal {
             back: Buffer::empty(area),
             cursor: None,
             changed: 0,
+            output: Vec::new(),
+            hyperlinks: false,
+            allowed_schemes: DEFAULT_LINK_SCHEMES
+                .iter()
+                .copied()
+                .map(str::to_owned)
+                .collect(),
         }
     }
 
-    /// Renders one frame into the back buffer and copies the changed cells.
+    /// Enables or disables OSC 8 hyperlink emission.
+    pub fn set_hyperlinks(&mut self, enabled: bool) {
+        self.hyperlinks = enabled;
+    }
+
+    /// Enables or disables OSC 8 hyperlink emission (Builder Lite).
+    #[must_use]
+    pub fn with_hyperlinks(mut self, enabled: bool) -> Self {
+        self.hyperlinks = enabled;
+        self
+    }
+
+    /// Returns the escape bytes emitted by all draws so far.
+    #[must_use]
+    pub fn output(&self) -> &[u8] {
+        &self.output
+    }
+
+    /// Discards the recorded output without touching the buffers.
+    pub fn clear_output(&mut self) {
+        self.output.clear();
+    }
+
+    /// Renders one frame into the back buffer and records the emitted bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if writing to the in-memory `Vec` fails, which cannot happen
+    /// in practice.
     pub fn draw<F>(&mut self, render: F)
     where
         F: FnOnce(&mut Buffer) -> Option<Position>,
@@ -464,6 +572,14 @@ impl TestTerminal {
         let cursor = render(&mut self.back);
         let updates = diff_updates(&self.front, &self.back);
         self.changed = updates.len();
+        emit_updates(
+            &mut self.output,
+            &self.front,
+            &self.back,
+            self.hyperlinks,
+            &self.allowed_schemes,
+        )
+        .expect("writing to an in-memory Vec cannot fail");
         self.front = self.back.clone();
         self.cursor = cursor;
     }
@@ -494,6 +610,7 @@ impl TestTerminal {
         self.front = Buffer::empty(area);
         self.back = Buffer::empty(area);
         self.changed = 0;
+        self.output.clear();
     }
 }
 
@@ -725,7 +842,7 @@ mod tests {
     // OSC 8 hyperlinks
     // -------------------------------------------------------------------------
 
-    use crate::core::{Link, LinkTarget};
+    use crate::core::{Link, LinkTarget, Modifier, Style};
 
     fn url_link(url: &str) -> Link {
         Link::new(LinkTarget::Url(url.to_owned()))
@@ -736,9 +853,54 @@ mod tests {
         output.matches("\x1b]8;;\x1b\\").count()
     }
 
-    /// Counts every OSC 8 prefix (`ESC]8;;`), which includes opens and closes.
-    fn prefix_count(output: &str) -> usize {
-        output.matches("\x1b]8;;").count()
+    /// Counts OSC 8 openers that carry a stable `id` parameter (`ESC]8;id=`).
+    fn open_count(output: &str) -> usize {
+        output.matches("\x1b]8;id=").count()
+    }
+
+    /// Returns the offset of the OSC 8 opener for `url`.
+    fn open_pos(output: &str, url: &str) -> usize {
+        output
+            .find(&format!(";{url}\x1b\\"))
+            .unwrap_or_else(|| panic!("open sequence for {url} not found"))
+    }
+
+    /// Scans emitted bytes and enforces the OSC 8 hygiene contract:
+    ///
+    /// - every cursor move (`CUP`/`MoveTo`, final byte `H`) happens with no
+    ///   hyperlink open,
+    /// - the frame ends with no hyperlink open.
+    fn assert_osc8_hygiene(frame: &[u8]) {
+        let mut index = 0;
+        let mut open = false;
+        while index < frame.len() {
+            if frame[index..].starts_with(OSC8_CLOSE) {
+                assert!(open, "OSC 8 close without an open hyperlink");
+                open = false;
+                index += OSC8_CLOSE.len();
+            } else if frame[index..].starts_with(OSC8_OPEN_ID) {
+                let rest = &frame[index + OSC8_OPEN_ID.len()..];
+                let end = rest
+                    .windows(2)
+                    .position(|window| window == b"\x1b\\")
+                    .expect("unterminated OSC 8 opener");
+                open = true;
+                index += OSC8_OPEN_ID.len() + end + 2;
+            } else if frame[index..].starts_with(b"\x1b[") {
+                let mut end = index + 2;
+                while end < frame.len() && !(0x40..=0x7e).contains(&frame[end]) {
+                    end += 1;
+                }
+                assert!(end < frame.len(), "unterminated CSI sequence");
+                if frame[end] == b'H' {
+                    assert!(!open, "MoveTo while a hyperlink is open");
+                }
+                index = end + 1;
+            } else {
+                index += 1;
+            }
+        }
+        assert!(!open, "frame ended with an open hyperlink");
     }
 
     #[test]
@@ -754,7 +916,7 @@ mod tests {
             .expect("draw succeeds");
 
         let output = String::from_utf8_lossy(terminal.writer());
-        assert!(!output.contains("\x1b]8;;"), "hyperlinks must be off");
+        assert_eq!(open_count(&output), 0, "hyperlinks must be off");
         assert!(output.contains('A'));
         assert!(output.contains('B'));
     }
@@ -773,11 +935,9 @@ mod tests {
 
         let output = String::from_utf8_lossy(terminal.writer());
         assert_eq!(close_count(&output), 1, "exactly one close");
-        assert_eq!(prefix_count(&output), 2, "one open plus one close sequence");
+        assert_eq!(open_count(&output), 1, "one open sequence");
         assert!(output.contains("https://example.com"));
-        let open = output
-            .find("\x1b]8;;https://example.com")
-            .expect("open sequence");
+        let open = open_pos(&output, "https://example.com");
         let a = output.find('A').expect("first linked cell");
         let b = output.find('B').expect("second linked cell");
         let close = output.find("\x1b]8;;\x1b\\").expect("close sequence");
@@ -802,17 +962,13 @@ mod tests {
 
         let output = String::from_utf8_lossy(terminal.writer());
         assert_eq!(close_count(&output), 2, "each link is closed");
-        assert_eq!(prefix_count(&output), 4, "two opens plus two closes");
+        assert_eq!(open_count(&output), 2, "two open sequences");
         assert!(output.contains("https://example.com/a"));
         assert!(output.contains("https://example.com/b"));
-        let open_a = output
-            .find("\x1b]8;;https://example.com/a")
-            .expect("open a");
+        let open_a = open_pos(&output, "https://example.com/a");
         let a = output.find('A').expect("first cell");
         let close = output.find("\x1b]8;;\x1b\\").expect("first close");
-        let open_b = output
-            .find("\x1b]8;;https://example.com/b")
-            .expect("open b");
+        let open_b = open_pos(&output, "https://example.com/b");
         let b = output.find('B').expect("second cell");
         assert!(
             open_a < a && a < close && close < open_b && open_b < b,
@@ -833,10 +989,8 @@ mod tests {
 
         let output = String::from_utf8_lossy(terminal.writer());
         assert_eq!(close_count(&output), 1);
-        assert_eq!(prefix_count(&output), 2);
-        let open = output
-            .find("\x1b]8;;https://example.com")
-            .expect("open sequence");
+        assert_eq!(open_count(&output), 1);
+        let open = open_pos(&output, "https://example.com");
         let x = output.find('X').expect("linked cell");
         let close = output.find("\x1b]8;;\x1b\\").expect("close sequence");
         assert!(open < x && x < close);
@@ -860,7 +1014,7 @@ mod tests {
             2,
             "a line break is not a contiguous run"
         );
-        assert_eq!(prefix_count(&output), 4, "close then reopen across the row");
+        assert_eq!(open_count(&output), 2, "close then reopen across the row");
         let a = output.find('A').expect("first cell");
         let b = output.find('B').expect("second cell");
         assert!(a < b, "row-major order is preserved");
@@ -881,16 +1035,12 @@ mod tests {
 
         let output = String::from_utf8_lossy(terminal.writer());
         assert_eq!(close_count(&output), 2, "close before and after the gap");
-        assert_eq!(prefix_count(&output), 4, "reopened around the gap");
-        let first_open = output
-            .find("\x1b]8;;https://example.com")
-            .expect("first open");
+        assert_eq!(open_count(&output), 2, "reopened around the gap");
+        let first_open = open_pos(&output, "https://example.com");
         let a = output.find('A').expect("first cell");
         let first_close = output.find("\x1b]8;;\x1b\\").expect("close before the gap");
         let b = output.find('B').expect("unlinked cell");
-        let second_open = output
-            .rfind("\x1b]8;;https://example.com")
-            .expect("reopen after the gap");
+        let second_open = open_pos(&output[b..], "https://example.com") + b;
         let c = output.find('C').expect("re-linked cell");
         assert!(
             first_open < a
@@ -914,7 +1064,7 @@ mod tests {
             .expect("draw succeeds");
 
         let output = String::from_utf8_lossy(terminal.writer());
-        assert!(!output.contains("\x1b]8;;"), "disallowed scheme is skipped");
+        assert_eq!(open_count(&output), 0, "disallowed scheme is skipped");
         assert!(output.contains('A'), "text still renders");
     }
 
@@ -966,7 +1116,7 @@ mod tests {
             })
             .expect("draw succeeds");
         let output = String::from_utf8_lossy(restricted.writer());
-        assert!(!output.contains("\x1b]8;;"), "http must be rejected");
+        assert_eq!(open_count(&output), 0, "http must be rejected");
         assert!(output.contains('H'));
 
         // The same allowlist permits ftp.
@@ -997,10 +1147,205 @@ mod tests {
             .expect("draw succeeds");
 
         let output = String::from_utf8_lossy(terminal.writer());
-        assert!(
-            !output.contains("\x1b]8;;"),
+        assert_eq!(
+            open_count(&output),
+            0,
             "a cell whose link id is missing from the table emits no OSC 8"
         );
         assert!(output.contains('A'), "text still renders");
+    }
+
+    #[test]
+    fn test_test_terminal_hyperlinks_open_carries_stable_id() {
+        let mut terminal = TestTerminal::new(8, 1).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let id = buffer.links.insert(&url_link("https://example.com"));
+            buffer[(0, 0)].set_symbol("A").set_link(Some(id));
+            buffer[(2, 0)].set_symbol("B").set_link(Some(id));
+            None
+        });
+
+        let output = String::from_utf8_lossy(terminal.output());
+        assert_eq!(open_count(&output), 2, "a gap reopens the link");
+        assert_eq!(
+            output.matches("id=0;https://example.com").count(),
+            2,
+            "the same link keeps the same id across runs"
+        );
+        assert!(
+            !output.contains("\x1b]8;;http"),
+            "no opener without an id: {output:?}"
+        );
+    }
+
+    #[test]
+    fn test_test_terminal_hyperlinks_same_uri_different_links_get_distinct_ids() {
+        let mut terminal = TestTerminal::new(4, 1).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let plain = buffer.links.insert(&url_link("https://example.com"));
+            let titled = buffer
+                .links
+                .insert(&url_link("https://example.com").with_title("Example"));
+            buffer[(0, 0)].set_symbol("A").set_link(Some(plain));
+            buffer[(1, 0)].set_symbol("B").set_link(Some(titled));
+            None
+        });
+
+        let output = String::from_utf8_lossy(terminal.output());
+        assert!(output.contains("id=0;https://example.com"));
+        assert!(output.contains("id=1;https://example.com"));
+        assert_eq!(
+            open_count(&output),
+            2,
+            "distinct ids must not merge into one URI-based region"
+        );
+    }
+
+    #[test]
+    fn test_test_terminal_osc8_close_precedes_every_cursor_move_and_frame_end() {
+        let mut terminal = TestTerminal::new(6, 2).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let id = buffer.links.insert(&url_link("https://example.com"));
+            buffer[(0, 0)].set_symbol("A").set_link(Some(id));
+            buffer[(2, 0)].set_symbol("B").set_link(Some(id));
+            buffer[(0, 1)].set_symbol("C").set_link(Some(id));
+            None
+        });
+
+        assert_osc8_hygiene(terminal.output());
+    }
+
+    #[test]
+    fn test_terminal_hyperlinks_cursor_move_happens_after_close() {
+        let mut terminal = Terminal::new(Vec::new(), 4, 1).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(0, 0)].set_symbol("A").set_link(Some(id));
+                Some(Position::new(3, 0))
+            })
+            .expect("draw succeeds");
+
+        assert_osc8_hygiene(terminal.writer());
+    }
+
+    #[test]
+    fn test_test_terminal_cell_that_loses_link_is_rewritten_outside_hyperlink() {
+        let mut terminal = TestTerminal::new(4, 1).with_hyperlinks(true);
+        terminal.draw(|buffer| {
+            let id = buffer.links.insert(&url_link("https://example.com"));
+            buffer[(0, 0)].set_symbol("A").set_link(Some(id));
+            None
+        });
+        terminal.clear_output();
+
+        terminal.draw(|buffer| {
+            // Same symbol, but the plain write clears the link.
+            buffer[(0, 0)].set_symbol("A");
+            None
+        });
+
+        let delta = String::from_utf8_lossy(terminal.output()).into_owned();
+        assert!(
+            delta.contains('A'),
+            "the cell that lost its link must be rewritten: {delta:?}"
+        );
+        assert_eq!(
+            open_count(&delta),
+            0,
+            "the rewrite is outside any hyperlink"
+        );
+        assert_osc8_hygiene(delta.as_bytes());
+    }
+
+    fn underlined() -> Style {
+        Style::default().add_modifier(Modifier::UNDERLINED)
+    }
+
+    #[test]
+    fn test_terminal_linked_cell_drops_sgr_underline_when_osc8_is_emitted() {
+        let mut terminal = Terminal::new(Vec::new(), 2, 1).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(0, 0)]
+                    .set_symbol("A")
+                    .set_link(Some(id))
+                    .set_style(underlined());
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert!(output.contains("\x1b]8;id=0;https://example.com"));
+        assert!(
+            !output.contains("\x1b[4m"),
+            "the OSC 8 link must not also emit SGR 4: {output:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_linked_cell_keeps_sgr_underline_when_hyperlinks_are_off() {
+        let mut terminal = Terminal::new(Vec::new(), 2, 1);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(0, 0)]
+                    .set_symbol("A")
+                    .set_link(Some(id))
+                    .set_style(underlined());
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert_eq!(open_count(&output), 0);
+        assert!(
+            output.contains("\x1b[4m"),
+            "without OSC 8 the theme underline must be drawn: {output:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_unlinked_underlined_cell_keeps_sgr_underline_with_hyperlinks_on() {
+        let mut terminal = Terminal::new(Vec::new(), 2, 1).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                buffer[(0, 0)].set_symbol("U").set_style(underlined());
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert!(
+            output.contains("\x1b[4m"),
+            "plain underlined text is not a hyperlink: {output:?}"
+        );
+    }
+
+    #[test]
+    fn test_terminal_link_without_emittable_url_keeps_sgr_underline() {
+        let mut terminal = Terminal::new(Vec::new(), 2, 1).with_hyperlinks(true);
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&Link::new(LinkTarget::FilePos {
+                    path: "src/lib.rs".to_owned(),
+                    line: 1,
+                    col: None,
+                }));
+                buffer[(0, 0)]
+                    .set_symbol("F")
+                    .set_link(Some(id))
+                    .set_style(underlined());
+                None
+            })
+            .expect("draw succeeds");
+
+        let output = String::from_utf8_lossy(terminal.writer());
+        assert_eq!(open_count(&output), 0, "non-URL targets emit no OSC 8");
+        assert!(
+            output.contains("\x1b[4m"),
+            "non-emittable links still rely on the theme underline: {output:?}"
+        );
     }
 }

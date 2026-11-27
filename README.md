@@ -19,6 +19,26 @@ Overlapping windows, modal dialogs, dropdown menus, and more — rendered throug
 - **Status Bar** — Context-sensitive shortcuts, click-to-execute
 - **Scrollbars** — Vertical/horizontal with draggable thumb, active/inactive styling
 - **JSON Themes** — 7 built-in themes with full JSON serialization
+- **Inline Links** — OSC 8 hyperlinks with stable ids, capability detection and a single-underline policy
+
+## Hyperlinks and underline policy
+
+OSC 8 emission is opt-in: enable it with
+`Terminal::set_hyperlinks(app.hyperlink_support().enabled)` or the
+`Application::with_hyperlinks` builder. Every emitted link is written as
+`ESC ] 8 ; id=<id> ; <url> ESC \`, using the buffer's stable link id so the
+terminal can track a link region exactly. The sequence is closed before every
+cursor move and at the end of every frame.
+
+When a cell is actually wrapped in OSC 8, turbo-tui suppresses that cell's SGR
+underline (`SGR 4`). Terminals such as Windows Terminal draw their own hyperlink
+decoration; emitting SGR 4 as well produces a second line that can survive a
+redraw as an artefact. Emitted links therefore rely on the terminal's decoration
+plus the `link` / `link_hover` / `link_visited` theme colours.
+
+Links that are not emitted — hyperlinks disabled, non-URL targets (`FilePos`,
+`IssueRef`, `Command`), or a URL rejected by the scheme allowlist — keep the
+theme pens unchanged, including their SGR underline.
 
 ## Status
 

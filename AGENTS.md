@@ -257,6 +257,7 @@ All seven v0.1.0 bugs have been resolved in the v0.2 rebuild:
 | `ARCHITECTURE.md` | System diagram, module deps, event dispatch, rendering pipeline | When changing event routing, adding widgets, understanding data flow |
 | `STANDARDS.md` | Coding standards, patterns, widget template, commit conventions | When writing new code, reviewing PRs |
 | `TESTING.md` | Test architecture, patterns, naming, what to test | When writing or debugging tests |
+| `VISION.md` | Product vision: stack, principles, target groups, milestones | Before planning or making architecture decisions |
 | `ROADMAP.md` | Version roadmap, future phases, reference projects | When planning next steps |
 | `HISTORY.md` | Change log (append-only) | Before committing changes |
 | `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) | Historical reference |

@@ -1,3 +1,8 @@
+## Unreleased
+
+### Docs
+- New `VISION.md`: product vision with the stack (FourSix → turbo-tui → four-code/four-office), principles, target groups, milestones M1–M4 and non-goals; linked from README, ROADMAP and AGENTS.md (Issue #46)
+
 ## v0.4.0 — 2026-11-27
 
 ### Performance

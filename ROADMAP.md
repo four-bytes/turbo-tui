@@ -2,6 +2,8 @@
 
 > Last updated: 2026-11-27
 
+> Product vision and milestones: [VISION.md](VISION.md)
+
 ## Version History
 
 | Version | Status | Tests | Key Features |

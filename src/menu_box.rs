@@ -227,8 +227,7 @@ impl View for MenuBox {
 
     #[allow(clippy::similar_names)]
     fn draw(&self, canvas: &mut dyn Canvas, _clip: Rect) {
-        // TEMPORARY escape hatch (S4) — removed in S6.
-        let buf = canvas.buffer_mut();
+        let full = canvas.area();
         let area = self.base.bounds();
         if area.width < 4 || area.height < 3 {
             return;
@@ -277,11 +276,11 @@ impl View for MenuBox {
         let s_sr = m_sr.to_string();
 
         // Top border
-        buf.set_string(area.x, area.y, &s_tl, border_style);
+        canvas.draw_text(area.x, area.y, &s_tl, border_style, full);
         for x in 1..area.width - 1 {
-            buf.set_string(area.x + x, area.y, &s_h, border_style);
+            canvas.draw_text(area.x + x, area.y, &s_h, border_style, full);
         }
-        buf.set_string(area.x + area.width - 1, area.y, &s_tr, border_style);
+        canvas.draw_text(area.x + area.width - 1, area.y, &s_tr, border_style, full);
 
         // Items
         for (item_idx, item) in self.items.iter().enumerate() {
@@ -294,11 +293,11 @@ impl View for MenuBox {
 
             if item.is_separator() {
                 // Separator line: all characters use border style for uniform appearance
-                buf.set_string(area.x, row, &s_sl, border_style);
+                canvas.draw_text(area.x, row, &s_sl, border_style, full);
                 for x in 1..area.width - 1 {
-                    buf.set_string(area.x + x, row, &s_h, border_style);
+                    canvas.draw_text(area.x + x, row, &s_h, border_style, full);
                 }
-                buf.set_string(area.x + area.width - 1, row, &s_sr, border_style);
+                canvas.draw_text(area.x + area.width - 1, row, &s_sr, border_style, full);
             } else {
                 let (row_style, hk_style) = if is_selected {
                     (selected_style, hotkey_selected_style)
@@ -308,11 +307,11 @@ impl View for MenuBox {
                     (box_style, hotkey_style)
                 };
 
-                buf.set_string(area.x, row, &s_v, border_style);
+                canvas.draw_text(area.x, row, &s_v, border_style, full);
                 for x in 1..area.width - 1 {
-                    buf.set_string(area.x + x, row, " ", row_style);
+                    canvas.draw_text(area.x + x, row, " ", row_style, full);
                 }
-                buf.set_string(area.x + area.width - 1, row, &s_v, border_style);
+                canvas.draw_text(area.x + area.width - 1, row, &s_v, border_style, full);
 
                 let mut cur_x = area.x + 1;
                 let mut in_marker = false;
@@ -322,7 +321,7 @@ impl View for MenuBox {
                         continue;
                     }
                     let style = if in_marker { hk_style } else { row_style };
-                    buf.set_string(cur_x, row, ch.to_string(), style);
+                    canvas.draw_text(cur_x, row, &ch.to_string(), style, full);
                     cur_x += 1;
                     if cur_x >= area.x + area.width - 1 {
                         break;
@@ -333,11 +332,11 @@ impl View for MenuBox {
 
         // Bottom border
         let bottom_y = area.y + area.height - 1;
-        buf.set_string(area.x, bottom_y, &s_bl, border_style);
+        canvas.draw_text(area.x, bottom_y, &s_bl, border_style, full);
         for x in 1..area.width - 1 {
-            buf.set_string(area.x + x, bottom_y, &s_h, border_style);
+            canvas.draw_text(area.x + x, bottom_y, &s_h, border_style, full);
         }
-        buf.set_string(area.x + area.width - 1, bottom_y, &s_br, border_style);
+        canvas.draw_text(area.x + area.width - 1, bottom_y, &s_br, border_style, full);
     }
 
     fn handle_event(&mut self, event: &mut Event) {

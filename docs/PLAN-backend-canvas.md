@@ -1,6 +1,6 @@
 # Plan — Own Cell Backend + Canvas Trait, Remove Ratatui (Epic #10)
 
-> Status: planned · Created: 2026-11-26 · Epic: #10 · Sub-issues: #13–#21, four-code #6/#7 · Roadmap: ROADMAP.md → Future → "Rendering Backend & Runtime", step (1)
+> Status: implemented in v0.4.0, see HISTORY/ARCHITECTURE · Created: 2026-11-26 · Epic: #10 · Sub-issues: #13–#21, four-code #6/#7 · Roadmap: ROADMAP.md → Future → "Rendering Backend & Runtime", step (1)
 
 ## Goal
 

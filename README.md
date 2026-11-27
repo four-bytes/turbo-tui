@@ -246,6 +246,7 @@ cargo run --example demo        # Run the interactive demo
 
 ## Links
 
+- [VISION.md](VISION.md) — Product vision: stack, principles, target groups, milestones
 - [ROADMAP.md](ROADMAP.md) — Version roadmap and future phases
 - [HISTORY.md](HISTORY.md) — Detailed change log
 - [docs/](docs/) — Architecture plans and design documents

@@ -196,6 +196,16 @@ Application::draw(canvas)
 
 All rendering goes through turbo-tui's own `core::Buffer` via the `Canvas` trait. `terminal::Terminal` keeps persistent front/back buffers and writes the cell diff to the terminal via crossterm — views never write to the terminal directly.
 
+### Canvas Primitives
+
+The `Canvas` trait exposes two layers of drawing:
+
+- **Low-level primitives** — `draw_text`, `put_char`, `put_symbol`, `fill`, `set_style`, `set_cursor`.
+- **Semantic primitives** — `draw_frame`, `draw_bevel`, `draw_gadget`, `draw_scrollbar`, driven by resolved specs (`FrameSpec`, `GadgetSpec`, `ScrollSpec`) plus `BorderChars`, `Bevel`, `Gadget`, `GadgetState`, `Direction` and `ScrollHover`.
+
+Semantic primitives have cell-based default implementations that reproduce the historical character output byte-for-byte, so `CellCanvas` needs no overrides. Pixel/sub-cell canvases ignore the `*_style` and `chars` fallback fields and render the semantic information instead (`draw_bevel`, for example, is a no-op on cell canvases because they encode elevation in styles and text). Views keep all hit-testing, geometry and theme resolution; the specs only carry the resolved result.
+
+
 ## Future: TachyonFX Integration Point
 
 ```

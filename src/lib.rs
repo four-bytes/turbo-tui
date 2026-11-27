@@ -64,7 +64,10 @@ pub mod syntax;
 /// Prelude — import this for quick access to common types.
 pub mod prelude {
     pub use crate::application::Application;
-    pub use crate::canvas::{Canvas, CellCanvas};
+    pub use crate::canvas::{
+        Bevel, BorderChars, Canvas, CellCanvas, Direction, FrameSpec, Gadget, GadgetSpec,
+        GadgetState, ScrollHover, ScrollSpec,
+    };
     pub use crate::command::*;
     pub use crate::container::Container;
     pub use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect, Style};

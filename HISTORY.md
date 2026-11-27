@@ -1,7 +1,14 @@
-## Unreleased
+## v0.5.0 — 2026-11-27
+
+### Added
+- Semantic `Canvas` drawing primitives: `draw_frame`, `draw_bevel`, `draw_gadget`, `draw_scrollbar` with neutral spec types (`FrameSpec`, `FrameKind`, `FrameGadgets`, `Gadget`, `GadgetState`, `Bevel`, `ScrollSpec`, `ScrollHover`, `Orientation`) and cell rendering in the internal `cell_skin` look module; frame, scrollbar and button draw through them, cell output byte-identical (Issue #35)
+
+### Changed
+- Relicensed from MIT to Apache-2.0; versions up to and including v0.4.0 remain MIT (Issue #38)
 
 ### Docs
 - New `VISION.md`: product vision with the stack (FourSix → turbo-tui → four-code/four-office), principles, target groups, milestones M1–M4 and non-goals; linked from README, ROADMAP and AGENTS.md (Issue #46)
+- Backend plan marked as implemented in v0.4.0 (Issue #23)
 
 ## v0.4.0 — 2026-11-27
 

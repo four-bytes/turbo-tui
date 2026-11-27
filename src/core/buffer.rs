@@ -10,6 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::core::geometry::{Position, Rect};
+use crate::core::link::{LinkId, LinkTable};
 use crate::core::style::{Color, Modifier, Style};
 
 /// A single terminal cell.
@@ -27,6 +28,8 @@ pub struct Cell {
     pub modifier: Modifier,
     /// Whether the cell should be skipped when diffing.
     pub skip: bool,
+    /// The id of the link this cell points at, if any.
+    link: Option<LinkId>,
 }
 
 impl Cell {
@@ -46,19 +49,38 @@ impl Cell {
     }
 
     /// Sets the cell symbol.
+    ///
+    /// Writing a symbol clears any link on the cell, so a plain write removes a
+    /// stale link.
     pub fn set_symbol(&mut self, symbol: &str) -> &mut Self {
         symbol.clone_into(&mut self.symbol);
+        self.link = None;
         self
     }
 
     /// Sets the cell symbol to a single character.
+    ///
+    /// Like [`Cell::set_symbol`], this clears any link on the cell.
     pub fn set_char(&mut self, ch: char) -> &mut Self {
         let mut buf = [0; 4];
-        ch.encode_utf8(&mut buf).clone_into(&mut self.symbol);
+        self.set_symbol(ch.encode_utf8(&mut buf))
+    }
+
+    /// Returns the link id of the cell, if any.
+    #[must_use]
+    pub const fn link(&self) -> Option<LinkId> {
+        self.link
+    }
+
+    /// Sets the link id of the cell.
+    pub fn set_link(&mut self, link: Option<LinkId>) -> &mut Self {
+        self.link = link;
         self
     }
 
     /// Applies a style to the cell.
+    ///
+    /// Styling does not change the cell's link.
     pub fn set_style<S: Into<Style>>(&mut self, style: S) -> &mut Self {
         let style = style.into();
         if let Some(color) = style.fg {
@@ -102,6 +124,7 @@ impl Default for Cell {
             underline_color: Color::Reset,
             modifier: Modifier::empty(),
             skip: false,
+            link: None,
         }
     }
 }
@@ -121,6 +144,8 @@ pub struct Buffer {
     pub area: Rect,
     /// The cells of the buffer, in row-major order.
     pub content: Vec<Cell>,
+    /// The links drawn into this buffer, referenced by [`Cell::link`].
+    pub links: LinkTable,
 }
 
 impl Buffer {
@@ -131,6 +156,7 @@ impl Buffer {
         Self {
             area,
             content: vec![Cell::default(); size],
+            links: LinkTable::new(),
         }
     }
 
@@ -255,13 +281,15 @@ impl Buffer {
             self.content.resize(length, Cell::default());
         }
         self.area = area;
+        self.links.clear();
     }
 
-    /// Resets every cell to the empty state.
+    /// Resets every cell to the empty state and clears the link table.
     pub fn reset(&mut self) {
         for cell in &mut self.content {
             cell.reset();
         }
+        self.links.clear();
     }
 }
 
@@ -286,6 +314,13 @@ impl<P: Into<Position>> IndexMut<P> for Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_id() -> LinkId {
+        let mut table = LinkTable::new();
+        table.insert(&crate::core::Link::new(crate::core::LinkTarget::Url(
+            "https://example.com".to_owned(),
+        )))
+    }
 
     #[test]
     fn test_buffer_index_and_index_mut() {
@@ -427,5 +462,71 @@ mod tests {
         assert_eq!(style.fg, Some(Color::Blue));
         assert_eq!(style.bg, Some(Color::Yellow));
         assert!(style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_cell_set_symbol_clears_link() {
+        let mut cell = Cell::new("A");
+        cell.set_link(Some(sample_id()));
+        assert_eq!(cell.link(), Some(sample_id()));
+        cell.set_symbol("B");
+        assert_eq!(cell.link(), None);
+    }
+
+    #[test]
+    fn test_cell_set_char_clears_link() {
+        let mut cell = Cell::new("A");
+        cell.set_link(Some(sample_id()));
+        cell.set_char('B');
+        assert_eq!(cell.link(), None);
+    }
+
+    #[test]
+    fn test_cell_set_style_keeps_link() {
+        let mut cell = Cell::new("A");
+        cell.set_link(Some(sample_id()));
+        cell.set_style(Style::default().fg(Color::Red));
+        assert_eq!(cell.link(), Some(sample_id()));
+    }
+
+    #[test]
+    fn test_cell_reset_clears_link() {
+        let mut cell = Cell::new("A");
+        cell.set_link(Some(sample_id()));
+        cell.reset();
+        assert_eq!(cell.link(), None);
+        assert_eq!(cell.symbol(), " ");
+    }
+
+    #[test]
+    fn test_buffer_set_string_clears_link() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 1));
+        buf[(0, 0)].set_link(Some(sample_id()));
+        buf[(1, 0)].set_link(Some(sample_id()));
+        buf.set_string(0, 0, "AB", Style::default());
+        assert_eq!(buf[(0, 0)].link(), None);
+        assert_eq!(buf[(1, 0)].link(), None);
+    }
+
+    #[test]
+    fn test_buffer_resize_clears_links() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 1));
+        buf.links
+            .insert(&crate::core::Link::new(crate::core::LinkTarget::Url(
+                "https://example.com".to_owned(),
+            )));
+        buf.resize(Rect::new(0, 0, 2, 1));
+        assert!(buf.links.is_empty());
+    }
+
+    #[test]
+    fn test_buffer_reset_clears_links() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 1));
+        buf.links
+            .insert(&crate::core::Link::new(crate::core::LinkTarget::Url(
+                "https://example.com".to_owned(),
+            )));
+        buf.reset();
+        assert!(buf.links.is_empty());
     }
 }

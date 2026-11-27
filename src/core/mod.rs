@@ -5,8 +5,10 @@
 
 mod buffer;
 mod geometry;
+mod link;
 mod style;
 
 pub use buffer::{Buffer, Cell};
 pub use geometry::{Position, Rect, Size};
+pub use link::{Link, LinkId, LinkTable, LinkTarget};
 pub use style::{Color, Modifier, Style};

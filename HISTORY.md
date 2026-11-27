@@ -4,6 +4,7 @@
 - New `Workbench` theme (`themes/workbench.json`) for text mode: Amiga OS 3.9 palette, single-line frames, left close gadget, Workbench menu/status/button/scrollbar look; all text pairs reach ≥ 4.5:1 contrast, covered by a unit test (Issue #37)
 - Inline link model in `turbo_tui::core`: `Link`, `LinkId`, `LinkTarget`, `LinkTable`; `Cell` carries an optional link id; `Canvas::draw_text_link` with a plain-text default and `CellCanvas` link-aware writing (Issue #57, part of #54)
 - OSC 8 hyperlink emission with URL sanitisation/scheme allowlist and capability detection (override, XTVERSION answer mapping, terminal env, tmux/screen) with an off-by-default safe fallback (Issue #58, part of #54)
+- Link theme pens: `link`, `link_hover`, `link_visited` in `Theme`, JSON themes and all 7 shipped themes, with WCAG AA contrast tests (Issue #63, part of #54/#59)
 
 ## v0.5.0 — 2026-11-27
 

@@ -160,6 +160,14 @@ pub struct Theme {
     /// Static text label.
     pub static_text: Style,
 
+    // ── Link ───────────────────────────────────────────────────────────
+    /// Hyperlink text (normal state).
+    pub link: Style,
+    /// Hyperlink text while hovered.
+    pub link_hover: Style,
+    /// Hyperlink text after it was activated.
+    pub link_visited: Style,
+
     // ── Input Line ─────────────────────────────────────────────────────
     /// Input line: normal (unfocused) state.
     pub input_line_normal: Style,
@@ -383,6 +391,20 @@ impl Theme {
             // ── Static Text ────────────────────────────────────────────
             // In window context: 0x1E = Yellow on Blue
             static_text: Style::default().fg(Color::Yellow).bg(Color::Blue),
+
+            // ── Link ───────────────────────────────────────────────────
+            link: Style::default()
+                .fg(Color::LightCyan)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::UNDERLINED),
+            link_hover: Style::default()
+                .fg(Color::White)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::UNDERLINED | Modifier::BOLD),
+            link_visited: Style::default()
+                .fg(Color::LightMagenta)
+                .bg(Color::Blue)
+                .add_modifier(Modifier::UNDERLINED),
 
             // ── Input Line ─────────────────────────────────────────────
             // Normal: Black on Gray (editable field appearance)
@@ -760,6 +782,9 @@ mod tests {
             ("button_focused", t.button_focused),
             ("button_disabled", t.button_disabled),
             ("static_text", t.static_text),
+            ("link", t.link),
+            ("link_hover", t.link_hover),
+            ("link_visited", t.link_visited),
             ("input_line_normal", t.input_line_normal),
             ("input_line_focused", t.input_line_focused),
             ("list_box_normal", t.list_box_normal),
@@ -781,6 +806,28 @@ mod tests {
                 "Style '{name}' is missing a background color — this causes bleed-through"
             );
         }
+    }
+
+    #[test]
+    fn test_link_pens_are_underlined_and_distinct() {
+        let t = Theme::turbo_vision();
+
+        assert!(t.link.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(t.link_hover.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(t.link_visited.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(t.link_hover.add_modifier.contains(Modifier::BOLD));
+        assert!(!t.link.add_modifier.contains(Modifier::BOLD));
+        assert!(!t.link_visited.add_modifier.contains(Modifier::BOLD));
+
+        // No bleed-through: every link state paints its own background.
+        assert!(t.link.bg.is_some());
+        assert!(t.link_hover.bg.is_some());
+        assert!(t.link_visited.bg.is_some());
+
+        // The three link states must not share the same foreground color.
+        assert_ne!(t.link.fg, t.link_hover.fg);
+        assert_ne!(t.link.fg, t.link_visited.fg);
+        assert_ne!(t.link_hover.fg, t.link_visited.fg);
     }
 
     #[test]

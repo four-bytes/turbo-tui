@@ -70,6 +70,9 @@
     "hover": { "fg": "#000000", "bg": "#6688BB" }
   },
   "static_text": { "fg": "#000000", "bg": "#AAAAAA" },
+  "link": { "fg": "#003388", "bg": "#AAAAAA", "underline": true },
+  "link_hover": { "fg": "#000000", "bg": "#AAAAAA", "bold": true, "underline": true },
+  "link_visited": { "fg": "#550088", "bg": "#AAAAAA", "underline": true },
   "scrollbar": {
     "track": { "fg": "#777777", "bg": "#AAAAAA" },
     "thumb": { "fg": "#000000", "bg": "#AAAAAA" },

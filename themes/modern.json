@@ -215,6 +215,9 @@
     "fg": "#b4b4be",
     "bg": "#1e1e26"
   },
+  "link": { "fg": "#6495ed", "bg": "#1e1e26", "underline": true },
+  "link_hover": { "fg": "#ffffff", "bg": "#1e1e26", "bold": true, "underline": true },
+  "link_visited": { "fg": "#c792ea", "bg": "#1e1e26", "underline": true },
   "scrollbar": {
     "track": {
       "fg": "#6495ed",

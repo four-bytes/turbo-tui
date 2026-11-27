@@ -42,6 +42,7 @@
 //!   "status_bar": { ... },
 //!   "button": { ... },
 //!   "static_text": { "fg": "Yellow", "bg": "Blue" },
+//!   "link": { "fg": "LightCyan", "bg": "Blue", "underline": true },
 //!   "scrollbar": { ... }
 //! }
 //! ```
@@ -145,6 +146,9 @@ pub struct StyleValue {
     /// Bold modifier.
     #[serde(default, skip_serializing_if = "is_false")]
     pub bold: bool,
+    /// Underline modifier.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub underline: bool,
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -165,6 +169,9 @@ impl StyleValue {
         if self.bold {
             style = style.add_modifier(Modifier::BOLD);
         }
+        if self.underline {
+            style = style.add_modifier(Modifier::UNDERLINED);
+        }
         style
     }
 
@@ -180,6 +187,7 @@ impl StyleValue {
                 ColorValue::from_color,
             ),
             bold: style.add_modifier.contains(Modifier::BOLD),
+            underline: style.add_modifier.contains(Modifier::UNDERLINED),
         }
     }
 }
@@ -190,6 +198,7 @@ impl Default for StyleValue {
             fg: ColorValue::Named("White".to_owned()),
             bg: ColorValue::Named("Black".to_owned()),
             bold: false,
+            underline: false,
         }
     }
 }
@@ -624,6 +633,33 @@ fn default_scrollbar_arrows_inactive() -> StyleValue {
     StyleValue::from_style(Style::default().fg(Color::Gray).bg(Color::Blue))
 }
 
+fn default_link() -> StyleValue {
+    StyleValue::from_style(
+        Style::default()
+            .fg(Color::LightCyan)
+            .bg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED),
+    )
+}
+
+fn default_link_hover() -> StyleValue {
+    StyleValue::from_style(
+        Style::default()
+            .fg(Color::White)
+            .bg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED | Modifier::BOLD),
+    )
+}
+
+fn default_link_visited() -> StyleValue {
+    StyleValue::from_style(
+        Style::default()
+            .fg(Color::LightMagenta)
+            .bg(Color::Blue)
+            .add_modifier(Modifier::UNDERLINED),
+    )
+}
+
 // ============================================================================
 // Top-level theme data model
 // ============================================================================
@@ -656,6 +692,15 @@ pub struct ThemeData {
     pub button: ButtonSection,
     /// Static text style.
     pub static_text: StyleValue,
+    /// Hyperlink text (normal).
+    #[serde(default = "default_link")]
+    pub link: StyleValue,
+    /// Hyperlink text while hovered.
+    #[serde(default = "default_link_hover")]
+    pub link_hover: StyleValue,
+    /// Hyperlink text after activation.
+    #[serde(default = "default_link_visited")]
+    pub link_visited: StyleValue,
     /// Scrollbar styles.
     pub scrollbar: ScrollbarSection,
     /// Input line styles.
@@ -799,6 +844,10 @@ impl ThemeData {
 
             static_text: self.static_text.to_style(),
 
+            link: self.link.to_style(),
+            link_hover: self.link_hover.to_style(),
+            link_visited: self.link_visited.to_style(),
+
             input_line_normal: self.input_line.normal.to_style(),
             input_line_focused: self.input_line.focused.to_style(),
 
@@ -935,6 +984,9 @@ impl ThemeData {
                 hover: StyleValue::from_style(theme.button_hover),
             },
             static_text: StyleValue::from_style(theme.static_text),
+            link: StyleValue::from_style(theme.link),
+            link_hover: StyleValue::from_style(theme.link_hover),
+            link_visited: StyleValue::from_style(theme.link_visited),
             input_line: InputLineSection {
                 normal: StyleValue::from_style(theme.input_line_normal),
                 focused: StyleValue::from_style(theme.input_line_focused),
@@ -1247,10 +1299,15 @@ mod tests {
             fg: ColorValue::Named("White".to_owned()),
             bg: ColorValue::Named("Blue".to_owned()),
             bold: false,
+            underline: false,
         };
         let json = serde_json::to_string(&sv).expect("serialize");
-        // bold: false should be omitted via skip_serializing_if
+        // false modifiers should be omitted via skip_serializing_if
         assert!(!json.contains("bold"), "bold:false should be skipped");
+        assert!(
+            !json.contains("underline"),
+            "underline:false should be skipped"
+        );
     }
 
     #[test]
@@ -1259,9 +1316,37 @@ mod tests {
             fg: ColorValue::Named("White".to_owned()),
             bg: ColorValue::Named("Blue".to_owned()),
             bold: true,
+            underline: false,
         };
         let json = serde_json::to_string(&sv).expect("serialize");
         assert!(json.contains("bold"), "bold:true should be included");
+    }
+
+    #[test]
+    fn test_style_value_underline_roundtrip() {
+        let underlined = StyleValue {
+            fg: ColorValue::Named("White".to_owned()),
+            bg: ColorValue::Named("Blue".to_owned()),
+            bold: false,
+            underline: true,
+        };
+
+        let style = underlined.to_style();
+        assert!(style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(
+            !style.add_modifier.contains(Modifier::BOLD),
+            "underline must not imply bold"
+        );
+
+        let back = StyleValue::from_style(style);
+        assert!(back.underline);
+        assert!(!back.bold);
+        assert_eq!(back.fg, underlined.fg);
+        assert_eq!(back.bg, underlined.bg);
+
+        let json = serde_json::to_string(&underlined).expect("serialize");
+        assert!(json.contains("underline"), "underline:true must be written");
+        assert!(!json.contains("bold"), "bold:false must stay omitted");
     }
 
     #[test]
@@ -1444,6 +1529,98 @@ mod tests {
     }
 
     #[test]
+    fn test_all_shipped_themes_link_pen_contrast() {
+        let themes_dir = std::path::Path::new("themes");
+        if !themes_dir.exists() {
+            // Skip in CI environments where themes/ may not exist
+            return;
+        }
+
+        let mut checked_files = 0;
+        let mut failures = Vec::new();
+        for entry in std::fs::read_dir(themes_dir)
+            .expect("Should read themes dir")
+            .flatten()
+        {
+            let path = entry.path();
+            if path.extension().and_then(std::ffi::OsStr::to_str) != Some("json") {
+                continue;
+            }
+            checked_files += 1;
+            let file = path
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or("?")
+                .to_owned();
+            let data = ThemeData::load_from_file(&path)
+                .unwrap_or_else(|e| panic!("Failed to load {file}: {e}"));
+            let theme = data.to_theme();
+
+            let pens: &[(&str, &StyleValue, &Style)] = &[
+                ("link", &data.link, &theme.link),
+                ("link_hover", &data.link_hover, &theme.link_hover),
+                ("link_visited", &data.link_visited, &theme.link_visited),
+            ];
+            for (name, value, style) in pens {
+                if !value.underline || !style.add_modifier.contains(Modifier::UNDERLINED) {
+                    failures.push(format!("{file}:{name} is not underlined"));
+                }
+                let ratio = contrast_ratio(&value.fg, &value.bg);
+                if ratio < 4.5 {
+                    failures.push(format!("{file}:{name} = {ratio:.2}:1"));
+                }
+            }
+        }
+
+        assert!(
+            checked_files >= 7,
+            "Expected at least 7 shipped themes, inspected {checked_files}"
+        );
+        assert!(
+            failures.is_empty(),
+            "Shipped theme link pens are invalid: {}",
+            failures.join(", ")
+        );
+    }
+
+    #[test]
+    fn test_legacy_theme_without_link_fields_uses_defaults() {
+        let path = std::path::Path::new("themes/turbo-vision.json");
+        if !path.exists() {
+            // Skip in CI environments where themes/ may not exist
+            return;
+        }
+        let data = ThemeData::load_from_file(path)
+            .unwrap_or_else(|e| panic!("Failed to load turbo-vision.json: {e}"));
+
+        // Simulate a legacy theme file that predates the link pens.
+        let mut value = serde_json::to_value(&data).expect("Should serialize");
+        let obj = value
+            .as_object_mut()
+            .expect("ThemeData serializes to object");
+        obj.remove("link");
+        obj.remove("link_hover");
+        obj.remove("link_visited");
+
+        let legacy: ThemeData = serde_json::from_value(value).expect("Should deserialize");
+        let theme = legacy.to_theme();
+        let tv = crate::theme::Theme::turbo_vision();
+
+        let pens: &[(&str, &Style, &Style)] = &[
+            ("link", &theme.link, &tv.link),
+            ("link_hover", &theme.link_hover, &tv.link_hover),
+            ("link_visited", &theme.link_visited, &tv.link_visited),
+        ];
+        for (name, got, want) in pens {
+            assert_eq!(got, want, "legacy theme default for '{name}' mismatches");
+            assert!(
+                got.add_modifier.contains(Modifier::UNDERLINED),
+                "legacy theme default for '{name}' must be underlined"
+            );
+        }
+    }
+
+    #[test]
     fn test_workbench_theme_roundtrip() {
         let path = std::path::Path::new("themes/workbench.json");
         if !path.exists() {
@@ -1481,5 +1658,22 @@ mod tests {
         assert_eq!(restored.border_tl, theme.border_tl);
         assert_eq!(restored.close_button_text, theme.close_button_text);
         assert_eq!(restored.resize_grip_char, theme.resize_grip_char);
+
+        // Link pens survive the roundtrip, including the underline modifier.
+        assert_eq!(restored.link.fg, theme.link.fg);
+        assert_eq!(restored.link.bg, theme.link.bg);
+        assert_eq!(restored.link_hover.fg, theme.link_hover.fg);
+        assert_eq!(restored.link_hover.bg, theme.link_hover.bg);
+        assert_eq!(restored.link_visited.fg, theme.link_visited.fg);
+        assert_eq!(restored.link_visited.bg, theme.link_visited.bg);
+        assert!(restored.link.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(restored
+            .link_hover
+            .add_modifier
+            .contains(Modifier::UNDERLINED));
+        assert!(restored
+            .link_visited
+            .add_modifier
+            .contains(Modifier::UNDERLINED));
     }
 }

@@ -18,7 +18,7 @@ Overlapping windows, modal dialogs, dropdown menus, and more — rendered throug
 - **Menu Bar** — Dropdown submenus via OverlayManager, `~X~` hotkey markers, Alt+Letter
 - **Status Bar** — Context-sensitive shortcuts, click-to-execute
 - **Scrollbars** — Vertical/horizontal with draggable thumb, active/inactive styling
-- **JSON Themes** — 6 built-in themes with full JSON serialization
+- **JSON Themes** — 7 built-in themes with full JSON serialization
 
 ## Status
 

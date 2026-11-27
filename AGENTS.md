@@ -20,7 +20,7 @@ Single crate, 34 source files (~24,000 lines total):
 src/
 ├── lib.rs              # Public API + prelude exports
 ├── command.rs          # CommandId (u16), CommandSet bitfield, 25+ CM_* constants
-├── theme.rs            # Theme struct, built-in Theme::turbo_vision() + JSON themes in themes/ (dark, matrix, modern, turbo-vision, windows-classic, windows)
+├── theme.rs            # Theme struct, built-in Theme::turbo_vision() + JSON themes in themes/ (dark, matrix, modern, turbo-vision, windows-classic, windows, workbench)
 ├── theme_json.rs       # JSON theme serialization, border presets, color roundtrip
 ├── view.rs             # View trait, ViewBase, StateFlags, OptionFlags, Event system, deferred queue, lifecycle hooks
 ├── clip.rs             # ClipRegion for intersection clipping

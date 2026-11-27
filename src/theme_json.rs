@@ -1319,4 +1319,167 @@ mod tests {
             "Expected at least 1 theme file, found {loaded}"
         );
     }
+
+    /// Map a core `Color` to its sRGB channel triple for WCAG luminance math.
+    fn color_rgb(color: Color) -> (u8, u8, u8) {
+        match color {
+            Color::Black | Color::Reset => (0, 0, 0),
+            Color::Blue => (0, 0, 170),
+            Color::Green => (0, 170, 0),
+            Color::Cyan => (0, 170, 170),
+            Color::Red => (170, 0, 0),
+            Color::Magenta => (170, 0, 170),
+            Color::Yellow => (170, 170, 0),
+            Color::Gray => (170, 170, 170),
+            Color::DarkGray => (85, 85, 85),
+            Color::LightBlue => (85, 85, 255),
+            Color::LightGreen => (85, 255, 85),
+            Color::LightCyan => (85, 255, 255),
+            Color::LightRed => (255, 85, 85),
+            Color::LightMagenta => (255, 85, 255),
+            Color::LightYellow => (255, 255, 85),
+            Color::White => (255, 255, 255),
+            Color::Rgb(r, g, b) => (r, g, b),
+            Color::Indexed(_) => panic!("Indexed colors are not supported in the contrast test"),
+        }
+    }
+
+    /// WCAG relative luminance of a color.
+    fn relative_luminance(color: Color) -> f64 {
+        fn channel(v: u8) -> f64 {
+            let c = f64::from(v) / 255.0;
+            if c <= 0.039_28 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        let (r, g, b) = color_rgb(color);
+        0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    /// WCAG contrast ratio between a foreground and background `ColorValue`.
+    fn contrast_ratio(fg: &ColorValue, bg: &ColorValue) -> f64 {
+        let fg = fg.to_color().expect("foreground color should resolve");
+        let bg = bg.to_color().expect("background color should resolve");
+        let l1 = relative_luminance(fg);
+        let l2 = relative_luminance(bg);
+        let (lighter, darker) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+        (lighter + 0.05) / (darker + 0.05)
+    }
+
+    #[test]
+    fn test_wcag_contrast_formula_sanity() {
+        let black = ColorValue::Named("#000000".to_owned());
+        let white = ColorValue::Named("#FFFFFF".to_owned());
+
+        let bw = contrast_ratio(&black, &white);
+        assert!(
+            (bw - 21.0).abs() < 1e-6,
+            "black vs white should be 21.0, got {bw}"
+        );
+
+        let same = contrast_ratio(&black, &black);
+        assert!(
+            (same - 1.0).abs() < 1e-6,
+            "a colour against itself should be 1.0, got {same}"
+        );
+    }
+
+    #[test]
+    fn test_workbench_theme_contrast() {
+        let path = std::path::Path::new("themes/workbench.json");
+        if !path.exists() {
+            // Skip in CI environments where themes/ may not exist
+            return;
+        }
+        let data = ThemeData::load_from_file(path)
+            .unwrap_or_else(|e| panic!("Failed to load workbench.json: {e}"));
+
+        // Text pairs that must meet WCAG AA (4.5:1). Disabled/separator styles are
+        // exempt and therefore not listed here.
+        let pairs: &[(&str, &StyleValue)] = &[
+            ("window.title_active", &data.window.title_active),
+            ("window.title_inactive", &data.window.title_inactive),
+            ("window.interior", &data.window.interior),
+            ("dialog.title", &data.dialog.title),
+            ("dialog.interior", &data.dialog.interior),
+            ("menu_bar.normal", &data.menu_bar.normal),
+            ("menu_bar.selected", &data.menu_bar.selected),
+            ("menu_bar.hotkey", &data.menu_bar.hotkey),
+            ("menu_bar.hotkey_selected", &data.menu_bar.hotkey_selected),
+            ("menu_box.normal", &data.menu_box.normal),
+            ("menu_box.selected", &data.menu_box.selected),
+            ("menu_box.hotkey", &data.menu_box.hotkey),
+            ("menu_box.hotkey_selected", &data.menu_box.hotkey_selected),
+            ("status_bar.normal", &data.status_bar.normal),
+            ("status_bar.hotkey", &data.status_bar.hotkey),
+            ("status_bar.selected", &data.status_bar.selected),
+            ("button.normal", &data.button.normal),
+            ("button.default_btn", &data.button.default_btn),
+            ("button.focused", &data.button.focused),
+            ("button.hover", &data.button.hover),
+            ("static_text", &data.static_text),
+            ("input_line.normal", &data.input_line.normal),
+            ("input_line.focused", &data.input_line.focused),
+            ("list_box.normal", &data.list_box.normal),
+            ("list_box.selected", &data.list_box.selected),
+            ("memo.normal", &data.memo.normal),
+            ("memo.focused", &data.memo.focused),
+        ];
+
+        let mut failures = Vec::new();
+        for (label, style) in pairs {
+            let ratio = contrast_ratio(&style.fg, &style.bg);
+            if ratio < 4.5 {
+                failures.push(format!("{label} = {ratio:.2}:1"));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "Workbench theme contrast below 4.5:1: {}",
+            failures.join(", ")
+        );
+    }
+
+    #[test]
+    fn test_workbench_theme_roundtrip() {
+        let path = std::path::Path::new("themes/workbench.json");
+        if !path.exists() {
+            // Skip in CI environments where themes/ may not exist
+            return;
+        }
+        let data = ThemeData::load_from_file(path)
+            .unwrap_or_else(|e| panic!("Failed to load workbench.json: {e}"));
+        let theme = data.to_theme();
+
+        let roundtrip_data = ThemeData::from_theme(&theme, "Workbench");
+        let json = roundtrip_data.to_json().expect("Should serialize");
+        let parsed = ThemeData::from_json(&json).expect("Should parse");
+        let restored = parsed.to_theme();
+
+        // Spot-check the fields that define the Workbench look.
+        assert_eq!(
+            restored.window_title_active.bg,
+            Some(Color::Rgb(0x66, 0x88, 0xBB))
+        );
+        assert_eq!(
+            restored.window_interior.bg,
+            Some(Color::Rgb(0xAA, 0xAA, 0xAA))
+        );
+        assert_eq!(restored.border_tl, '┌');
+        assert_eq!(restored.close_button_text, "[■]");
+        assert_eq!(restored.resize_grip_char, '◢');
+
+        // The unmodified theme must survive the full roundtrip unchanged.
+        assert_eq!(
+            restored.window_title_active.bg,
+            theme.window_title_active.bg
+        );
+        assert_eq!(restored.window_interior.bg, theme.window_interior.bg);
+        assert_eq!(restored.border_tl, theme.border_tl);
+        assert_eq!(restored.close_button_text, theme.close_button_text);
+        assert_eq!(restored.resize_grip_char, theme.resize_grip_char);
+    }
 }

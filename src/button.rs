@@ -24,7 +24,7 @@
 //! }
 //! ```
 
-use crate::canvas::Canvas;
+use crate::canvas::{Bevel, Canvas};
 use crate::command::CommandId;
 use crate::core::Rect;
 use crate::theme;
@@ -113,6 +113,10 @@ impl Button {
     /// Draw the button content onto the canvas.
     fn draw_button(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let bounds = self.base.bounds();
+
+        // Semantic skin hint: pixel canvases draw a raised bevel, cell
+        // canvases treat this as a no-op and keep the bracketed text look.
+        canvas.draw_bevel(bounds, Bevel::Raised, clip);
 
         let display = self.display_label();
         let focused = self.base.state() & SF_FOCUSED != 0;

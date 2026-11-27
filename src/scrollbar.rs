@@ -5,49 +5,18 @@
 //! - Track area for page stepping
 //! - Draggable thumb for direct positioning
 
-use crate::canvas::Canvas;
+use crate::canvas::{Canvas, ScrollHover, ScrollSpec};
+use crate::cell_skin::scroll_thumb_position;
 use crate::core::Rect;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::any::Any;
 
 use crate::command::CM_SCROLL_CHANGED;
-use crate::theme;
 use crate::view::{Event, EventKind, View, ViewBase};
 
-// ============================================================================
-// Constants — scrollbar characters
-// ============================================================================
-
-/// Vertical scrollbar: up arrow.
-const V_UP: char = '▲';
-/// Vertical scrollbar: down arrow.
-const V_DOWN: char = '▼';
-/// Vertical scrollbar: track (empty area).
-const V_TRACK: char = '░';
-/// Vertical scrollbar: thumb (draggable position indicator).
-const V_THUMB: char = '█';
-
-/// Horizontal scrollbar: left arrow.
-const H_LEFT: char = '◄';
-/// Horizontal scrollbar: right arrow.
-const H_RIGHT: char = '►';
-/// Horizontal scrollbar: track (empty area).
-const H_TRACK: char = '░';
-/// Horizontal scrollbar: thumb (draggable position indicator).
-const H_THUMB: char = '█';
-
-// ============================================================================
-// Orientation
-// ============================================================================
-
-/// Scrollbar orientation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Orientation {
-    /// Vertical scrollbar (up/down arrows).
-    Vertical,
-    /// Horizontal scrollbar (left/right arrows).
-    Horizontal,
-}
+// Keep `turbo_tui::scrollbar::Orientation` working; the enum now lives on the
+// neutral canvas layer.
+pub use crate::canvas::Orientation;
 
 /// Which part of the scrollbar is hovered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -299,29 +268,16 @@ impl ScrollBar {
     /// For horizontal: column offset from arrow left.
     fn thumb_position(&self) -> usize {
         let bounds = self.base.bounds();
-        let range = (self.max_val - self.min_val).max(1);
-
-        match self.orientation {
-            Orientation::Vertical => {
-                let track_size = i32::from(bounds.height.saturating_sub(2));
-                if track_size <= 0 {
-                    return 0;
-                }
-                // Use track_size for good roundtrip precision, clamp to last valid position
-                let pos = (self.value - self.min_val) * track_size / range;
-                let clamped = pos.clamp(0, track_size - 1);
-                usize::try_from(clamped).unwrap_or(0)
-            }
-            Orientation::Horizontal => {
-                let track_size = i32::from(bounds.width.saturating_sub(2));
-                if track_size <= 0 {
-                    return 0;
-                }
-                let pos = (self.value - self.min_val) * track_size / range;
-                let clamped = pos.clamp(0, track_size - 1);
-                usize::try_from(clamped).unwrap_or(0)
-            }
-        }
+        let track_size = match self.orientation {
+            Orientation::Vertical => i32::from(bounds.height.saturating_sub(2)),
+            Orientation::Horizontal => i32::from(bounds.width.saturating_sub(2)),
+        };
+        usize::try_from(scroll_thumb_position(
+            self.value - self.min_val,
+            self.max_val - self.min_val,
+            track_size,
+        ))
+        .unwrap_or(0)
     }
 
     /// Calculate the thumb cell range (start, length).
@@ -566,7 +522,6 @@ impl View for ScrollBar {
         self.base.set_bounds(bounds);
     }
 
-    #[allow(clippy::too_many_lines)]
     fn draw(&self, canvas: &mut dyn Canvas, area: Rect) {
         // Don't draw if hidden
         if !self.is_visible() {
@@ -586,95 +541,23 @@ impl View for ScrollBar {
             return;
         }
 
-        // Get theme styles
-        let (track_style, thumb_style, arrow_style) = theme::with_current(|t| {
-            if self.window_dragging {
-                let style = t.window_frame_dragging;
-                return (style, style, style);
-            }
-            if !self.active {
-                return (
-                    t.scrollbar_track_inactive,
-                    t.scrollbar_thumb_inactive,
-                    t.scrollbar_arrows_inactive,
-                );
-            }
-            let track = if self.hovered == ScrollBarHover::Track {
-                t.scrollbar_track_hover
-            } else {
-                t.scrollbar_track
-            };
-            let thumb = if self.hovered == ScrollBarHover::Thumb {
-                t.scrollbar_thumb_hover
-            } else {
-                t.scrollbar_thumb
-            };
-            let arrows = if self.hovered == ScrollBarHover::Arrow {
-                t.scrollbar_arrows_hover
-            } else {
-                t.scrollbar_arrows
-            };
-            (track, thumb, arrows)
-        });
+        let hover = match self.hovered {
+            ScrollBarHover::None => ScrollHover::None,
+            ScrollBarHover::Track => ScrollHover::Track,
+            ScrollBarHover::Thumb => ScrollHover::Thumb,
+            ScrollBarHover::Arrow => ScrollHover::Arrow,
+        };
 
-        // Calculate track size
-        let (thumb_pos, _thumb_len) = self.thumb_range();
+        let spec = ScrollSpec {
+            position: self.value - self.min_val,
+            total: self.max_val - self.min_val,
+            visible: self.page_step,
+            active: self.active,
+            hover,
+            dragging: self.window_dragging,
+        };
 
-        match self.orientation {
-            Orientation::Vertical => {
-                let height = bounds.height as usize;
-
-                for row in 0..height {
-                    let buf_row = bounds.y + u16::try_from(row).unwrap_or(0);
-                    let buf_col = bounds.x;
-
-                    let (ch, style) = if row == 0 {
-                        // Up arrow
-                        (V_UP, arrow_style)
-                    } else if row >= height.saturating_sub(1) {
-                        // Down arrow
-                        (V_DOWN, arrow_style)
-                    } else {
-                        // Track area
-                        let track_pos = row - 1;
-                        if track_pos == thumb_pos {
-                            (V_THUMB, thumb_style)
-                        } else {
-                            (V_TRACK, track_style)
-                        }
-                    };
-
-                    canvas.put_char(buf_col, buf_row, ch, style, area);
-                }
-            }
-            Orientation::Horizontal => {
-                let width = bounds.width as usize;
-                let row = bounds.y;
-                let start_col = bounds.x;
-
-                for col in 0..width {
-                    let buf_col = start_col + u16::try_from(col).unwrap_or(0);
-
-                    let (ch, style) = if col == 0 {
-                        // Left arrow
-                        (H_LEFT, arrow_style)
-                    } else if col >= width.saturating_sub(1) {
-                        // Right arrow
-                        (H_RIGHT, arrow_style)
-                    } else {
-                        // Track area
-                        let track_pos = col - 1;
-                        if track_pos == thumb_pos {
-                            (H_THUMB, thumb_style)
-                        } else {
-                            (H_TRACK, track_style)
-                        }
-                    };
-
-                    canvas.put_char(buf_col, row, ch, style, area);
-                }
-            }
-        }
+        canvas.draw_scrollbar(bounds, self.orientation, &spec, area);
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -712,6 +595,7 @@ impl View for ScrollBar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cell_skin::{H_LEFT, H_RIGHT, V_DOWN, V_UP};
     use crate::core::Buffer;
 
     #[test]

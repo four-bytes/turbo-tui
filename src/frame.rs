@@ -10,12 +10,13 @@
 //! - Optional horizontal scrollbar on the bottom border
 //!
 //! Frame does NOT manage children — it only draws the border decoration.
-//! Use [`Window`] for a complete window with Frame + interior Container.
+//! Use [`crate::window::Window`] for a complete window with Frame + interior Container.
 
-use crate::canvas::Canvas;
-use crate::core::{Color, Rect, Style};
+use crate::canvas::{Canvas, FrameGadgets, FrameKind, FrameSpec, GadgetState};
+use crate::cell_skin::ButtonTray;
+use crate::core::Rect;
 use crate::scrollbar::ScrollBar;
-use crate::theme::{self, ButtonSide};
+use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId, SF_DRAGGING, SF_FOCUSED, SF_RESIZING};
 use crossterm::event::{KeyModifiers, MouseEvent, MouseEventKind};
 use std::any::Any;
@@ -183,147 +184,6 @@ impl FrameConfig {
 }
 
 // ============================================================================
-// ButtonTray — single source of truth for title-bar button positions
-// ============================================================================
-
-/// Computed button layout for the title bar.
-///
-/// Built once from theme config + frame state, then used for hit-testing,
-/// drawing, and title clamping. All positions are absolute screen coordinates.
-struct ButtonTray {
-    /// Close button position: `(start_col, char_count)`. `None` if not closeable.
-    close: Option<(u16, u16)>,
-    /// Minimize button position. `None` if not minimizable or no text.
-    minimize: Option<(u16, u16)>,
-    /// Maximize button position. `None` if not maximizable or no text.
-    maximize: Option<(u16, u16)>,
-    /// First column available for the title (after all left-side buttons).
-    title_start: u16,
-    /// First column occupied by right-side buttons (title must stop before this).
-    title_end: u16,
-}
-
-impl ButtonTray {
-    /// Build the button tray from frame config and theme.
-    ///
-    /// Layout rules:
-    /// - Each side (left/right) has buttons stacked from the edge inward
-    /// - Left side: buttons go left-to-right starting at `x + margin_left`
-    /// - Right side: buttons go right-to-left starting at `x + width - margin_right`
-    /// - Close button is placed closest to its configured corner
-    /// - Controls (minimize, maximize) stack after close on their side
-    #[allow(clippy::cast_possible_truncation)]
-    fn build(
-        b: Rect,
-        closeable: bool,
-        minimizable: bool,
-        maximizable: bool,
-        t: &crate::theme::Theme,
-    ) -> Self {
-        let close_len: u16 = if closeable {
-            t.close_button_text.chars().count() as u16
-        } else {
-            0
-        };
-        let min_len: u16 = if minimizable && !t.minimize_button_text.is_empty() {
-            t.minimize_button_text.chars().count() as u16
-        } else {
-            0
-        };
-        let max_len: u16 = if maximizable && !t.maximize_button_text.is_empty() {
-            t.maximize_button_text.chars().count() as u16
-        } else {
-            0
-        };
-
-        // Left cursor starts after left corner + margin
-        let mut left_cursor = b.x + t.button_margin_left;
-        // Right cursor starts before right corner - margin (points to first usable col from right)
-        let mut right_cursor = b.x + b.width.saturating_sub(t.button_margin_right);
-
-        let mut close_pos: Option<(u16, u16)> = None;
-        let mut min_pos: Option<(u16, u16)> = None;
-        let mut max_pos: Option<(u16, u16)> = None;
-
-        // Place close button (it goes on close_button_side, closest to corner)
-        if closeable && close_len > 0 {
-            match t.close_button_side {
-                ButtonSide::Left => {
-                    close_pos = Some((left_cursor, close_len));
-                    left_cursor += close_len;
-                }
-                ButtonSide::Right => {
-                    right_cursor = right_cursor.saturating_sub(close_len);
-                    close_pos = Some((right_cursor, close_len));
-                }
-            }
-        }
-
-        // Place controls (minimize, then maximize) on controls_side.
-        // Right side order (rightmost = closest to corner):
-        //   ... [minimize][maximize] [close] margin ║
-        //   cursor moves leftward: close first, then max, then min
-        //
-        // Left side order (leftmost = closest to corner):
-        //   ║ margin [close] [minimize][maximize] ...
-        //   cursor moves rightward: close first, then min, then max
-        match t.controls_side {
-            ButtonSide::Left => {
-                if min_len > 0 {
-                    min_pos = Some((left_cursor, min_len));
-                    left_cursor += min_len;
-                }
-                if max_len > 0 {
-                    max_pos = Some((left_cursor, max_len));
-                    left_cursor += max_len;
-                }
-            }
-            ButtonSide::Right => {
-                // Place maximize first (closer to corner), then minimize
-                if max_len > 0 {
-                    right_cursor = right_cursor.saturating_sub(max_len);
-                    max_pos = Some((right_cursor, max_len));
-                }
-                if min_len > 0 {
-                    right_cursor = right_cursor.saturating_sub(min_len);
-                    min_pos = Some((right_cursor, min_len));
-                }
-            }
-        }
-
-        Self {
-            close: close_pos,
-            minimize: min_pos,
-            maximize: max_pos,
-            title_start: left_cursor,
-            title_end: right_cursor,
-        }
-    }
-
-    /// Hit-test: which button (if any) is at the given column?
-    ///
-    /// Only checks column — caller must verify row == title bar row.
-    fn hit_test(&self, col: u16) -> FrameHover {
-        if let Some((start, len)) = self.close {
-            if col >= start && col < start + len {
-                return FrameHover::CloseButton;
-            }
-        }
-        if let Some((start, len)) = self.minimize {
-            if col >= start && col < start + len {
-                return FrameHover::MinimizeButton;
-            }
-        }
-        if let Some((start, len)) = self.maximize {
-            if col >= start && col < start + len {
-                return FrameHover::MaximizeButton;
-            }
-        }
-        FrameHover::None
-    }
-}
-
-// ============================================================================
 // Frame
 // ============================================================================
 
@@ -338,7 +198,7 @@ impl ButtonTray {
 /// - Optional horizontal scrollbar on the bottom border
 ///
 /// Frame does NOT manage children — it only draws the border decoration.
-/// Use [`Window`] for a complete window with Frame + interior Container.
+/// Use [`crate::window::Window`] for a complete window with Frame + interior Container.
 ///
 /// # Example
 ///
@@ -957,19 +817,6 @@ impl Frame {
     pub fn hovered(&self) -> FrameHover {
         self.hovered
     }
-
-    /// Draw a single character to the canvas at the given position, clipped to
-    /// `clip`.
-    fn draw_char(
-        canvas: &mut dyn Canvas,
-        col: u16,
-        row: u16,
-        ch: char,
-        style: crate::core::Style,
-        clip: Rect,
-    ) {
-        canvas.put_char(col, row, ch, style, clip);
-    }
 }
 
 impl View for Frame {
@@ -985,7 +832,6 @@ impl View for Frame {
         self.base.set_bounds(bounds);
     }
 
-    #[allow(clippy::too_many_lines)]
     fn draw(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
         if b.width < 2 || b.height < 1 {
@@ -998,140 +844,53 @@ impl View for Frame {
             return;
         }
 
-        // Build styles and button tray in a single theme access
-        let (styles, tray) = theme::with_current(|t| {
-            let state = self.base.state();
-            let is_dragging = (state & SF_DRAGGING) != 0 || (state & SF_RESIZING) != 0;
-            let is_active = (state & SF_FOCUSED) != 0;
-            let (frame_style, title_style) = match self.frame_type {
-                FrameType::Window => {
-                    if is_dragging {
-                        // Title inherits the dragging frame's background
-                        let title_during_drag = Style::default()
-                            .fg(t.window_title_active.fg.unwrap_or(Color::White))
-                            .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
-                            .add_modifier(t.window_title_active.add_modifier);
-                        (t.window_frame_dragging, title_during_drag)
-                    } else if is_active {
-                        (t.window_frame_active, t.window_title_active)
-                    } else {
-                        (t.window_frame_inactive, t.window_title_inactive)
-                    }
-                }
-                FrameType::Dialog => (t.dialog_frame, t.dialog_title),
-                FrameType::Single => (t.single_frame, t.single_frame),
-            };
-            let close_style = if is_dragging {
-                Style::default()
-                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
-                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
-            } else if self.hovered == FrameHover::CloseButton {
-                t.window_close_button_hover
-            } else if is_active {
-                t.window_close_button
+        let state = self.base.state();
+        let dragging = (state & SF_DRAGGING) != 0 || (state & SF_RESIZING) != 0;
+        let active = (state & SF_FOCUSED) != 0;
+        let gadget_state = |hovered: bool| {
+            if dragging {
+                GadgetState::Dragging
+            } else if hovered {
+                GadgetState::Hover
+            } else if active {
+                GadgetState::Normal
             } else {
-                t.window_close_button_inactive
-            };
-            let resize_style = if is_dragging {
-                Style::default()
-                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
-                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
-            } else if self.hovered == FrameHover::ResizeHandle {
-                t.window_resize_handle_hover
-            } else if is_active {
-                t.window_resize_handle
-            } else {
-                t.window_resize_handle_inactive
-            };
-            let minimize_style = if is_dragging {
-                Style::default()
-                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
-                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
-            } else if self.hovered == FrameHover::MinimizeButton {
-                t.window_minimize_button_hover
-            } else if is_active {
-                t.window_minimize_button
-            } else {
-                t.window_minimize_button_inactive
-            };
-            let maximize_style = if is_dragging {
-                Style::default()
-                    .fg(t.window_frame_dragging.fg.unwrap_or(Color::White))
-                    .bg(t.window_frame_dragging.bg.unwrap_or(Color::Black))
-            } else if self.hovered == FrameHover::MaximizeButton {
-                t.window_maximize_button_hover
-            } else if is_active {
-                t.window_maximize_button
-            } else {
-                t.window_maximize_button_inactive
-            };
-            let styles = FrameStyles {
-                frame: frame_style,
-                title: title_style,
-                close: close_style,
-                resize: resize_style,
-                minimize_style,
-                minimize_text: {
-                    let mut arr = ['\0'; 8];
-                    for (i, ch) in t.minimize_button_text.chars().take(8).enumerate() {
-                        arr[i] = ch;
-                    }
-                    arr
-                },
-                minimize_text_len: {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let len = t.minimize_button_text.chars().count().min(8) as u8;
-                    len
-                },
-                maximize_style,
-                maximize_text: {
-                    let mut arr = ['\0'; 8];
-                    for (i, ch) in t.maximize_button_text.chars().take(8).enumerate() {
-                        arr[i] = ch;
-                    }
-                    arr
-                },
-                maximize_text_len: {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let len = t.maximize_button_text.chars().count().min(8) as u8;
-                    len
-                },
-                tl: t.border_tl,
-                tr: t.border_tr,
-                bl: t.border_bl,
-                br: t.border_br,
-                h: t.border_h,
-                v: t.border_v,
-                close_text: {
-                    let mut arr = ['\0'; 8];
-                    #[allow(clippy::explicit_counter_loop)]
-                    for (i, ch) in t.close_button_text.chars().take(8).enumerate() {
-                        arr[i] = ch;
-                    }
-                    arr
-                },
-                close_text_len: {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let len = t.close_button_text.chars().count().min(8) as u8;
-                    len
-                },
-                resize_char: t.resize_grip_char,
-                title_bar_bg: t.title_bar_bg,
-            };
-            // When minimized (height=1), only show close button — no min/max
-            let show_minimizable = self.minimizable && b.height > 1;
-            let show_maximizable = self.maximizable && b.height > 1;
-            let tray = ButtonTray::build(b, self.closeable, show_minimizable, show_maximizable, t);
-            (styles, tray)
-        });
+                GadgetState::Inactive
+            }
+        };
 
-        self.draw_top_border(canvas, clip, &styles, &tray);
-        if b.height >= 2 {
-            self.draw_side_borders(canvas, clip, &styles);
-        }
+        let kind = match self.frame_type {
+            FrameType::Window => FrameKind::Window,
+            FrameType::Dialog => FrameKind::Dialog,
+            FrameType::Single => FrameKind::Single,
+        };
+
+        // When minimized (height=1), only show the close button — no min/max.
+        let show_minimizable = self.minimizable && b.height > 1;
+        let show_maximizable = self.maximizable && b.height > 1;
+        let gadgets = FrameGadgets {
+            close: self
+                .closeable
+                .then(|| gadget_state(self.hovered == FrameHover::CloseButton)),
+            minimize: show_minimizable
+                .then(|| gadget_state(self.hovered == FrameHover::MinimizeButton)),
+            maximize: show_maximizable
+                .then(|| gadget_state(self.hovered == FrameHover::MaximizeButton)),
+            resize_grip: (self.resizable && kind == FrameKind::Window && b.height > 1)
+                .then(|| gadget_state(self.hovered == FrameHover::ResizeHandle)),
+        };
+
+        let spec = FrameSpec {
+            title: &self.title,
+            kind,
+            active,
+            dragging,
+            gadgets,
+        };
+
+        canvas.draw_frame(b, &spec, clip);
         if b.height >= 2 {
             self.draw_scrollbars(canvas, clip);
-            self.draw_bottom_border(canvas, clip, &styles);
         }
     }
 
@@ -1164,148 +923,7 @@ impl View for Frame {
     }
 }
 
-/// Styles and characters for drawing a frame.
-struct FrameStyles {
-    frame: crate::core::Style,
-    title: crate::core::Style,
-    close: crate::core::Style,
-    resize: crate::core::Style,
-    minimize_style: crate::core::Style,
-    minimize_text: [char; 8],
-    minimize_text_len: u8,
-    maximize_style: crate::core::Style,
-    maximize_text: [char; 8],
-    maximize_text_len: u8,
-    tl: char,
-    tr: char,
-    bl: char,
-    br: char,
-    h: char,
-    v: char,
-    close_text: [char; 8],
-    close_text_len: u8,
-    resize_char: char,
-    title_bar_bg: Option<crate::core::Style>,
-}
-
 impl Frame {
-    /// Draw the top border including corners, horizontal line, close button, and title.
-    fn draw_top_border(
-        &self,
-        canvas: &mut dyn Canvas,
-        clip: Rect,
-        styles: &FrameStyles,
-        tray: &ButtonTray,
-    ) {
-        let b = self.base.bounds();
-
-        // Optional title bar background (fills entire top row)
-        if let Some(tb_bg) = styles.title_bar_bg {
-            for col in (b.x + 1)..(b.x + b.width - 1) {
-                Self::draw_char(canvas, col, b.y, ' ', tb_bg, clip);
-            }
-        }
-
-        // Corner characters
-        Self::draw_char(canvas, b.x, b.y, styles.tl, styles.frame, clip);
-        Self::draw_char(
-            canvas,
-            b.x + b.width - 1,
-            b.y,
-            styles.tr,
-            styles.frame,
-            clip,
-        );
-
-        // Horizontal line
-        for col in (b.x + 1)..(b.x + b.width - 1) {
-            Self::draw_char(canvas, col, b.y, styles.h, styles.frame, clip);
-        }
-
-        // Draw close button using tray position
-        if let Some((start, len)) = tray.close {
-            let close_chars = &styles.close_text[..styles.close_text_len as usize];
-            for (i, &ch) in close_chars.iter().take(len as usize).enumerate() {
-                let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(canvas, col, b.y, ch, styles.close, clip);
-            }
-        }
-
-        // Draw minimize button using tray position
-        if let Some((start, len)) = tray.minimize {
-            let min_chars = &styles.minimize_text[..styles.minimize_text_len as usize];
-            for (i, &ch) in min_chars.iter().take(len as usize).enumerate() {
-                let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(canvas, col, b.y, ch, styles.minimize_style, clip);
-            }
-        }
-
-        // Draw maximize button using tray position
-        if let Some((start, len)) = tray.maximize {
-            let max_chars = &styles.maximize_text[..styles.maximize_text_len as usize];
-            for (i, &ch) in max_chars.iter().take(len as usize).enumerate() {
-                let col = start + u16::try_from(i).unwrap_or(0);
-                Self::draw_char(canvas, col, b.y, ch, styles.maximize_style, clip);
-            }
-        }
-
-        // Draw title centered within full frame width, clipped to button tray boundaries
-        if !self.title.is_empty() {
-            let title_full = format!(" {} ", self.title);
-            let title_chars: Vec<char> = title_full.chars().collect();
-            // Use usize for calculations, safely convert to u16 for drawing
-            #[allow(clippy::cast_possible_truncation)]
-            let title_len = title_chars.len() as u16;
-            let available = tray.title_end.saturating_sub(tray.title_start);
-
-            if available >= 2 {
-                // Center within FULL frame width first, but never go left of title_start
-                let ideal_start = b.x + (b.width.saturating_sub(title_len)) / 2;
-                let clamped_start = ideal_start.max(tray.title_start);
-
-                // Clip to button tray boundaries
-                let vis_start = clamped_start;
-                let vis_end = (clamped_start + title_len).min(tray.title_end);
-
-                if vis_end > vis_start {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let vis_count = (vis_end - vis_start) as usize;
-
-                    // Only right-side truncation possible (left side is always at clamped_start)
-                    let truncated_right = (clamped_start + title_len) > tray.title_end;
-
-                    // Draw visible characters with ellipsis on right if needed
-                    for (i, &ch) in title_chars.iter().take(vis_count).enumerate() {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let col = vis_start + i as u16;
-                        let draw_ch = if truncated_right && i == vis_count - 1 {
-                            '…'
-                        } else {
-                            ch
-                        };
-                        Self::draw_char(canvas, col, b.y, draw_ch, styles.title, clip);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Draw the left and right vertical borders.
-    fn draw_side_borders(&self, canvas: &mut dyn Canvas, clip: Rect, styles: &FrameStyles) {
-        let b = self.base.bounds();
-
-        for row in (b.y + 1)..(b.y + b.height - 1) {
-            // Left border
-            Self::draw_char(canvas, b.x, row, styles.v, styles.frame, clip);
-
-            // Right border — draw when no scrollbar, or scrollbar is hidden
-            let sb_visible = self.v_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
-            if !sb_visible {
-                Self::draw_char(canvas, b.x + b.width - 1, row, styles.v, styles.frame, clip);
-            }
-        }
-    }
-
     /// Draw the vertical and horizontal scrollbars if present.
     fn draw_scrollbars(&self, canvas: &mut dyn Canvas, clip: Rect) {
         let b = self.base.bounds();
@@ -1333,57 +951,6 @@ impl Frame {
             let mut sb_owned = sb.clone();
             sb_owned.set_bounds(h_sb_bounds);
             sb_owned.draw(canvas, clip);
-        }
-    }
-
-    /// Draw the bottom border including corners, horizontal line, and resize handle.
-    fn draw_bottom_border(&self, canvas: &mut dyn Canvas, clip: Rect, styles: &FrameStyles) {
-        let b = self.base.bounds();
-
-        // Corner characters
-        Self::draw_char(
-            canvas,
-            b.x,
-            b.y + b.height - 1,
-            styles.bl,
-            styles.frame,
-            clip,
-        );
-
-        // Horizontal line — draw when no scrollbar, or scrollbar is hidden
-        let h_sb_visible = self.h_scrollbar.as_ref().is_some_and(ScrollBar::is_visible);
-        if !h_sb_visible {
-            for col in (b.x + 1)..(b.x + b.width - 1) {
-                Self::draw_char(
-                    canvas,
-                    col,
-                    b.y + b.height - 1,
-                    styles.h,
-                    styles.frame,
-                    clip,
-                );
-            }
-        }
-
-        // Bottom-right corner (or resize handle)
-        if self.resizable && self.frame_type == FrameType::Window {
-            Self::draw_char(
-                canvas,
-                b.x + b.width - 1,
-                b.y + b.height - 1,
-                styles.resize_char,
-                styles.resize,
-                clip,
-            );
-        } else {
-            Self::draw_char(
-                canvas,
-                b.x + b.width - 1,
-                b.y + b.height - 1,
-                styles.br,
-                styles.frame,
-                clip,
-            );
         }
     }
 }

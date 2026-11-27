@@ -8,6 +8,152 @@
 
 use crate::core::{Buffer, Position, Rect, Style};
 
+// ============================================================================
+// Semantic drawing types
+// ============================================================================
+//
+// These types are deliberately neutral: they contain no theme, style or
+// cell-encoding data, so they can move to a shared crate without an API break.
+// All character/theme behaviour lives in the crate-internal `cell_skin` module.
+
+/// Visual elevation of a bevel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bevel {
+    /// The surface appears to rise out of the background.
+    Raised,
+    /// The surface appears to sink into the background.
+    Recessed,
+}
+
+/// A direction used by arrow gadgets and scrollbars.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// Upwards.
+    Up,
+    /// Downwards.
+    Down,
+    /// Towards the left.
+    Left,
+    /// Towards the right.
+    Right,
+}
+
+/// A small frame control rendered on the title bar or border.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gadget {
+    /// Close button.
+    Close,
+    /// Maximize/zoom button.
+    Zoom,
+    /// Minimize/depth button.
+    Depth,
+    /// Resize grip in the bottom-right corner.
+    Size,
+    /// Directional arrow.
+    Arrow(Direction),
+}
+
+/// Semantic gadget state.
+///
+/// `Inactive` and `Dragging` are neutral UI states needed to reproduce the
+/// inactive-window and drag-time cell styles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GadgetState {
+    /// The owning window is not focused.
+    Inactive,
+    /// Idle and focused.
+    Normal,
+    /// Currently hovered by the pointer.
+    Hover,
+    /// Currently pressed.
+    Pressed,
+    /// The owning window is being dragged or resized.
+    Dragging,
+}
+
+/// Orientation of a scrollbar (or another one-dimensional element).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Orientation {
+    /// Vertical orientation.
+    Vertical,
+    /// Horizontal orientation.
+    Horizontal,
+}
+
+/// Which scrollbar element is hovered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollHover {
+    /// Nothing is hovered.
+    None,
+    /// The empty track is hovered.
+    Track,
+    /// The thumb is hovered.
+    Thumb,
+    /// An arrow button is hovered.
+    Arrow,
+}
+
+/// The kind of frame to render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameKind {
+    /// Regular overlapping window.
+    Window,
+    /// Modal dialog.
+    Dialog,
+    /// Single-line group/panel frame.
+    Single,
+}
+
+/// Presence and state of the interactive frame gadgets.
+///
+/// `None` means the gadget is not shown at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameGadgets {
+    /// Close button.
+    pub close: Option<GadgetState>,
+    /// Minimize button.
+    pub minimize: Option<GadgetState>,
+    /// Maximize/zoom button.
+    pub maximize: Option<GadgetState>,
+    /// Resize grip in the bottom-right corner.
+    pub resize_grip: Option<GadgetState>,
+}
+
+/// Semantic description of a frame border, title and gadgets.
+///
+/// Geometry, hit-testing and theme resolution stay in the view; this is the
+/// neutral input to [`Canvas::draw_frame`].
+#[derive(Debug)]
+pub struct FrameSpec<'a> {
+    /// Frame title (without the surrounding spaces).
+    pub title: &'a str,
+    /// Frame kind.
+    pub kind: FrameKind,
+    /// Whether the owning window is focused.
+    pub active: bool,
+    /// Whether the owning window is being dragged or resized.
+    pub dragging: bool,
+    /// Presence and state of the frame gadgets.
+    pub gadgets: FrameGadgets,
+}
+
+/// Semantic description of a scrollbar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollSpec {
+    /// Offset from the minimum (`value - min`).
+    pub position: i32,
+    /// Scroll range (`max - min`), at least zero.
+    pub total: i32,
+    /// Page/visible size; semantic only, not used by the cell fallback.
+    pub visible: i32,
+    /// Whether the owning window is focused.
+    pub active: bool,
+    /// Which element the pointer currently hovers.
+    pub hover: ScrollHover,
+    /// Whether the owning window is being dragged.
+    pub dragging: bool,
+}
+
 /// A drawing surface for views.
 ///
 /// Coordinates are expressed in canvas units. For [`CellCanvas`] one unit is
@@ -42,6 +188,48 @@ pub trait Canvas {
 
     /// Places the terminal cursor, or hides it when `None`.
     fn set_cursor(&mut self, pos: Option<Position>);
+
+    /// Draws a frame border, title and gadgets.
+    ///
+    /// The default implementation delegates to the crate-internal cell skin,
+    /// which reproduces the historical character output byte-for-byte. Pixel
+    /// canvases override this to render semantically.
+    fn draw_frame(&mut self, rect: Rect, spec: &FrameSpec<'_>, clip: Rect) {
+        crate::cell_skin::draw_frame(self, rect, spec, clip);
+    }
+
+    /// Draws a bevel.
+    ///
+    /// Cell-based canvases have no three-dimensional elevation and encode it in
+    /// styles and text instead, so the default implementation is a no-op that
+    /// keeps existing cell output byte-identical. Pixel canvases override this
+    /// to draw actual shading.
+    fn draw_bevel(&mut self, _rect: Rect, _bevel: Bevel, _clip: Rect) {}
+
+    /// Draws a single [`Gadget`] at `rect` in `state`.
+    ///
+    /// The default implementation delegates to the crate-internal cell skin,
+    /// which resolves the glyphs and style from the current theme and clips
+    /// every write to `clip`.
+    fn draw_gadget(&mut self, rect: Rect, gadget: Gadget, state: GadgetState, clip: Rect) {
+        crate::cell_skin::draw_gadget(self, rect, gadget, state, clip);
+    }
+
+    /// Draws a scrollbar.
+    ///
+    /// The default implementation delegates to the crate-internal cell skin:
+    /// the first and last cells become arrow buttons, the cell at the thumb
+    /// offset is the thumb and everything else is track. Empty rectangles are
+    /// ignored.
+    fn draw_scrollbar(
+        &mut self,
+        rect: Rect,
+        orientation: Orientation,
+        spec: &ScrollSpec,
+        clip: Rect,
+    ) {
+        crate::cell_skin::draw_scrollbar(self, rect, orientation, spec, clip);
+    }
 }
 
 /// A [`Canvas`] backed by a mutable [`Buffer`].
@@ -229,5 +417,149 @@ mod tests {
 
         canvas.set_cursor(None);
         assert_eq!(canvas.cursor(), None);
+    }
+
+    fn sample_scroll_spec(position: i32) -> ScrollSpec {
+        ScrollSpec {
+            position,
+            total: 100,
+            visible: 1,
+            active: true,
+            hover: ScrollHover::None,
+            dragging: false,
+        }
+    }
+
+    fn setup_default_theme() {
+        crate::theme::set(crate::theme::Theme::turbo_vision());
+    }
+
+    fn no_gadgets() -> FrameGadgets {
+        FrameGadgets {
+            close: None,
+            minimize: None,
+            maximize: None,
+            resize_grip: None,
+        }
+    }
+
+    #[test]
+    fn test_draw_gadget_writes_glyphs_and_respects_clip() {
+        setup_default_theme();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 10, 3));
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            // Default close text is "[■]"; clip covers only the first two cells.
+            canvas.draw_gadget(
+                Rect::new(2, 1, 3, 1),
+                Gadget::Close,
+                GadgetState::Normal,
+                Rect::new(2, 1, 2, 1),
+            );
+        }
+
+        assert_eq!(buf.cell(Position::new(2, 1)).unwrap().symbol(), "[");
+        assert_eq!(buf.cell(Position::new(3, 1)).unwrap().symbol(), "■");
+        assert_eq!(buf.cell(Position::new(4, 1)).unwrap().symbol(), " ");
+    }
+
+    #[test]
+    fn test_draw_scrollbar_vertical_arrows_and_thumb() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 1, 6));
+        let spec = sample_scroll_spec(50);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.draw_scrollbar(
+                Rect::new(0, 0, 1, 6),
+                Orientation::Vertical,
+                &spec,
+                Rect::new(0, 0, 1, 6),
+            );
+        }
+
+        // track_size = 4, position 50 → 50 * 4 / 100 = 2 → thumb at row 1 + 2.
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "▲");
+        assert_eq!(buf.cell(Position::new(0, 5)).unwrap().symbol(), "▼");
+        assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), "░");
+        assert_eq!(buf.cell(Position::new(0, 3)).unwrap().symbol(), "█");
+    }
+
+    #[test]
+    fn test_draw_scrollbar_horizontal_arrows_and_thumb() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 6, 1));
+        let spec = sample_scroll_spec(50);
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.draw_scrollbar(
+                Rect::new(0, 0, 6, 1),
+                Orientation::Horizontal,
+                &spec,
+                Rect::new(0, 0, 6, 1),
+            );
+        }
+
+        // track_size = 4, position 50 → thumb at column 1 + 2.
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "◄");
+        assert_eq!(buf.cell(Position::new(5, 0)).unwrap().symbol(), "►");
+        assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "█");
+    }
+
+    #[test]
+    fn test_draw_primitives_empty_and_tiny_rect_do_not_panic() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 2));
+        let spec = sample_scroll_spec(0);
+        let frame_spec = FrameSpec {
+            title: "",
+            kind: FrameKind::Dialog,
+            active: false,
+            dragging: false,
+            gadgets: no_gadgets(),
+        };
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.draw_scrollbar(
+                Rect::new(0, 0, 0, 0),
+                Orientation::Vertical,
+                &spec,
+                Rect::new(0, 0, 4, 2),
+            );
+            canvas.draw_scrollbar(
+                Rect::new(0, 0, 1, 1),
+                Orientation::Vertical,
+                &spec,
+                Rect::new(0, 0, 4, 2),
+            );
+            // Width < 2 returns early.
+            canvas.draw_frame(Rect::new(0, 0, 1, 1), &frame_spec, Rect::new(0, 0, 4, 2));
+            canvas.draw_bevel(Rect::new(0, 0, 4, 2), Bevel::Raised, Rect::new(0, 0, 4, 2));
+        }
+
+        // A one-cell scrollbar renders only its start arrow.
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "▲");
+        // The bevel is a no-op and the too-narrow frame draws nothing here.
+        assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), " ");
+    }
+
+    #[test]
+    fn test_draw_frame_height_one_draws_only_top_row() {
+        setup_default_theme();
+        let mut buf = Buffer::empty(Rect::new(0, 0, 6, 3));
+        let spec = FrameSpec {
+            title: "",
+            kind: FrameKind::Single,
+            active: true,
+            dragging: false,
+            gadgets: no_gadgets(),
+        };
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.draw_frame(Rect::new(0, 0, 4, 1), &spec, Rect::new(0, 0, 6, 3));
+        }
+
+        assert_eq!(buf.cell(Position::new(0, 0)).unwrap().symbol(), "╔");
+        assert_eq!(buf.cell(Position::new(1, 0)).unwrap().symbol(), "═");
+        assert_eq!(buf.cell(Position::new(3, 0)).unwrap().symbol(), "╗");
+        // Rows below the single-row frame stay untouched.
+        assert_eq!(buf.cell(Position::new(0, 1)).unwrap().symbol(), " ");
     }
 }

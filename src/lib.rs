@@ -21,6 +21,9 @@ pub mod theme_json;
 pub mod canvas;
 pub mod view;
 
+// Cell-based fallback for the semantic Canvas primitives (crate-internal)
+pub(crate) mod cell_skin;
+
 // Clip-aware rendering utilities (crate-internal)
 pub(crate) mod clip;
 
@@ -64,7 +67,10 @@ pub mod syntax;
 /// Prelude — import this for quick access to common types.
 pub mod prelude {
     pub use crate::application::Application;
-    pub use crate::canvas::{Canvas, CellCanvas};
+    pub use crate::canvas::{
+        Bevel, Canvas, CellCanvas, Direction, FrameGadgets, FrameKind, FrameSpec, Gadget,
+        GadgetState, Orientation, ScrollHover, ScrollSpec,
+    };
     pub use crate::command::*;
     pub use crate::container::Container;
     pub use crate::core::{Buffer, Cell, Color, Modifier, Position, Rect, Style};
@@ -77,7 +83,7 @@ pub mod prelude {
     pub use crate::memo::Memo;
     pub use crate::msgbox::{confirm_box, confirm_cancel_box, error_box, message_box};
     pub use crate::overlay::{calculate_overlay_bounds, DropDirection, Overlay, OverlayManager};
-    pub use crate::scrollbar::{Orientation, ScrollBar, ScrollBarVisibility};
+    pub use crate::scrollbar::{ScrollBar, ScrollBarVisibility};
     pub use crate::syntax::{PlainTextHighlighter, RustHighlighter, SyntaxHighlighter};
     pub use crate::terminal::{Terminal, TestTerminal};
     pub use crate::theme::{self, ButtonSide};

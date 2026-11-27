@@ -189,12 +189,13 @@ diffs, JSON v1, latest-frame-wins, one shared desktop, controller roles, two sec
 [ADR #36 pixel geometry](docs/ADR-pixel-geometry.md) — cell layout + per-layer pixel offset.
 
 - [ ] **D1 #41:** ADR Dual UI (protocol, diffs, geometry, multi-client, security) and the
-      companion geometry ADR #36. ✅ decision written; architect sign-off pending.
+      companion geometry ADR #36. ✅ accepted (architect review 2026-11-27).
 - [ ] **D2 #42:** `RecordingCanvas` + diff protocol behind feature `web` (off by default):
       display list per layer with stable `ViewId`, full snapshot, per-layer diff, input mapping,
-      latest-frame-wins. Testable without a browser.
+      latest-frame-wins; measures bytes per keystroke and per drag. Testable without a browser.
 - [ ] **D3 #43:** Web host (axum + WebSocket) and the Deno/TypeScript browser client, bidirectional
-      sync, **localhost only**, token, read-only by default (`--web-control`), measurements.
+      sync, **localhost only**, token, read-only by default (`--web-control`), end-to-end
+      transport/latency measurements.
 - [ ] **D4 #44:** Data widgets (`LineChart`, `Sparkline`, `Gauge`, `BarChart`) with per-renderer
       output: braille/blocks in the cell canvas, vector/anti-aliased in pixel, SVG/Canvas in the
       browser. Ops carry data, not raster.

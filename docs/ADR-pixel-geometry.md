@@ -1,6 +1,6 @@
 # ADR: Geometry Units and Free Pixel Positioning
 
-- **Status:** Proposed (decision complete, architect review pending)
+- **Status:** Accepted (architect review 2026-11-27)
 - **Date:** 2026-11-27
 - **Issue:** #36
 - **Companion:** [ADR-dual-ui.md](ADR-dual-ui.md) — the protocol and multi-client model built on this geometry

@@ -1,6 +1,6 @@
 # ADR: Dual UI — Protocol, Diffs, Multi-Client and Security
 
-- **Status:** Proposed (decision complete, architect review pending)
+- **Status:** Accepted (architect review 2026-11-27)
 - **Date:** 2026-11-27
 - **Issue:** #41
 - **Companion:** [ADR-pixel-geometry.md](ADR-pixel-geometry.md) — geometry units and free pixel positioning
@@ -113,8 +113,18 @@ layer. (c) wastes bandwidth for a keystroke. (d) saves less than (a) with more s
 complexity than (b).
 
 **Decision.** (b) for v1. A `layer` message replaces the complete ops list of one layer. The WM
-state is a separate, small full-state message (it is cheap and naturally idempotent). Measurement
-in #43 decides whether a later per-primitive or binary encoding is worth it.
+state is a separate, small full-state message (it is cheap and naturally idempotent). This is
+simple and correct, but an editor layer (for example a 200 × 50 text grid) is re-sent on every
+keystroke. #42 therefore measures **bytes per keystroke and bytes per drag** and records the
+result; the measurement decides whether a later sub-layer or binary encoding is worth building.
+
+**Extensibility for a v2 sub-layer diff (no protocol break).** The v1 `layer` message stays the
+complete-state form. A future sub-layer diff is a new message type, `layer_patch`, advertised as a
+capability (for example `diff.sub-layer`), carrying row/run updates for text-grid primitives keyed
+by `(primitive_id, primitive_rev)`. Ops may carry an optional `id` assigned by `RecordingCanvas`
+(stable for the life of a layer); v1 clients ignore it for diffing, but it is already on the wire,
+so v2 can address runs without changing the envelope, the `layer` message or the ordering rules.
+Clients that do not advertise the capability keep receiving whole-layer `layer` messages.
 
 Rules:
 
@@ -256,7 +266,8 @@ it is larger. (b) is compact but opaque, needs tooling and delays the first work
 - `serde` and `serde_json` live behind feature `web`; `cargo build` without features adds no
   dependency (AC of #42).
 - The skin is the #48 JSON, sent once in `snapshot` (and on change); the browser uses it as data.
-- #43 measures bytes per interaction; if JSON is the bottleneck, a binary encoding is a new
+- #42 measures bytes per keystroke and per drag; #43 adds end-to-end transport and latency
+  measurements. If JSON is the bottleneck, a binary encoding or the v2 sub-layer diff is a new
   negotiated capability, not a breaking change.
 
 ## Question 8 — Security model
@@ -403,7 +414,9 @@ Shape rects are in **base pixels**, layer-local. `text` uses a layer-local **cel
 client can snap it to its own glyph grid. `frame` carries the server-computed `FrameLayout`
 (title bar, title text, client area, gadget rects, resize grip, scrollbar rects) in base pixels;
 the client paints, it does not recompute. Unknown ops are ignored by a client that did not
-advertise them; a required unknown op causes `error`.
+advertise them; a required unknown op causes `error`. Every op may carry an optional `id` (stable
+primitive id) and the layer's `rev`; v1 uses them only for ordering/debugging, and a v2
+`layer_patch` uses `(id, rev)` to address row/run updates.
 
 ### Client → server messages
 
@@ -435,9 +448,10 @@ identifies a gesture and holds the exclusive pointer lock. Events are ordered wi
 ## Consequences and slices
 
 - **#42 (D2)** implements `RecordingCanvas`, the protocol types, the layer diff, latest-frame-wins
-  and the input mapping, plus round-trip tests. It needs #35 (done) and this ADR.
+  and the input mapping, plus round-trip tests. It also measures and records **bytes per keystroke
+  and per drag**. It needs #35 (done) and this ADR.
 - **#43 (D3)** implements the axum/WebSocket host, the Deno/TypeScript client and Stage L security;
-  it produces the first end-to-end Dual UI demo and the byte/latency measurements.
+  it produces the first end-to-end Dual UI demo and end-to-end transport/latency measurements.
 - **#44 (D4)** adds chart/gauge primitives whose ops carry data, so the browser renders SVG/Canvas
   at its own resolution; text and pixel renderers keep their braille/vector implementations.
 - **#45 (D5)** implements Stage O: TLS, roles, origin/CSRF/CSP, rate and size limits, timeouts,
@@ -450,7 +464,7 @@ Risks and mitigations:
 | Risk | Mitigation |
 |---|---|
 | Protocol drift between Rust and TypeScript | Versioned envelope, committed JSON fixtures, round-trip tests on both sides |
-| Bandwidth too high for JSON | Per-layer diffs, latest-frame-wins, measure in #43; binary is a negotiated capability |
+| Bandwidth too high for JSON | Per-layer diffs, latest-frame-wins; #42 measures bytes per keystroke/drag; binary or the v2 sub-layer diff is a negotiated capability |
 | Visual mismatch between terminal and browser | One semantic vocabulary (#35/#48), server-side frame layout, golden/snapshot tests per renderer |
 | Slow client stalls the UI | `watch` latest-frame-wins, bounded input queues, encoder per client, resync threshold |
 | Security regression in Stage O | Explicit flags, server-side role checks, tests on #45's AC, separate security review and threat model |

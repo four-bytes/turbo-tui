@@ -1,0 +1,96 @@
+{
+  "name": "Workbench",
+  "desktop": {
+    "bg": { "fg": "#AAAAAA", "bg": "#AAAAAA" },
+    "char": " "
+  },
+  "borders": {
+    "window": "single",
+    "menu": { "chars": "single", "sep_l": "├", "sep_r": "┤" }
+  },
+  "window": {
+    "frame_active": { "fg": "#000000", "bg": "#6688BB" },
+    "frame_inactive": { "fg": "#000000", "bg": "#AAAAAA" },
+    "title_active": { "fg": "#000000", "bg": "#6688BB" },
+    "title_inactive": { "fg": "#000000", "bg": "#AAAAAA" },
+    "interior": { "fg": "#000000", "bg": "#AAAAAA" },
+    "close_button": { "fg": "#000000", "bg": "#6688BB" },
+    "resize_handle": { "fg": "#000000", "bg": "#6688BB" },
+    "frame_dragging": { "fg": "#FFFFFF", "bg": "#000000" },
+    "close_button_hover": { "fg": "#FFFFFF", "bg": "#000000" },
+    "resize_handle_hover": { "fg": "#000000", "bg": "#FFFFFF" },
+    "close_button_inactive": { "fg": "#000000", "bg": "#AAAAAA" },
+    "resize_handle_inactive": { "fg": "#000000", "bg": "#AAAAAA" },
+    "close_button_text": "[■]",
+    "close_button_side": "left",
+    "controls_side": "right",
+    "button_margin_left": 2,
+    "button_margin_right": 2,
+    "resize_grip_char": "◢",
+    "minimize_button_text": "[▢]",
+    "maximize_button_text": "[▣]",
+    "maximize_restore_text": "[▣]",
+    "minimize_button": { "fg": "#000000", "bg": "#6688BB" },
+    "minimize_button_hover": { "fg": "#FFFFFF", "bg": "#000000" },
+    "minimize_button_inactive": { "fg": "#000000", "bg": "#AAAAAA" },
+    "maximize_button": { "fg": "#000000", "bg": "#6688BB" },
+    "maximize_button_hover": { "fg": "#FFFFFF", "bg": "#000000" },
+    "maximize_button_inactive": { "fg": "#000000", "bg": "#AAAAAA" }
+  },
+  "dialog": {
+    "frame": { "fg": "#000000", "bg": "#AAAAAA" },
+    "title": { "fg": "#000000", "bg": "#6688BB" },
+    "interior": { "fg": "#000000", "bg": "#AAAAAA" }
+  },
+  "single_frame": { "frame": { "fg": "#000000", "bg": "#AAAAAA" } },
+  "menu_bar": {
+    "normal": { "fg": "#000000", "bg": "#AAAAAA" },
+    "selected": { "fg": "#000000", "bg": "#6688BB" },
+    "hotkey": { "fg": "#003388", "bg": "#AAAAAA", "bold": true },
+    "hotkey_selected": { "fg": "#000000", "bg": "#6688BB", "bold": true }
+  },
+  "menu_box": {
+    "normal": { "fg": "#000000", "bg": "#AAAAAA" },
+    "selected": { "fg": "#000000", "bg": "#6688BB" },
+    "disabled": { "fg": "#777777", "bg": "#AAAAAA" },
+    "separator": { "fg": "#777777", "bg": "#AAAAAA" },
+    "hotkey": { "fg": "#003388", "bg": "#AAAAAA", "bold": true },
+    "hotkey_selected": { "fg": "#000000", "bg": "#6688BB", "bold": true }
+  },
+  "status_bar": {
+    "normal": { "fg": "#000000", "bg": "#AAAAAA" },
+    "hotkey": { "fg": "#003388", "bg": "#AAAAAA", "bold": true },
+    "selected": { "fg": "#000000", "bg": "#6688BB" }
+  },
+  "button": {
+    "normal": { "fg": "#000000", "bg": "#AAAAAA" },
+    "default": { "fg": "#000000", "bg": "#AAAAAA", "bold": true },
+    "focused": { "fg": "#000000", "bg": "#6688BB" },
+    "disabled": { "fg": "#777777", "bg": "#AAAAAA" },
+    "hover": { "fg": "#000000", "bg": "#6688BB" }
+  },
+  "static_text": { "fg": "#000000", "bg": "#AAAAAA" },
+  "scrollbar": {
+    "track": { "fg": "#777777", "bg": "#AAAAAA" },
+    "thumb": { "fg": "#000000", "bg": "#AAAAAA" },
+    "arrows": { "fg": "#000000", "bg": "#AAAAAA" },
+    "thumb_hover": { "fg": "#000000", "bg": "#6688BB" },
+    "arrows_hover": { "fg": "#000000", "bg": "#6688BB" },
+    "track_hover": { "fg": "#000000", "bg": "#AAAAAA" },
+    "track_inactive": { "fg": "#777777", "bg": "#AAAAAA" },
+    "thumb_inactive": { "fg": "#777777", "bg": "#AAAAAA" },
+    "arrows_inactive": { "fg": "#777777", "bg": "#AAAAAA" }
+  },
+  "input_line": {
+    "normal": { "fg": "#000000", "bg": "#FFFFFF" },
+    "focused": { "fg": "#000000", "bg": "#DDE8F5" }
+  },
+  "list_box": {
+    "normal": { "fg": "#000000", "bg": "#AAAAAA" },
+    "selected": { "fg": "#000000", "bg": "#6688BB" }
+  },
+  "memo": {
+    "normal": { "fg": "#000000", "bg": "#FFFFFF" },
+    "focused": { "fg": "#000000", "bg": "#FFFFFF" }
+  }
+}

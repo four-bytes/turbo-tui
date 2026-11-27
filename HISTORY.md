@@ -1,3 +1,8 @@
+## Unreleased
+
+### Added
+- New `Workbench` theme (`themes/workbench.json`) for text mode: Amiga OS 3.9 palette, single-line frames, left close gadget, Workbench menu/status/button/scrollbar look; all text pairs reach ≥ 4.5:1 contrast, covered by a unit test (Issue #37)
+
 ## v0.5.0 — 2026-11-27
 
 ### Added

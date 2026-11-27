@@ -815,6 +815,14 @@ mod tests {
         assert!(t.link.add_modifier.contains(Modifier::UNDERLINED));
         assert!(t.link_hover.add_modifier.contains(Modifier::UNDERLINED));
         assert!(t.link_visited.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(t.link_hover.add_modifier.contains(Modifier::BOLD));
+        assert!(!t.link.add_modifier.contains(Modifier::BOLD));
+        assert!(!t.link_visited.add_modifier.contains(Modifier::BOLD));
+
+        // No bleed-through: every link state paints its own background.
+        assert!(t.link.bg.is_some());
+        assert!(t.link_hover.bg.is_some());
+        assert!(t.link_visited.bg.is_some());
 
         // The three link states must not share the same foreground color.
         assert_ne!(t.link.fg, t.link_hover.fg);

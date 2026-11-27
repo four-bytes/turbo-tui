@@ -1302,8 +1302,12 @@ mod tests {
             underline: false,
         };
         let json = serde_json::to_string(&sv).expect("serialize");
-        // bold: false should be omitted via skip_serializing_if
+        // false modifiers should be omitted via skip_serializing_if
         assert!(!json.contains("bold"), "bold:false should be skipped");
+        assert!(
+            !json.contains("underline"),
+            "underline:false should be skipped"
+        );
     }
 
     #[test]
@@ -1316,6 +1320,33 @@ mod tests {
         };
         let json = serde_json::to_string(&sv).expect("serialize");
         assert!(json.contains("bold"), "bold:true should be included");
+    }
+
+    #[test]
+    fn test_style_value_underline_roundtrip() {
+        let underlined = StyleValue {
+            fg: ColorValue::Named("White".to_owned()),
+            bg: ColorValue::Named("Blue".to_owned()),
+            bold: false,
+            underline: true,
+        };
+
+        let style = underlined.to_style();
+        assert!(style.add_modifier.contains(Modifier::UNDERLINED));
+        assert!(
+            !style.add_modifier.contains(Modifier::BOLD),
+            "underline must not imply bold"
+        );
+
+        let back = StyleValue::from_style(style);
+        assert!(back.underline);
+        assert!(!back.bold);
+        assert_eq!(back.fg, underlined.fg);
+        assert_eq!(back.bg, underlined.bg);
+
+        let json = serde_json::to_string(&underlined).expect("serialize");
+        assert!(json.contains("underline"), "underline:true must be written");
+        assert!(!json.contains("bold"), "bold:false must stay omitted");
     }
 
     #[test]
@@ -1505,6 +1536,7 @@ mod tests {
             return;
         }
 
+        let mut checked_files = 0;
         let mut failures = Vec::new();
         for entry in std::fs::read_dir(themes_dir)
             .expect("Should read themes dir")
@@ -1514,6 +1546,7 @@ mod tests {
             if path.extension().and_then(std::ffi::OsStr::to_str) != Some("json") {
                 continue;
             }
+            checked_files += 1;
             let file = path
                 .file_name()
                 .and_then(std::ffi::OsStr::to_str)
@@ -1521,14 +1554,18 @@ mod tests {
                 .to_owned();
             let data = ThemeData::load_from_file(&path)
                 .unwrap_or_else(|e| panic!("Failed to load {file}: {e}"));
+            let theme = data.to_theme();
 
-            let pens: &[(&str, &StyleValue)] = &[
-                ("link", &data.link),
-                ("link_hover", &data.link_hover),
-                ("link_visited", &data.link_visited),
+            let pens: &[(&str, &StyleValue, &Style)] = &[
+                ("link", &data.link, &theme.link),
+                ("link_hover", &data.link_hover, &theme.link_hover),
+                ("link_visited", &data.link_visited, &theme.link_visited),
             ];
-            for (name, style) in pens {
-                let ratio = contrast_ratio(&style.fg, &style.bg);
+            for (name, value, style) in pens {
+                if !value.underline || !style.add_modifier.contains(Modifier::UNDERLINED) {
+                    failures.push(format!("{file}:{name} is not underlined"));
+                }
+                let ratio = contrast_ratio(&value.fg, &value.bg);
                 if ratio < 4.5 {
                     failures.push(format!("{file}:{name} = {ratio:.2}:1"));
                 }
@@ -1536,8 +1573,12 @@ mod tests {
         }
 
         assert!(
+            checked_files >= 7,
+            "Expected at least 7 shipped themes, inspected {checked_files}"
+        );
+        assert!(
             failures.is_empty(),
-            "Shipped theme link pens below 4.5:1: {}",
+            "Shipped theme link pens are invalid: {}",
             failures.join(", ")
         );
     }

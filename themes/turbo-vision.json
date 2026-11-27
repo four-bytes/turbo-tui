@@ -216,6 +216,9 @@
     "fg": "Yellow",
     "bg": "Blue"
   },
+  "link": { "fg": "LightCyan", "bg": "Blue", "underline": true },
+  "link_hover": { "fg": "White", "bg": "Blue", "bold": true, "underline": true },
+  "link_visited": { "fg": "LightMagenta", "bg": "Blue", "underline": true },
   "scrollbar": {
     "track": {
       "fg": "Blue",

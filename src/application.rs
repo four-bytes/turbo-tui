@@ -39,6 +39,7 @@ use crate::command::{
 };
 use crate::core::{Position, Rect};
 use crate::desktop::Desktop;
+use crate::hyperlink::{detect_current, HyperlinkMode, HyperlinkSupport};
 use crate::menu_bar::MenuBar;
 use crate::menu_bar::MenuItem;
 use crate::menu_box::MenuBox;
@@ -120,6 +121,10 @@ pub struct Application {
     /// Accumulated dirty rectangle for partial invalidation.
     /// Set to `None` to redraw the full screen.
     dirty_rect: Option<Rect>,
+    /// How OSC 8 hyperlink emission is selected.
+    hyperlink_mode: HyperlinkMode,
+    /// Resolved hyperlink capability decision.
+    hyperlink_support: HyperlinkSupport,
 }
 
 impl Application {
@@ -133,6 +138,8 @@ impl Application {
     /// [`set_status_bar`]: Application::set_status_bar
     #[must_use]
     pub fn new(screen_size: Rect) -> Self {
+        let hyperlink_mode = HyperlinkMode::from_env();
+        let hyperlink_support = detect_current(hyperlink_mode, None);
         Self {
             screen_size,
             desktop: Desktop::new(screen_size),
@@ -146,7 +153,50 @@ impl Application {
             drag_origin: None,
             drag_payload: None,
             dirty_rect: None,
+            hyperlink_mode,
+            hyperlink_support,
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Hyperlinks
+    // -------------------------------------------------------------------------
+
+    /// Selects the hyperlink mode and recomputes support without an XTVERSION
+    /// answer (Builder Lite).
+    ///
+    /// The application does **not** own the terminal: pass
+    /// [`hyperlink_support`](Application::hyperlink_support)'s `enabled` flag to
+    /// [`Terminal::set_hyperlinks`](crate::terminal::Terminal::set_hyperlinks).
+    #[must_use]
+    pub fn with_hyperlinks(mut self, mode: HyperlinkMode) -> Self {
+        self.hyperlink_mode = mode;
+        self.hyperlink_support = detect_current(mode, None);
+        self
+    }
+
+    /// Recomputes hyperlink support using an already-collected XTVERSION answer
+    /// (Builder Lite).
+    ///
+    /// The answer is the reply to `CSI > 0 q`. The active query belongs to the
+    /// shared startup query round (see [`crate::hyperlink`]); this method only
+    /// consumes an answer the caller has already read.
+    #[must_use]
+    pub fn with_xtversion(mut self, answer: &str) -> Self {
+        self.hyperlink_support = detect_current(self.hyperlink_mode, Some(answer));
+        self
+    }
+
+    /// Returns the selected hyperlink mode.
+    #[must_use]
+    pub const fn hyperlink_mode(&self) -> HyperlinkMode {
+        self.hyperlink_mode
+    }
+
+    /// Returns the resolved hyperlink capability decision.
+    #[must_use]
+    pub const fn hyperlink_support(&self) -> &HyperlinkSupport {
+        &self.hyperlink_support
     }
 
     // -------------------------------------------------------------------------
@@ -1849,5 +1899,25 @@ mod tests {
     fn test_coalesce_empty_input() {
         let out = coalesce_mouse_motion_events(&[]);
         assert!(out.is_empty(), "empty input stays empty");
+    }
+
+    // -------------------------------------------------------------------------
+    // Hyperlinks
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_application_with_hyperlinks_on() {
+        let app = Application::new(screen()).with_hyperlinks(HyperlinkMode::On);
+        assert_eq!(app.hyperlink_mode(), HyperlinkMode::On);
+        assert!(app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "forced on");
+    }
+
+    #[test]
+    fn test_application_with_hyperlinks_off() {
+        let app = Application::new(screen()).with_hyperlinks(HyperlinkMode::Off);
+        assert_eq!(app.hyperlink_mode(), HyperlinkMode::Off);
+        assert!(!app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "disabled by mode");
     }
 }

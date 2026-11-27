@@ -282,6 +282,9 @@ impl Buffer {
         }
         self.area = area;
         self.links.clear();
+        for cell in &mut self.content {
+            cell.set_link(None);
+        }
     }
 
     /// Resets every cell to the empty state and clears the link table.
@@ -511,12 +514,24 @@ mod tests {
     #[test]
     fn test_buffer_resize_clears_links() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 4, 1));
-        buf.links
+        let id = buf
+            .links
             .insert(&crate::core::Link::new(crate::core::LinkTarget::Url(
                 "https://example.com".to_owned(),
             )));
+        // Link cells that survive the shrink and one that is truncated.
+        buf[(0, 0)].set_link(Some(id));
+        buf[(1, 0)].set_link(Some(id));
+        buf[(3, 0)].set_link(Some(id));
+
         buf.resize(Rect::new(0, 0, 2, 1));
         assert!(buf.links.is_empty());
+        assert!(buf.content.iter().all(|cell| cell.link().is_none()));
+
+        // Extending the buffer appends fresh cells, which must be unlinked too.
+        buf.resize(Rect::new(0, 0, 3, 1));
+        assert!(buf.links.is_empty());
+        assert!(buf.content.iter().all(|cell| cell.link().is_none()));
     }
 
     #[test]

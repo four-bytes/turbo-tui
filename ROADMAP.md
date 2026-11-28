@@ -164,17 +164,62 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 - **Runtime Theme Editor:** Edit themes at runtime.
 - **Community Controls pattern:** Documented extension pattern for community-contributed View implementations (guide + example).
 
-### Rendering Backend & Runtime (from the FourSix/Sixel discussion, 2026-11)
+### Rendering Backend & Runtime — Dual UI (from the FourSix/Sixel discussion, 2026-11)
+
+The former "Dual Render" framing is superseded by **Dual UI** (epic #39): one session, one view
+tree, native terminal **and** browser frontends with bidirectional input. Decisions:
+[ADR #41 Dual UI](docs/ADR-dual-ui.md) and [ADR #36 pixel geometry](docs/ADR-pixel-geometry.md).
+The browser is not a terminal stream; it renders a semantic display list per layer at its own
+resolution.
 
 - **Own backend instead of Ratatui:** ✅ **Completed in v0.4.0** (issue #21, S1–S6). From Ratatui, turbo-tui used `Buffer`, `Rect`, `Position`, `Style`/`Color`/`Modifier` (views and themes), `Terminal` (diff + output) and `Frame`, which was part of the public API via `Application::draw(&mut Frame)` and had to be replaced with an own frame/target type (breaking). Widgets, layouts, `Paragraph` and `Block` were not used, because the Turbo Vision views are our own code. Done: own `Cell`/`Buffer`/`Rect`/`Style` types (`turbo_tui::core`), own cell diff, `Terminal` + `Canvas`/`CellCanvas`, crossterm directly. Ratatui was not kept around as an adapter. Migration path for the consumer four-code (used Ratatui types directly) tracked in #10.
 - **Canvas trait:** widgets draw via `Canvas` instead of writing buffer cells directly. The canvas provides a metric (width × height of a character) that widgets compute with. Two implementations:
   - `CellCanvas`: unit = cell, metric 1 × 1. This is today's text mode; positioning is cell-wise.
-  - `PixelCanvas`: adapter onto the FourSix Engine. Unit = pixel, metric from the font (e.g. 8 × 16). Windows and text are positioned pixel-wise, output via Sixel.
+  - `PixelCanvas`: adapter onto the FourSix Engine. Surface unit = pixel, metric from the font (e.g. 8 × 16); layout stays cell-based, sub-cell window positions come from the per-layer offset ([ADR #36](docs/ADR-pixel-geometry.md)), output via Sixel.
 - **FourSix Engine (own layer, developed in `four-sixel-lab`):** pixel engine with graphics commands (rect, line, blit), text, clipping, composition and dirty tracking. It knows nothing about terminals: Sixel is one output path of the host; web or a native window would be others. Game engines use it directly, without the workbench.
 - **Order:** (1) ✅ done in v0.4.0: own cell backend + `Canvas` trait + `CellCanvas`, migrate widgets, remove Ratatui (#10) → (2) build and measure the engine in `four-sixel-lab` → (3) `PixelCanvas` adapter, turbo-tui windows in Sixel mode
 - **Open points for Sixel mode:** pixel mouse (`DECSET 1016`) in Windows Terminal; no text selection via the terminal (own selection + OSC 52); own fonts/HiDPI; bandwidth over SSH (adaptive fallback to text mode)
 - **Persistent buffer + dirty rects:** prerequisite for partial invalidation (v0.5.0, item 1) and for bandwidth-efficient Sixel over SSH.
 - **Tokio host (optional feature `tokio`):** UI owner task with `select!` over crossterm `EventStream`, service channels (`mpsc` for commands/results, `watch` for latest state) and a render tick (`MissedTickBehavior::Skip`, frame cap). Many parallel producers, **one** sequential consumer: the view tree stays in a single task (three-phase dispatch is sequential; no `Send`/locks needed). Service messages feed into the existing deferred event queue. Replaces the former "Channel-Based Events" item.
+
+### Dual UI slices (epic #39, ADRs #41 / #36)
+
+Decisions: [ADR #41 Dual UI](docs/ADR-dual-ui.md) — display list per layer + WM state, per-layer
+diffs, JSON v1, latest-frame-wins, one shared desktop, controller roles, two security stages.
+[ADR #36 pixel geometry](docs/ADR-pixel-geometry.md) — cell layout + per-layer pixel offset.
+
+- [ ] **D1 #41:** ADR Dual UI (protocol, diffs, geometry, multi-client, security) and the
+      companion geometry ADR #36. ✅ accepted (architect review 2026-11-27).
+- [ ] **D2 #42:** `RecordingCanvas` + diff protocol behind feature `web` (off by default):
+      display list per layer with stable `ViewId`, full snapshot, per-layer diff, input mapping,
+      latest-frame-wins; measures bytes per keystroke and per drag. Testable without a browser.
+- [ ] **D3 #43:** Web host (axum + WebSocket) and the Deno/TypeScript browser client, bidirectional
+      sync, **localhost only**, token, read-only by default (`--web-control`), end-to-end
+      transport/latency measurements.
+- [ ] **D4 #44:** Data widgets (`LineChart`, `Sparkline`, `Gauge`, `BarChart`) with per-renderer
+      output: braille/blocks in the cell canvas, vector/anti-aliased in pixel, SVG/Canvas in the
+      browser. Ops carry data, not raster.
+- [ ] **D5 #45:** Open-port web GUI: explicit opt-in, TLS, per-user tokens and `viewer`/
+      `controller` roles, Origin check, CSP/CSRF, rate/size limits, timeouts, audit log,
+      `docs/WEB-SECURITY.md`.
+
+Dependencies: #42 after #41 and #35 (done) · #43 after #42 · #44 after #35 (browser after #43,
+pixel part after #34) · #45 after #43 (and #44 for the monitoring case). #34 and #51 depend on
+four-sixel-lab#58; #52 depends on four-sixel-lab#58 as well. #40 (prior art) runs in parallel and
+may adjust positioning, not the protocol.
+
+### Pixel geometry slices (ADR #36)
+
+- [ ] **G1:** `PixelOffset` + `LayerOrigin` + `CellRect`/`PixelRect` in `foursix-look`; `ViewBase`
+      offset, `Canvas::begin_layer`/`end_layer` defaults; `offset = 0` snapshots byte-identical.
+- [ ] **G2:** `Window` drag/resize with offsets, `Desktop` tile/cascade/shelf force zero, WM state
+      serialization gains the offset.
+- [ ] **G3:** `PixelCanvas` exact geometry, `DECSET 1016` pointer mapping, look-owned
+      `frame_layout` hit-testing — the pixel half of #34, after four-sixel-lab#58 / #51.
+- [ ] **G4:** `RecordingCanvas`/browser layer origins and pointer conversion — geometry part of
+      #42/#43.
+- [ ] **G5:** four-code adoption: persist offsets, opt in per window type, verify text mode
+      unchanged.
 
 ---
 
@@ -197,5 +242,8 @@ Menu dropdowns render via OverlayManager above all windows, eliminating clip-are
 | HISTORY.md | `HISTORY.md` | Change log (append-only) |
 | v0.2 Plan | `docs/PLAN-v0.2.md` | v0.2 architecture rebuild plan (completed) |
 | v0.2.1 Plan | `docs/PLAN-v0.2.1.md` | v0.2.1 sprint plan (completed) |
+| Dual UI ADR | `docs/ADR-dual-ui.md` | Protocol, diffs, multi-client, security (Dual UI) |
+| Pixel Geometry ADR | `docs/ADR-pixel-geometry.md` | Geometry units, free pixel positioning, snap rule |
+| Skin/Look ADR | `docs/ADR-skin-look.md` | Palette, look families, shared primitive vocabulary |
 | HorizontalBar Design | `docs/DESIGN-horizontal-bar.md` | Unified MenuBar+StatusBar design |
 | ADR-002 | `~/four-code/docs/ADR-002-turbo-tui-windowing.md` | Architecture decision record |

@@ -11,7 +11,8 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use crate::harness::{
-    expect_known_bug, wait_until, Attr, Color, Grid, Harness, Rect80, REACTION_TIMEOUT,
+    expect_known_bug, wait_until, Attr, CheckFailure, Color, Grid, Harness, Rect80,
+    REACTION_TIMEOUT,
 };
 
 // ---------------------------------------------------------------------------
@@ -214,8 +215,7 @@ fn check_horizontal_scrollbar(
     })?;
     let arrow_thumb = find_horizontal_thumb(&after_h_arrow, hbar_row, h_left, h_right);
 
-    // Track click: one page. A page can exceed the visible width, so accept
-    // either a text shift of more than one arrow step or a thumb jump.
+    // Track click: one page.
     let h_mid = u16::midpoint(h_left, h_right);
     harness.click(h_mid, hbar_row);
     std::thread::sleep(Duration::from_millis(180));
@@ -232,7 +232,10 @@ fn check_horizontal_scrollbar(
         (arrow_thumb, track_thumb),
         (Some(before), Some(after)) if after >= before.saturating_add(2)
     );
-    let text_page = track_shift.is_none_or(|shift| shift >= arrow_shift + 2);
+    // A page can be wider than the visible span, leaving no common text; that
+    // case is already proven by the thumb jump. A matched shift must exceed a
+    // single arrow step.
+    let text_page = track_shift.is_some_and(|shift| shift >= arrow_shift + 2);
     if !(thumb_jump || text_page) {
         return Err(format!(
             "horizontal track click did not page; arrow_shift={arrow_shift}, \
@@ -327,24 +330,28 @@ fn scenario_2b_scrollbars_expected_fail_70() {
     expect_known_bug("#70", || check_editor_scrollbar(&harness));
 }
 
-fn check_editor_scrollbar(harness: &Harness) -> Result<(), String> {
+fn check_editor_scrollbar(harness: &Harness) -> Result<(), CheckFailure> {
     const ANCHOR: &str = "//! turbo-tui";
     const TITLE: &str = "Editor — demo.rs";
 
     if !harness.click_text(ANCHOR) {
-        return Err(format!("editor anchor not found: {ANCHOR:?}"));
+        return Err(CheckFailure::Setup(format!(
+            "editor anchor not found: {ANCHOR:?}"
+        )));
     }
     if !wait_until(REACTION_TIMEOUT, || {
         harness.capture().window_rect(TITLE).is_some()
     }) {
-        return Err("editor frame did not become visible".to_owned());
+        return Err(CheckFailure::Setup(
+            "editor frame did not become visible".to_owned(),
+        ));
     }
     std::thread::sleep(Duration::from_millis(150));
 
     let before = harness.capture();
     let outer = before
         .window_rect(TITLE)
-        .ok_or_else(|| "editor frame not found".to_owned())?;
+        .ok_or_else(|| CheckFailure::Setup("editor frame not found".to_owned()))?;
     let interior = outer.inner(before.width, before.height);
     let first_row = interior.y;
     let first_before = row_slice(&before, first_row, interior.x, interior.right());
@@ -363,14 +370,14 @@ fn check_editor_scrollbar(harness: &Harness) -> Result<(), String> {
     let first_after = row_slice(&after, first_row, interior.x, interior.right());
 
     if first_after == first_before {
-        return Err(format!(
+        return Err(CheckFailure::Reproduced(format!(
             "editor down arrow did not scroll; row {first_row} (arrow at {arrow_x},{arrow_y}):              {first_before:?} -> {first_after:?}"
-        ));
+        )));
     }
     if first_before != second_before && first_after != second_before {
-        return Err(format!(
+        return Err(CheckFailure::Reproduced(format!(
             "editor down arrow did not scroll exactly one line; row {first_row}:              before={first_before:?}, expected={second_before:?}, got={first_after:?}"
-        ));
+        )));
     }
 
     Ok(())
@@ -410,12 +417,14 @@ fn scenario_3_editor_no_black_holes_expected_fail_73() {
     expect_known_bug("73", || check_editor_background(&harness).map(|_| ()));
 }
 
-fn check_editor_background(harness: &Harness) -> Result<String, String> {
+fn check_editor_background(harness: &Harness) -> Result<String, CheckFailure> {
     const ANCHOR: &str = "//! turbo-tui";
     const TITLE: &str = "Editor — demo.rs";
 
     if !harness.click_text(ANCHOR) {
-        return Err(format!("editor anchor not found: {ANCHOR:?}"));
+        return Err(CheckFailure::Setup(format!(
+            "editor anchor not found: {ANCHOR:?}"
+        )));
     }
     let raised = wait_until(REACTION_TIMEOUT, || {
         harness
@@ -424,7 +433,9 @@ fn check_editor_background(harness: &Harness) -> Result<String, String> {
             .is_some_and(|rect| rect.y < 10)
     });
     if !raised {
-        return Err("editor frame did not become visible".to_owned());
+        return Err(CheckFailure::Setup(
+            "editor frame did not become visible".to_owned(),
+        ));
     }
     // A second click places the caret and focuses the editor child.
     harness.click_text(ANCHOR);
@@ -433,7 +444,7 @@ fn check_editor_background(harness: &Harness) -> Result<String, String> {
     let before = harness.capture();
     let outer = before
         .window_rect(TITLE)
-        .ok_or_else(|| "editor frame not found".to_owned())?;
+        .ok_or_else(|| CheckFailure::Setup("editor frame not found".to_owned()))?;
     let mut interior = outer.inner(before.width, before.height);
     // The vertical scrollbar sits on the right border; its track styling bleeds
     // one cell into the interior. Exclude that column from the background check
@@ -474,11 +485,11 @@ fn check_editor_background(harness: &Harness) -> Result<String, String> {
             .iter()
             .filter(|(_, _, cell)| *cell == Color::Default)
             .count();
-        return Err(format!(
+        return Err(CheckFailure::Reproduced(format!(
             "{} interior cells differ from {majority:?} after scrolling \
              ({default_cells} default-bg holes, scrolled={scrolled}), e.g. ({x},{y}) = {color:?}",
             holes.len()
-        ));
+        )));
     }
 
     Ok(format!(
@@ -557,7 +568,7 @@ fn discover_themes(harness: &Harness) -> Vec<String> {
     themes
 }
 
-fn check_cursor_per_theme(harness: &Harness, themes: &[String]) -> Result<(), String> {
+fn check_cursor_per_theme(harness: &Harness, themes: &[String]) -> Result<(), CheckFailure> {
     const TITLE: &str = "Editor — demo.rs";
     const ANCHOR: &str = "//! turbo-tui";
 
@@ -570,18 +581,22 @@ fn check_cursor_per_theme(harness: &Harness, themes: &[String]) -> Result<(), St
     let initial = harness.capture();
     let interior = initial
         .window_rect(TITLE)
-        .ok_or_else(|| "editor frame not visible before theme switch".to_owned())?
+        .ok_or_else(|| {
+            CheckFailure::Setup("editor frame not visible before theme switch".to_owned())
+        })?
         .inner(initial.width, initial.height);
 
     let mut failures = Vec::new();
     for theme in themes {
         if !select_theme(harness, theme) {
-            failures.push(format!("{theme}: menu entry could not be selected"));
-            continue;
+            return Err(CheckFailure::Setup(format!(
+                "{theme}: menu entry could not be selected"
+            )));
         }
         if !harness.click_text(ANCHOR) {
-            failures.push(format!("{theme}: editor anchor not visible"));
-            continue;
+            return Err(CheckFailure::Setup(format!(
+                "{theme}: editor anchor not visible"
+            )));
         }
         std::thread::sleep(Duration::from_millis(120));
 
@@ -611,11 +626,11 @@ fn check_cursor_per_theme(harness: &Harness, themes: &[String]) -> Result<(), St
     if failures.is_empty() {
         Ok(())
     } else {
-        Err(format!(
+        Err(CheckFailure::Reproduced(format!(
             "{} theme(s): {}",
             failures.len(),
             failures.join("; ")
-        ))
+        )))
     }
 }
 

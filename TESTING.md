@@ -27,7 +27,7 @@ src/module.rs
     }
 ```
 
-No separate `tests/` directory. No integration test files. Everything is unit tests inside `#[cfg(test)] mod tests`.
+Unit tests are co-located in `#[cfg(test)] mod tests`. The single exception is the opt-in end-to-end suite in `tests/e2e.rs` (see "End-to-End tmux Tests" below), which is `#[ignore]`d by default.
 
 ### Test Count by Module (as of v0.2.1-dev)
 
@@ -154,9 +154,18 @@ explicitly:
 TURBO_TUI_E2E=1 cargo test --test e2e -- --ignored --test-threads=1 --nocapture
 ```
 
+Running serially is recommended because each scenario starts its own tmux server
+and shares the demo build; the harness itself is parallel-safe thanks to a
+per-`Harness` socket and scratch directory.
+
 The flag is required: without it the harness returns `None` and every test
 skips. With `TURBO_TUI_E2E=1` a missing tmux or a failed demo build is a hard
 panic, never a silent skip.
+
+Without `TURBO_TUI_E2E=1` the tests are ignored during a normal `cargo test`, and
+forcing them with `--ignored` still returns immediately from
+`Harness::start()` -> `None` without starting tmux. A green run with `--ignored`
+and no env var therefore proves nothing.
 
 ### Harness
 

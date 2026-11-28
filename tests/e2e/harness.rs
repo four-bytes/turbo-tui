@@ -837,13 +837,30 @@ pub struct Cursor {
     pub visible: bool,
 }
 
-/// Runs `check` and treats an error as the expected reproduction of `ticket`.
+/// Outcome of a known-bug check.
+pub enum CheckFailure {
+    /// The known bug reproduced — the expected outcome while it stays open.
+    Reproduced(String),
+    /// The check could not run (missing anchor, window not raised, menu entry
+    /// not selectable). Panics instead of counting as a reproduction.
+    Setup(String),
+}
+
+/// Runs `check` and treats a [`CheckFailure::Reproduced`] as the expected
+/// reproduction of `ticket`.
 ///
 /// The suite stays green while the bug exists and fails loudly with promotion
-/// instructions once the correct behaviour starts passing.
-pub fn expect_known_bug(ticket: &str, check: impl FnOnce() -> Result<(), String>) {
+/// instructions once the correct behaviour starts passing. A
+/// [`CheckFailure::Setup`] panics: a check that could not run must never pass
+/// silently as a reproduction.
+pub fn expect_known_bug(ticket: &str, check: impl FnOnce() -> Result<(), CheckFailure>) {
     match check() {
-        Err(reason) => eprintln!("EXPECTED-FAIL {ticket}: reproduced — {reason}"),
+        Err(CheckFailure::Reproduced(reason)) => {
+            eprintln!("EXPECTED-FAIL {ticket}: reproduced — {reason}");
+        }
+        Err(CheckFailure::Setup(reason)) => {
+            panic!("{ticket} check could not run (setup failure): {reason}");
+        }
         Ok(()) => panic!(
             "{ticket} no longer reproduces — remove expect_known_bug and assert the correct behaviour"
         ),
@@ -873,11 +890,17 @@ fn build_demo() {
 }
 
 fn demo_binary() -> PathBuf {
-    let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(
-        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"),
-        PathBuf::from,
-    );
-    target.join("debug").join("examples").join("demo")
+    // The integration test binary lives in `target/<profile>/deps`, so walking
+    // up two parents yields the profile directory. This honours a custom target
+    // dir as well as a target triple (`target/<triple>/<profile>`) because the
+    // layout below `deps` is fixed.
+    let profile_dir = std::env::current_exe()
+        .expect("resolve current test executable")
+        .parent()
+        .and_then(Path::parent)
+        .expect("test executable lives in target/<profile>/deps")
+        .to_path_buf();
+    profile_dir.join("examples").join("demo")
 }
 
 #[cfg(unix)]

@@ -11,6 +11,8 @@
 - OSC 8 hyperlinks carry a stable `id=` parameter, close before every cursor move and at the end of each frame, and suppress the SGR underline when the terminal draws its own link decoration (Windows Terminal double-line and stale-region artefacts); emission is off by default in `Auto` mode while mouse capture is active, because Windows Terminal keeps its hover decoration on old cells — links keep the theme underline and in-app `CM_OPEN_LINK`, and `TURBO_TUI_HYPERLINKS=on` or `HyperlinkMode::On` forces emission; policy documented on `Terminal::set_hyperlinks` and in the README (Issue #68, part of #54)
 - Fixed forced-OSC-8 rendering: clipped text now advances by display width for wide graphemes and resets their trailing cells, and the linked emission path uses the cursor-advance shortcut only for adjacent ASCII single-width linked cells — all plain and non-ASCII/wide cells are positioned absolutely, so wide or ambiguous-width characters and shorter-over-longer redraws no longer leave stale terminal cells (Issue #68)
 - `LinkLabel` no longer keeps the bold `link_hover` pen after the pointer leaves, the window moves, or focus changes; focus alone no longer selects the hover pen, so no cell keeps a stale hover underline/bold (Issue #68)
+- Link activation now works with a plain click as well as Ctrl+click; the demo reports the opener result in the status bar (Issue #68)
+- Added `TURBO_TUI_TRACE=<file>` framed terminal tracing (bytes + back-buffer symbols/modifiers/link ids) with a VT-model replay test and a `tests/fixtures/wt-trace.bin` capture hook; added a demo Control window with plain underlined text to separate Windows Terminal ghost underlines from turbo-tui bugs (Issue #68)
 
 ## v0.5.0 — 2026-11-27
 

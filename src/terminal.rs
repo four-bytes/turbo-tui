@@ -5,7 +5,9 @@
 //! buffer diffing in memory so widgets and integration tests can run without a
 //! real terminal.
 
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
+use std::path::Path;
 
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::queue;
@@ -32,6 +34,48 @@ const OSC8_PARAM_SEPARATOR: &[u8] = b";";
 const OSC8_ST: &[u8] = b"\x1b\\";
 /// Closes an OSC 8 hyperlink: `ESC ] 8 ; ; ESC \`.
 const OSC8_CLOSE: &[u8] = b"\x1b]8;;\x1b\\";
+
+/// Optional frame trace sink enabled by `TURBO_TUI_TRACE`.
+///
+/// Each block is length-prefixed raw output plus a snapshot of the expected back
+/// buffer, so a captured trace can be replayed into a VT model and compared
+/// frame by frame.
+struct TraceFile {
+    file: BufWriter<File>,
+    frame: u64,
+}
+
+/// Opens the trace file named by `TURBO_TUI_TRACE`, if set and non-empty.
+fn trace_from_env() -> Option<TraceFile> {
+    let path = std::env::var_os("TURBO_TUI_TRACE")?;
+    if path.is_empty() {
+        return None;
+    }
+    let file = File::create(&path).ok()?;
+    Some(TraceFile {
+        file: BufWriter::new(file),
+        frame: 0,
+    })
+}
+
+/// A writer that forwards bytes to the terminal writer and records exactly the
+/// bytes that were accepted.
+struct TapWriter<'a, W: Write> {
+    inner: &'a mut W,
+    tap: &'a mut Vec<u8>,
+}
+
+impl<W: Write> Write for TapWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        self.tap.extend_from_slice(&buf[..written]);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
 
 /// Writes an OSC 8 hyperlink opener carrying the link's stable id.
 ///
@@ -306,6 +350,7 @@ pub struct Terminal<W: Write> {
     cursor_visible: bool,
     hyperlinks: bool,
     allowed_schemes: Vec<String>,
+    trace: Option<TraceFile>,
 }
 
 impl<W: Write> Terminal<W> {
@@ -315,6 +360,10 @@ impl<W: Write> Terminal<W> {
     /// [`set_hyperlinks`](Terminal::set_hyperlinks) or
     /// [`with_hyperlinks`](Terminal::with_hyperlinks) once
     /// [`HyperlinkSupport`](crate::hyperlink::HyperlinkSupport) reports support.
+    ///
+    /// Set `TURBO_TUI_TRACE=<file>` to write every frame's terminal bytes plus a
+    /// back-buffer snapshot to that file. The file can be replayed with the
+    /// `test_trace_replay_*` VT-model test.
     #[must_use]
     pub fn new(writer: W, width: u16, height: u16) -> Self {
         let area = Rect::new(0, 0, width, height);
@@ -332,7 +381,34 @@ impl<W: Write> Terminal<W> {
                 .copied()
                 .map(str::to_owned)
                 .collect(),
+            trace: trace_from_env(),
         }
+    }
+
+    /// Enables tracing to `path`, replacing any trace opened from the
+    /// environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns any error from creating the trace file.
+    pub fn set_trace_file(&mut self, path: impl AsRef<Path>) -> io::Result<()> {
+        let file = File::create(path)?;
+        self.trace = Some(TraceFile {
+            file: BufWriter::new(file),
+            frame: 0,
+        });
+        Ok(())
+    }
+
+    /// Disables frame tracing.
+    pub fn clear_trace(&mut self) {
+        self.trace = None;
+    }
+
+    /// Returns whether frame tracing is active.
+    #[must_use]
+    pub const fn tracing(&self) -> bool {
+        self.trace.is_some()
     }
 
     /// Returns the terminal size as `(width, height)`.
@@ -426,6 +502,72 @@ impl<W: Write> Terminal<W> {
         self.flush()
     }
 
+    /// Writes one trace block: raw emitted bytes plus the expected back buffer.
+    fn trace_block(&mut self, label: &str, bytes: &[u8]) -> io::Result<()> {
+        let Some(trace) = self.trace.as_mut() else {
+            return Ok(());
+        };
+        if trace.frame == 0 {
+            writeln!(trace.file, "TURBO_TUI_TRACE 1")?;
+        }
+        trace.frame += 1;
+        let frame = trace.frame;
+        let (width, height) = (self.width, self.height);
+        writeln!(
+            trace.file,
+            "=== turbo-tui frame {frame} {label} {} bytes {width}x{height} ===",
+            bytes.len()
+        )?;
+        trace.file.write_all(bytes)?;
+        writeln!(trace.file)?;
+
+        writeln!(trace.file, "--- back ---")?;
+        for y in 0..height {
+            for x in 0..width {
+                if x > 0 {
+                    trace.file.write_all(b"\t")?;
+                }
+                trace
+                    .file
+                    .write_all(self.back[(x, y)].symbol().as_bytes())?;
+            }
+            writeln!(trace.file)?;
+        }
+
+        writeln!(trace.file, "--- mods ---")?;
+        for y in 0..height {
+            for x in 0..width {
+                if x > 0 {
+                    trace.file.write_all(b" ")?;
+                }
+                write!(trace.file, "{:04x}", self.back[(x, y)].modifier.bits())?;
+            }
+            writeln!(trace.file)?;
+        }
+
+        writeln!(trace.file, "--- links ---")?;
+        for y in 0..height {
+            for x in 0..width {
+                if x > 0 {
+                    trace.file.write_all(b" ")?;
+                }
+                let resolved = if self.hyperlinks {
+                    resolve_cell_link(&self.back.links, &self.allowed_schemes, &self.back[(x, y)])
+                } else {
+                    None
+                };
+                match resolved {
+                    Some((id, _)) => write!(trace.file, "{}", id.get())?,
+                    None => trace.file.write_all(b"-")?,
+                }
+            }
+            writeln!(trace.file)?;
+        }
+
+        writeln!(trace.file, "=== end frame {frame} ===")?;
+        trace.file.flush()
+    }
+
     /// Emits the cells that differ between the back and the front buffer.
     ///
     /// When hyperlinks are enabled, linked cells are wrapped in OSC 8
@@ -435,32 +577,38 @@ impl<W: Write> Terminal<W> {
     ///
     /// Returns any error produced while writing to the underlying writer.
     pub fn flush(&mut self) -> io::Result<()> {
-        emit_updates(
-            &mut self.writer,
-            &self.front,
-            &self.back,
-            self.hyperlinks,
-            &self.allowed_schemes,
-        )?;
-        self.front = self.back.clone();
-
-        match self.cursor {
-            Some(position) => {
-                queue!(self.writer, MoveTo(position.x, position.y))?;
-                if !self.cursor_visible {
-                    queue!(self.writer, Show)?;
-                    self.cursor_visible = true;
+        let mut frame = Vec::new();
+        {
+            let mut writer = TapWriter {
+                inner: &mut self.writer,
+                tap: &mut frame,
+            };
+            emit_updates(
+                &mut writer,
+                &self.front,
+                &self.back,
+                self.hyperlinks,
+                &self.allowed_schemes,
+            )?;
+            match self.cursor {
+                Some(position) => {
+                    queue!(&mut writer, MoveTo(position.x, position.y))?;
+                    if !self.cursor_visible {
+                        queue!(&mut writer, Show)?;
+                        self.cursor_visible = true;
+                    }
+                }
+                None => {
+                    if self.cursor_visible {
+                        queue!(&mut writer, Hide)?;
+                        self.cursor_visible = false;
+                    }
                 }
             }
-            None => {
-                if self.cursor_visible {
-                    queue!(self.writer, Hide)?;
-                    self.cursor_visible = false;
-                }
-            }
+            writer.inner.flush()?;
         }
-
-        self.writer.flush()
+        self.front = self.back.clone();
+        self.trace_block("flush", &frame)
     }
 
     /// Clears the screen and resets both buffers.
@@ -469,11 +617,19 @@ impl<W: Write> Terminal<W> {
     ///
     /// Returns any error produced while writing to the underlying writer.
     pub fn clear(&mut self) -> io::Result<()> {
-        queue!(self.writer, Clear(ClearType::All))?;
+        let mut frame = Vec::new();
+        {
+            let mut writer = TapWriter {
+                inner: &mut self.writer,
+                tap: &mut frame,
+            };
+            queue!(&mut writer, Clear(ClearType::All))?;
+            writer.inner.flush()?;
+        }
         let area = Rect::new(0, 0, self.width, self.height);
         self.front = Buffer::empty(area);
         self.back = Buffer::empty(area);
-        self.writer.flush()
+        self.trace_block("clear", &frame)
     }
 
     /// Resizes both buffers and forces a full repaint on the next frame.
@@ -487,8 +643,16 @@ impl<W: Write> Terminal<W> {
         let area = Rect::new(0, 0, width, height);
         self.front = Buffer::empty(area);
         self.back = Buffer::empty(area);
-        queue!(self.writer, Clear(ClearType::All))?;
-        self.writer.flush()
+        let mut frame = Vec::new();
+        {
+            let mut writer = TapWriter {
+                inner: &mut self.writer,
+                tap: &mut frame,
+            };
+            queue!(&mut writer, Clear(ClearType::All))?;
+            writer.inner.flush()?;
+        }
+        self.trace_block("resize", &frame)
     }
 
     /// Shows the cursor.
@@ -497,9 +661,17 @@ impl<W: Write> Terminal<W> {
     ///
     /// Returns any error produced while writing to the underlying writer.
     pub fn show_cursor(&mut self) -> io::Result<()> {
-        queue!(self.writer, Show)?;
+        let mut frame = Vec::new();
+        {
+            let mut writer = TapWriter {
+                inner: &mut self.writer,
+                tap: &mut frame,
+            };
+            queue!(&mut writer, Show)?;
+            writer.inner.flush()?;
+        }
         self.cursor_visible = true;
-        self.writer.flush()
+        self.trace_block("cursor", &frame)
     }
 
     /// Hides the cursor.
@@ -508,9 +680,17 @@ impl<W: Write> Terminal<W> {
     ///
     /// Returns any error produced while writing to the underlying writer.
     pub fn hide_cursor(&mut self) -> io::Result<()> {
-        queue!(self.writer, Hide)?;
+        let mut frame = Vec::new();
+        {
+            let mut writer = TapWriter {
+                inner: &mut self.writer,
+                tap: &mut frame,
+            };
+            queue!(&mut writer, Hide)?;
+            writer.inner.flush()?;
+        }
         self.cursor_visible = false;
-        self.writer.flush()
+        self.trace_block("cursor", &frame)
     }
 
     /// Stores the cursor position requested by the render callback.
@@ -1374,14 +1554,24 @@ mod tests {
 
     // -- VT screen model ----------------------------------------------------
 
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct VtLink {
+        id: Option<String>,
+        url: String,
+    }
+
     /// Minimal VT screen used to check that the emitted bytes, not just the
     /// front buffer, contain the cells the back buffer expects.
     struct VtScreen {
         width: u16,
         height: u16,
         cells: Vec<String>,
+        mods: Vec<Modifier>,
+        links: Vec<Option<VtLink>>,
         x: u16,
         y: u16,
+        modifier: Modifier,
+        link: Option<VtLink>,
         /// Simulate a terminal that renders the ambiguous-width em dash as two
         /// cells (Windows Terminal does this in some configurations).
         em_dash_double_width: bool,
@@ -1393,8 +1583,12 @@ mod tests {
                 width,
                 height,
                 cells: vec![" ".to_owned(); usize::from(width) * usize::from(height)],
+                mods: vec![Modifier::empty(); usize::from(width) * usize::from(height)],
+                links: vec![None; usize::from(width) * usize::from(height)],
                 x: 0,
                 y: 0,
+                modifier: Modifier::empty(),
+                link: None,
                 em_dash_double_width: false,
             }
         }
@@ -1416,8 +1610,9 @@ mod tests {
                     }
                     let text = std::str::from_utf8(&bytes[start..i])
                         .expect("emitted text must be valid UTF-8");
-                    for ch in text.chars() {
-                        self.put(ch);
+                    for grapheme in unicode_segmentation::UnicodeSegmentation::graphemes(text, true)
+                    {
+                        self.put(grapheme);
                     }
                 }
             }
@@ -1427,19 +1622,26 @@ mod tests {
             *i += 1;
             match bytes.get(*i) {
                 Some(b']') => {
-                    // OSC: skip until BEL or ST.
+                    // OSC: capture the body and require ST for OSC 8.
                     *i += 1;
+                    let start = *i;
+                    let mut end = *i;
+                    let mut st = false;
                     while *i < bytes.len() {
                         if bytes[*i] == 0x07 {
+                            end = *i;
                             *i += 1;
                             break;
                         }
                         if bytes[*i] == 0x1b && bytes.get(*i + 1) == Some(&b'\\') {
+                            end = *i;
+                            st = true;
                             *i += 2;
                             break;
                         }
                         *i += 1;
                     }
+                    self.apply_osc(&bytes[start..end], st);
                 }
                 Some(b'[') => {
                     // CSI: parameters/intermediates until a final byte.
@@ -1454,12 +1656,85 @@ mod tests {
                     let final_byte = bytes[*i];
                     let parameters = &bytes[start..*i];
                     *i += 1;
-                    if final_byte == b'H' || final_byte == b'f' {
-                        self.move_to(parameters);
+                    match final_byte {
+                        b'H' | b'f' => self.move_to(parameters),
+                        b'm' => self.apply_sgr(parameters),
+                        b'J' => self.clear_screen(),
+                        _ => {}
                     }
                 }
                 Some(_) => *i += 1,
                 None => {}
+            }
+        }
+
+        fn apply_osc(&mut self, body: &[u8], st: bool) {
+            if !body.starts_with(b"8;") {
+                return;
+            }
+            assert!(st, "OSC 8 must be terminated with ST");
+            let rest = &body[2..];
+            let Some(separator) = rest.iter().position(|byte| *byte == b';') else {
+                panic!("OSC 8 is missing the URI separator");
+            };
+            let params = &rest[..separator];
+            let uri = &rest[separator + 1..];
+            if uri.is_empty() {
+                self.link = None;
+                return;
+            }
+            let params = std::str::from_utf8(params).expect("OSC 8 params must be UTF-8");
+            let id = params
+                .split(';')
+                .find_map(|param| param.strip_prefix("id="))
+                .map(str::to_owned);
+            self.link = Some(VtLink {
+                id,
+                url: std::str::from_utf8(uri)
+                    .expect("OSC 8 URI must be UTF-8")
+                    .to_owned(),
+            });
+        }
+
+        fn apply_sgr(&mut self, parameters: &[u8]) {
+            let text = std::str::from_utf8(parameters).unwrap_or("");
+            let codes: Vec<u16> = if text.is_empty() {
+                vec![0]
+            } else {
+                text.split(';')
+                    .map(|part| part.parse::<u16>().unwrap_or(0))
+                    .collect()
+            };
+            let mut index = 0;
+            while index < codes.len() {
+                match codes[index] {
+                    0 => self.modifier = Modifier::empty(),
+                    1 => self.modifier.insert(Modifier::BOLD),
+                    2 => self.modifier.insert(Modifier::DIM),
+                    3 => self.modifier.insert(Modifier::ITALIC),
+                    4 => self.modifier.insert(Modifier::UNDERLINED),
+                    5 => self.modifier.insert(Modifier::SLOW_BLINK),
+                    6 => self.modifier.insert(Modifier::RAPID_BLINK),
+                    7 => self.modifier.insert(Modifier::REVERSED),
+                    8 => self.modifier.insert(Modifier::HIDDEN),
+                    9 => self.modifier.insert(Modifier::CROSSED_OUT),
+                    22 => self.modifier.remove(Modifier::BOLD | Modifier::DIM),
+                    23 => self.modifier.remove(Modifier::ITALIC),
+                    24 => self.modifier.remove(Modifier::UNDERLINED),
+                    25 => self
+                        .modifier
+                        .remove(Modifier::SLOW_BLINK | Modifier::RAPID_BLINK),
+                    27 => self.modifier.remove(Modifier::REVERSED),
+                    28 => self.modifier.remove(Modifier::HIDDEN),
+                    29 => self.modifier.remove(Modifier::CROSSED_OUT),
+                    38 | 48 | 58 => match codes.get(index + 1) {
+                        Some(5) => index += 2,
+                        Some(2) => index += 4,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                index += 1;
             }
         }
 
@@ -1478,24 +1753,35 @@ mod tests {
             self.x = column.saturating_sub(1).min(self.width.saturating_sub(1));
         }
 
-        fn put(&mut self, ch: char) {
-            if ch.is_control() {
+        fn clear_screen(&mut self) {
+            self.cells.fill(" ".to_owned());
+            self.mods.fill(Modifier::empty());
+            self.links.fill(None);
+        }
+
+        fn put(&mut self, grapheme: &str) {
+            if grapheme.contains(char::is_control) {
                 return;
             }
-            let width = if self.em_dash_double_width && ch == '—' {
+            let width = if self.em_dash_double_width && grapheme == "—" {
                 2
             } else {
-                u16::try_from(unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1))
-                    .unwrap_or(1)
-                    .max(1)
+                u16::try_from(unicode_width::UnicodeWidthStr::width(grapheme)).unwrap_or(1)
             };
+            if width == 0 {
+                return;
+            }
             if self.x < self.width && self.y < self.height {
                 let index = usize::from(self.y) * usize::from(self.width) + usize::from(self.x);
-                self.cells[index] = ch.to_string();
+                self.cells[index] = grapheme.to_owned();
+                self.mods[index] = self.modifier;
+                self.links[index] = self.link.clone();
                 for offset in 1..width {
                     let trailing = index + usize::from(offset);
                     if trailing < self.cells.len() {
                         self.cells[trailing] = " ".to_owned();
+                        self.mods[trailing] = Modifier::empty();
+                        self.links[trailing] = None;
                     }
                 }
             }
@@ -1509,18 +1795,50 @@ mod tests {
         screen
     }
 
+    fn expected_vt_link(buffer: &Buffer, x: u16, y: u16, schemes: &[String]) -> Option<VtLink> {
+        let id = buffer[(x, y)].link()?;
+        let link = buffer.links.get(id)?;
+        let url = crate::hyperlink::sanitized_url(link, schemes)?;
+        Some(VtLink {
+            id: Some(id.get().to_string()),
+            url,
+        })
+    }
+
     fn assert_screen_matches(terminal: &TestTerminal, screen: &VtScreen) {
         let buffer = terminal.buffer();
         assert_eq!(buffer.area.width, screen.width);
         assert_eq!(buffer.area.height, screen.height);
+        let schemes: Vec<String> = DEFAULT_LINK_SCHEMES
+            .iter()
+            .map(|scheme| (*scheme).to_owned())
+            .collect();
         for y in 0..screen.height {
             for x in 0..screen.width {
-                let expected = buffer[(x, y)].symbol();
-                let actual =
-                    &screen.cells[usize::from(y) * usize::from(screen.width) + usize::from(x)];
+                let index = usize::from(y) * usize::from(screen.width) + usize::from(x);
                 assert_eq!(
-                    actual, expected,
-                    "emitted screen differs from the back buffer at ({x},{y})"
+                    screen.cells[index],
+                    buffer[(x, y)].symbol(),
+                    "emitted symbol differs at ({x},{y})"
+                );
+                let mut expected_modifier = buffer[(x, y)].modifier;
+                let expected_link = if terminal.hyperlinks {
+                    expected_vt_link(buffer, x, y, &schemes)
+                } else {
+                    None
+                };
+                if expected_link.is_some() {
+                    // OSC 8 links intentionally drop SGR 4; the terminal draws
+                    // its own decoration instead.
+                    expected_modifier.remove(Modifier::UNDERLINED);
+                }
+                assert_eq!(
+                    screen.mods[index], expected_modifier,
+                    "emitted modifier differs at ({x},{y})"
+                );
+                assert_eq!(
+                    screen.links[index], expected_link,
+                    "emitted OSC 8 link differs at ({x},{y})"
                 );
             }
         }
@@ -1730,5 +2048,261 @@ mod tests {
         let mut screen = VtScreen::new(40, 1).with_em_dash_double_width();
         screen.apply(terminal.output());
         assert_screen_matches(&terminal, &screen);
+    }
+
+    // -- Trace replay -------------------------------------------------------
+
+    struct TraceFrame {
+        label: String,
+        width: u16,
+        height: u16,
+        bytes: Vec<u8>,
+        back: Vec<String>,
+        mods: Vec<u16>,
+        links: Vec<Option<String>>,
+    }
+
+    fn read_line<'a>(data: &'a [u8], position: &mut usize) -> Option<&'a str> {
+        if *position >= data.len() {
+            return None;
+        }
+        let end = data[*position..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map(|offset| *position + offset)?;
+        let line = std::str::from_utf8(&data[*position..end]).ok()?;
+        *position = end + 1;
+        Some(line)
+    }
+
+    fn parse_trace(data: &[u8]) -> Vec<TraceFrame> {
+        let mut position = 0;
+        assert_eq!(
+            read_line(data, &mut position),
+            Some("TURBO_TUI_TRACE 1"),
+            "trace magic"
+        );
+        let mut frames = Vec::new();
+        while position < data.len() {
+            let header = read_line(data, &mut position).expect("frame header");
+            if header.is_empty() {
+                continue;
+            }
+            let tokens: Vec<&str> = header.split_whitespace().collect();
+            assert_eq!(tokens[0], "===");
+            assert_eq!(tokens[1], "turbo-tui");
+            assert_eq!(tokens[2], "frame");
+            let label = tokens[4].to_owned();
+            let length: usize = tokens[5].parse().expect("frame byte length");
+            let mut dimensions = tokens[7].split('x');
+            let width: u16 = dimensions.next().expect("width").parse().expect("width");
+            let height: u16 = dimensions.next().expect("height").parse().expect("height");
+
+            let bytes = data[position..position + length].to_vec();
+            position += length;
+            assert_eq!(data.get(position), Some(&b'\n'), "frame byte terminator");
+            position += 1;
+
+            assert_eq!(read_line(data, &mut position), Some("--- back ---"));
+            let mut back = Vec::with_capacity(usize::from(width) * usize::from(height));
+            for _ in 0..height {
+                let line = read_line(data, &mut position).expect("back row");
+                let mut cells: Vec<&str> = line.split('\t').collect();
+                while cells.len() < usize::from(width) {
+                    cells.push(" ");
+                }
+                back.extend(
+                    cells
+                        .into_iter()
+                        .take(usize::from(width))
+                        .map(str::to_owned),
+                );
+            }
+
+            assert_eq!(read_line(data, &mut position), Some("--- mods ---"));
+            let mut mods = Vec::with_capacity(back.len());
+            for _ in 0..height {
+                let line = read_line(data, &mut position).expect("modifier row");
+                let mut values: Vec<&str> = line.split_whitespace().collect();
+                while values.len() < usize::from(width) {
+                    values.push("0000");
+                }
+                for value in values.into_iter().take(usize::from(width)) {
+                    mods.push(u16::from_str_radix(value, 16).expect("modifier bits"));
+                }
+            }
+
+            assert_eq!(read_line(data, &mut position), Some("--- links ---"));
+            let mut links = Vec::with_capacity(back.len());
+            for _ in 0..height {
+                let line = read_line(data, &mut position).expect("link row");
+                let mut values: Vec<&str> = line.split_whitespace().collect();
+                while values.len() < usize::from(width) {
+                    values.push("-");
+                }
+                for value in values.into_iter().take(usize::from(width)) {
+                    links.push((value != "-").then(|| value.to_owned()));
+                }
+            }
+
+            let end = read_line(data, &mut position).expect("frame end");
+            assert!(end.starts_with("=== end frame"), "frame end marker");
+
+            frames.push(TraceFrame {
+                label,
+                width,
+                height,
+                bytes,
+                back,
+                mods,
+                links,
+            });
+        }
+        frames
+    }
+
+    fn assert_screen_matches_snapshot(screen: &VtScreen, frame: &TraceFrame) {
+        assert_eq!(screen.width, frame.width);
+        assert_eq!(screen.height, frame.height);
+        for index in 0..frame.back.len() {
+            assert_eq!(
+                screen.cells[index], frame.back[index],
+                "symbol differs in frame {} ({}) at cell {index}",
+                frame.label, frame.label
+            );
+            assert_eq!(
+                screen.mods[index].bits(),
+                frame.mods[index]
+                    & if frame.links[index].is_some() {
+                        !Modifier::UNDERLINED.bits()
+                    } else {
+                        u16::MAX
+                    },
+                "modifier differs in frame {} at cell {index}",
+                frame.label
+            );
+            assert_eq!(
+                screen.links[index]
+                    .as_ref()
+                    .and_then(|link| link.id.clone()),
+                frame.links[index],
+                "link id differs in frame {} at cell {index}",
+                frame.label
+            );
+        }
+    }
+
+    fn temporary_trace_path(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "turbo-tui-trace-{}-{tag}-{nanos}.bin",
+            std::process::id()
+        ))
+    }
+
+    fn replay_trace(data: &[u8]) -> usize {
+        let frames = parse_trace(data);
+        assert!(!frames.is_empty(), "trace contains at least one frame");
+        let mut screen = VtScreen::new(frames[0].width, frames[0].height);
+        for frame in &frames {
+            if screen.width != frame.width || screen.height != frame.height {
+                screen = VtScreen::new(frame.width, frame.height);
+            }
+            screen.apply(&frame.bytes);
+            assert_screen_matches_snapshot(&screen, frame);
+        }
+        frames.len()
+    }
+
+    #[test]
+    fn test_trace_replay_matches_back_buffer_snapshots() {
+        let path = temporary_trace_path("replay");
+        let mut terminal = Terminal::new(Vec::new(), 40, 3).with_hyperlinks(true);
+        terminal.set_trace_file(&path).expect("trace file");
+
+        terminal
+            .draw(|buffer| {
+                buffer.set_string(0, 0, "OSC 8: on — Windows Terminal", Style::default());
+                Some(Position::new(0, 1))
+            })
+            .expect("draw plain");
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com/a"));
+                crate::clip::set_string_linked(
+                    buffer,
+                    0,
+                    1,
+                    "ABCDEFGHIJ",
+                    Style::default(),
+                    id,
+                    buffer.area,
+                );
+                None
+            })
+            .expect("draw link");
+        terminal
+            .draw(|buffer| {
+                buffer.set_string(0, 1, "AB", Style::default());
+                None
+            })
+            .expect("draw shorter plain");
+        terminal
+            .draw(|buffer| {
+                buffer.set_string(0, 2, "A世B—C", Style::default());
+                None
+            })
+            .expect("draw wide");
+        terminal
+            .draw(|buffer| {
+                buffer.set_string(0, 2, "A世B", Style::default());
+                None
+            })
+            .expect("draw shorter wide");
+
+        let trace = std::fs::read(&path).expect("read trace");
+        let frames = replay_trace(&trace);
+        assert_eq!(frames, 5, "one frame per draw");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_trace_replay_hyperlinks_off_has_no_link_ids() {
+        let path = temporary_trace_path("off");
+        let mut terminal = Terminal::new(Vec::new(), 20, 1);
+        terminal.set_trace_file(&path).expect("trace file");
+        terminal
+            .draw(|buffer| {
+                let id = buffer.links.insert(&url_link("https://example.com"));
+                buffer[(0, 0)].set_symbol("A").set_link(Some(id));
+                None
+            })
+            .expect("draw");
+
+        let trace = std::fs::read(&path).expect("read trace");
+        let frames = parse_trace(&trace);
+        assert_eq!(frames.len(), 1);
+        assert!(
+            frames[0].links.iter().all(Option::is_none),
+            "OSC 8 off means the snapshot must not claim a link"
+        );
+        assert_eq!(replay_trace(&trace), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_trace_fixture_replay_if_present() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("wt-trace.bin");
+        let Ok(data) = std::fs::read(path) else {
+            return;
+        };
+        let frames = replay_trace(&data);
+        eprintln!("replayed {frames} captured WT trace frames");
     }
 }

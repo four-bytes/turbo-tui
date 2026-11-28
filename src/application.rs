@@ -1287,9 +1287,9 @@ mod tests {
     }
 
     #[test]
-    fn test_application_plain_click_link_does_not_activate() {
+    fn test_application_plain_click_link_activates_through_window() {
         let target = LinkTarget::Url("https://example.com".to_owned());
-        let mut app = app_with_window_link(target);
+        let mut app = app_with_window_link(target.clone());
 
         app.handle_crossterm_events(&[ct_mouse(
             2,
@@ -1298,7 +1298,16 @@ mod tests {
             KeyModifiers::NONE,
         )]);
 
-        assert!(app.take_open_link().is_none());
+        assert_eq!(
+            app.take_open_link(),
+            Some(target),
+            "a plain click must activate the link"
+        );
+        assert_eq!(
+            app.take_unhandled_command(),
+            Some(CM_OPEN_LINK),
+            "activation must surface CM_OPEN_LINK"
+        );
     }
 
     // -------------------------------------------------------------------------

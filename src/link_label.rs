@@ -5,7 +5,8 @@
 //!
 //! - Moving the mouse over the label posts [`EventKind::LinkHover`] with the
 //!   link target.
-//! - Ctrl+click (or Enter/Space while focused) marks the link visited and posts
+//! - Clicking the label (plain click; Ctrl+click also works) or pressing
+//!   Enter/Space while focused marks the link visited and posts
 //!   [`EventKind::LinkActivate`].
 //!
 //! The application turns a hover into a status hint and an activation into
@@ -52,7 +53,8 @@ pub struct LinkLabel {
     hovered: bool,
     /// Whether the link has been activated at least once.
     visited: bool,
-    /// Modifier required for a click activation (default: Ctrl).
+    /// Modifier required for a click activation (default: none, so a plain
+    /// click activates; Ctrl+click also activates).
     activate_modifier: KeyModifiers,
 }
 
@@ -69,14 +71,15 @@ impl LinkLabel {
             link,
             hovered: false,
             visited: false,
-            activate_modifier: KeyModifiers::CONTROL,
+            activate_modifier: KeyModifiers::NONE,
         }
     }
 
     /// Sets the modifier required to activate the link with a click.
     ///
-    /// The default is [`KeyModifiers::CONTROL`]. Pass
-    /// [`KeyModifiers::NONE`] to activate on a plain left click.
+    /// The default is [`KeyModifiers::NONE`], so a plain click activates and
+    /// Ctrl+click also activates. Pass [`KeyModifiers::CONTROL`] to require a
+    /// modifier.
     #[must_use]
     pub fn with_activate_modifier(mut self, modifiers: KeyModifiers) -> Self {
         self.activate_modifier = modifiers;
@@ -342,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn test_link_label_click_without_modifier_does_not_activate() {
+    fn test_link_label_plain_click_activates_by_default() {
         let mut label = label();
         let mut event = Event::mouse(mouse(
             5,
@@ -353,9 +356,10 @@ mod tests {
 
         label.handle_event(&mut event);
 
-        assert!(!label.is_visited());
-        assert!(event.deferred.is_empty());
-        assert!(!event.is_cleared());
+        assert!(label.is_visited());
+        assert_eq!(event.deferred.len(), 1, "exactly one activation event");
+        assert!(has_link_activate(&event, &label.link().target));
+        assert!(event.is_cleared());
     }
 
     #[test]

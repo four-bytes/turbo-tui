@@ -277,7 +277,9 @@ impl Window {
     /// Set the logical content size for scrolling (Builder Lite).
     ///
     /// When content is larger than the interior, scrollbars automatically
-    /// adjust their range. Pass `None` to auto-detect from child bounds.
+    /// adjust their range. A self-scrolling child's [`View::content_size_hint`]
+    /// raises this value, so an Editor keeps its real extent. Pass `None` to
+    /// auto-detect from child bounds.
     #[must_use]
     pub fn with_content_size(mut self, width: u16, height: u16) -> Self {
         self.content_size = Some((width, height));
@@ -385,7 +387,10 @@ impl Window {
     /// Convenience method that delegates to `self.interior.add()`.
     /// The child's bounds must be **relative** to the interior container's top-left.
     pub fn add(&mut self, child: Box<dyn View>) -> ViewId {
-        self.interior.add(child)
+        let id = self.interior.add(child);
+        self.update_scrollbar_params();
+        self.sync_from_self_scrolling_child();
+        id
     }
 
     /// Check if the window is currently being dragged.
@@ -521,7 +526,8 @@ impl Window {
     /// Set the logical content size explicitly.
     ///
     /// This determines the scrollbar range: `max_scroll = content_size - interior_size`.
-    /// Pass `None` to auto-calculate from child bounds.
+    /// A self-scrolling child's [`View::content_size_hint`] raises (never lowers)
+    /// this value. Pass `None` to auto-calculate from child bounds.
     /// After setting, scrollbar params are updated and scroll offset is clamped.
     pub fn set_content_size(&mut self, size: Option<(u16, u16)>) {
         self.content_size = size;
@@ -569,24 +575,32 @@ impl Window {
         }
 
         self.update_scrollbar_params();
+        self.sync_from_self_scrolling_child();
     }
 
     // ── Scroll offset helpers ───────────────────────────────────────────────────
 
     /// Calculate the effective content size.
     ///
-    /// If `content_size` is explicitly set, returns that.
-    /// Otherwise, calculates the bounding box of all children relative to the interior.
+    /// A self-scrolling child's `content_size_hint()` raises (never lowers) the
+    /// explicit `content_size`; without one, the bounding box of all children
+    /// relative to the interior is used.
     pub(crate) fn effective_content_size(&self) -> (u16, u16) {
-        if let Some(size) = self.content_size {
-            return size;
-        }
-
-        // Query first child for content size hint
+        // A self-scrolling child (Editor, Memo) knows its true extent. Its hint
+        // must never be shrunk by an explicit content size that only describes
+        // the viewport, otherwise the scrollbar range collapses to zero and the
+        // frame scrollbar cannot drive the child (#70).
+        let mut size = self.content_size;
         if let Some(child) = self.interior.child_at(0) {
             if let Some((w, h)) = child.content_size_hint() {
-                return (w, h);
+                size = Some(match size {
+                    Some((explicit_w, explicit_h)) => (explicit_w.max(w), explicit_h.max(h)),
+                    None => (w, h),
+                });
             }
+        }
+        if let Some(size) = size {
+            return size;
         }
 
         // Auto-calculate from children bounds
@@ -679,6 +693,35 @@ impl Window {
             }
         }
         self.self_scrolling = any_self_scrolling;
+    }
+
+    /// Mirror a self-scrolling child (Editor, Memo) into the window offset and
+    /// frame scrollbars.
+    ///
+    /// A child that reports a `content_size_hint()` owns its viewport: it scrolls
+    /// itself on key and wheel input. Reading its `scroll_position()` after every
+    /// event keeps the frame scrollbars in sync with what the child actually
+    /// displays. The window is marked self-scrolling so `draw` does not bitmap-shift
+    /// the already-scrolled child a second time. A position outside the scrollbar
+    /// range is clamped and written back, so thumb and viewport cannot drift apart.
+    fn sync_from_self_scrolling_child(&mut self) {
+        let (max_x, max_y) = self.max_scroll_offset();
+        let Some(child) = self.interior.child_at_mut(0) else {
+            self.self_scrolling = false;
+            return;
+        };
+        if child.content_size_hint().is_none() {
+            self.self_scrolling = false;
+            return;
+        }
+        let (cx, cy) = child.scroll_position();
+        let clamped = (cx.clamp(0, max_x), cy.clamp(0, max_y));
+        if clamped != (cx, cy) {
+            child.scroll_to(clamped.0, clamped.1);
+        }
+        self.scroll_offset = clamped;
+        self.self_scrolling = true;
+        self.sync_scrollbars_from_offset();
     }
 
     /// Start a drag operation from the given mouse position.
@@ -1096,19 +1139,7 @@ impl View for Window {
         }
 
         self.update_scrollbar_params();
-
-        // Sync scroll_offset FROM self-scrolling children, then update scrollbar values
-        if self.self_scrolling {
-            if let Some(child) = self.interior.child_at(0) {
-                let (cx, cy) = child.scroll_position();
-                self.scroll_offset = (cx, cy);
-                // Re-clamp
-                let (max_x, max_y) = self.max_scroll_offset();
-                self.scroll_offset.0 = self.scroll_offset.0.clamp(0, max_x);
-                self.scroll_offset.1 = self.scroll_offset.1.clamp(0, max_y);
-                self.sync_scrollbars_from_offset();
-            }
-        }
+        self.sync_from_self_scrolling_child();
     }
 
     /// Window can always receive focus.
@@ -1165,12 +1196,16 @@ impl View for Window {
 mod tests {
     use super::*;
     use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
+    use crate::editor::Editor;
     use crate::frame::{FrameConfig, FrameType};
+    use crate::memo::Memo;
     use crate::scrollbar::ScrollBar;
     use crate::static_text::StaticText;
     use crate::theme::Theme;
     use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING};
-    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
 
     fn setup_theme() {
         crate::theme::set(Theme::turbo_vision());
@@ -2197,6 +2232,119 @@ mod tests {
         assert_ne!(
             child_bounds_after, child_bounds_before,
             "child bounds should have changed on resize"
+        );
+    }
+
+    fn editor_with_scrollable_content() -> Editor {
+        let content = format!("{}\n", "x".repeat(100)).repeat(100);
+        let mut editor = Editor::new(Rect::new(0, 0, 38, 10));
+        *editor.memo_mut() = Memo::new(Rect::new(0, 0, 38, 10)).with_text(&content);
+        editor
+    }
+
+    #[test]
+    fn test_window_frame_scrollbar_drives_editor() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 40, 12), "Editor").with_scrollbars(true, true);
+        win.add(Box::new(editor_with_scrollable_content()));
+
+        let b = win.base.bounds();
+        assert!(
+            win.frame().v_scrollbar().is_some_and(|sb| sb.max_val() > 0),
+            "vertical range must be non-zero after adding the editor"
+        );
+        let x = b.x + b.width - 1;
+        let y = b.y + b.height - 2;
+        win.handle_event(&mut mouse_down(x, y));
+
+        assert_eq!(win.frame().v_scrollbar().unwrap().value(), 1);
+        assert_eq!(
+            win.interior().child_at(0).unwrap().scroll_position().1,
+            1,
+            "editor viewport must follow the frame scrollbar"
+        );
+        assert_eq!(win.scroll_offset().1, 1);
+        assert!(win.self_scrolling);
+    }
+
+    #[test]
+    fn test_window_frame_horizontal_scrollbar_drives_editor() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 40, 12), "Editor").with_scrollbars(true, true);
+        win.add(Box::new(editor_with_scrollable_content()));
+
+        let b = win.base.bounds();
+        let y = b.y + b.height - 1;
+        let x = b.x + b.width / 2;
+        win.handle_event(&mut mouse_down(x, y));
+
+        let sb_value = win.frame().h_scrollbar().unwrap().value();
+        assert!(sb_value > 0, "horizontal track click must scroll right");
+        let child_x = win.interior().child_at(0).unwrap().scroll_position().0;
+        assert_eq!(sb_value, child_x);
+        assert_eq!(win.scroll_offset().0, child_x);
+    }
+
+    #[test]
+    fn test_window_editor_keyboard_scroll_updates_frame_scrollbar() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 40, 12), "Editor").with_scrollbars(true, true);
+        win.add(Box::new(editor_with_scrollable_content()));
+
+        for _ in 0..3 {
+            win.handle_event(&mut Event::key(KeyEvent::new(
+                KeyCode::PageDown,
+                KeyModifiers::NONE,
+            )));
+        }
+        let child_y = win.interior().child_at(0).unwrap().scroll_position().1;
+        assert!(child_y > 0, "PageDown must move the editor viewport");
+        assert_eq!(win.frame().v_scrollbar().unwrap().value(), child_y);
+        assert_eq!(win.scroll_offset().1, child_y);
+
+        for _ in 0..40 {
+            win.handle_event(&mut Event::key(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            )));
+        }
+        let child_x = win.interior().child_at(0).unwrap().scroll_position().0;
+        assert!(
+            child_x > 0,
+            "Right must move the editor viewport horizontally"
+        );
+        assert_eq!(win.frame().h_scrollbar().unwrap().value(), child_x);
+        assert_eq!(win.scroll_offset().0, child_x);
+    }
+
+    #[test]
+    fn test_window_editor_hint_outgrows_explicit_content_size() {
+        setup_theme();
+        // The demo used to pin the content size to the interior, which collapsed
+        // the scrollbar range to zero. The editor's own hint must win (#70).
+        let mut win = Window::new(Rect::new(0, 0, 40, 12), "Editor")
+            .with_scrollbars(true, true)
+            .with_content_size(1, 1);
+        win.add(Box::new(editor_with_scrollable_content()));
+
+        assert!(
+            win.frame().v_scrollbar().is_some_and(|sb| sb.max_val() > 0),
+            "editor hint must keep the vertical range non-zero"
+        );
+        assert!(
+            win.frame().h_scrollbar().is_some_and(|sb| sb.max_val() > 0),
+            "editor hint must keep the horizontal range non-zero"
+        );
+
+        let b = win.base.bounds();
+        let x = b.x + b.width - 1;
+        let y = b.y + b.height - 2;
+        win.handle_event(&mut mouse_down(x, y));
+
+        assert_eq!(
+            win.interior().child_at(0).unwrap().scroll_position().1,
+            1,
+            "down arrow must reach the editor despite the explicit content size"
         );
     }
 }

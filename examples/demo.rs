@@ -496,8 +496,7 @@ fn add_editor_window(app: &mut Application) {
 
     let mut win7 = Window::new(Rect::new(1, 5, 58, 18), "Editor — demo.rs")
         .with_scrollbars(true, true)
-        .with_min_size(30, 8)
-        .with_content_size(55, 16);
+        .with_min_size(30, 8);
     win7.add(Box::new(editor));
     app.add_window(win7);
 }

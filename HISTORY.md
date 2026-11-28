@@ -424,3 +424,8 @@
 - 397 tests passing, clippy pedantic clean, zero unsafe code
 
 [0.3.0]: https://github.com/four-bytes/turbo-tui/releases/tag/v0.3.0
+
+## [Unreleased]
+
+### Fixed
+- **Editor frame scrollbar inert (#70):** the window now derives the scrollbar range from the self-scrolling child's `content_size_hint()` and mirrors the child's `scroll_position()` into the frame scrollbars after every event, so arrow, track and thumb clicks drive the Editor and keyboard/wheel scrolling moves the thumb (both axes). The demo no longer pins the editor content size to the interior.

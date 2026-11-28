@@ -193,7 +193,7 @@ authoritative.
 |------|--------|----------------|
 | `scenario_1_drag_leaves_no_underline_streaks` | Dragging a window leaves no underlined cells outside the moved frame | passes |
 | `scenario_2_scrollbars_scroll_demo` | `Scroll Demo` vertical and horizontal bars: arrow = one step, track = page, thumb drag = further | passes; acceptance test for #70 on this window |
-| `scenario_2b_scrollbars_expected_fail_70` | Editor vertical bar: down arrow scrolls the first code line by one | #70 reproduces (expected failure) |
+| `scenario_2b_scrollbars_editor` | Editor vertical bar: down arrow scrolls the first code line by one | passes; acceptance test for #70 on the Editor window |
 | `scenario_3_editor_no_black_holes_expected_fail_73` | Editor interior keeps its background after wheel/page scrolling | #73 reproduces (expected failure): scrolled cells fall back to the window background |
 | `scenario_4_cursor_visible_per_theme_expected_fail_71` | Cursor is visible and placed inside the editor for every theme | #71 reproduces (expected failure) |
 | `scenario_5_link_click_reports_opened` | A link click reports `opened <url>` and runs the opener stub | passes |

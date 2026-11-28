@@ -5,7 +5,8 @@
 //!
 //! - Moving the mouse over the label posts [`EventKind::LinkHover`] with the
 //!   link target.
-//! - Ctrl+click (or Enter/Space while focused) marks the link visited and posts
+//! - Clicking the label (plain click; Ctrl+click also works) or pressing
+//!   Enter/Space while focused marks the link visited and posts
 //!   [`EventKind::LinkActivate`].
 //!
 //! The application turns a hover into a status hint and an activation into
@@ -32,10 +33,15 @@ use std::any::Any;
 /// # Visual Style
 ///
 /// ```text
-/// Hovered or focused:  underlined and bold (theme `link_hover`)
-/// Visited:             underlined (theme `link_visited`)
-/// Plain:               theme `link`
+/// Hovered:  underlined and bold (theme `link_hover`)
+/// Visited:  underlined (theme `link_visited`)
+/// Plain:    underlined (theme `link`)
+/// Focused:  the plain/visited pen; focus alone does not use the hover pen
 /// ```
+///
+/// Focus is an activation state (Enter/Space), not a hover state. Keeping the
+/// bold hover pen on a focused link made the underline look stuck after the
+/// pointer left it.
 pub struct LinkLabel {
     /// Embedded base providing id, bounds, state and options.
     base: ViewBase,
@@ -47,7 +53,8 @@ pub struct LinkLabel {
     hovered: bool,
     /// Whether the link has been activated at least once.
     visited: bool,
-    /// Modifier required for a click activation (default: Ctrl).
+    /// Modifier required for a click activation (default: none, so a plain
+    /// click activates; Ctrl+click also activates).
     activate_modifier: KeyModifiers,
 }
 
@@ -64,14 +71,15 @@ impl LinkLabel {
             link,
             hovered: false,
             visited: false,
-            activate_modifier: KeyModifiers::CONTROL,
+            activate_modifier: KeyModifiers::NONE,
         }
     }
 
     /// Sets the modifier required to activate the link with a click.
     ///
-    /// The default is [`KeyModifiers::CONTROL`]. Pass
-    /// [`KeyModifiers::NONE`] to activate on a plain left click.
+    /// The default is [`KeyModifiers::NONE`], so a plain click activates and
+    /// Ctrl+click also activates. Pass [`KeyModifiers::CONTROL`] to require a
+    /// modifier.
     #[must_use]
     pub fn with_activate_modifier(mut self, modifiers: KeyModifiers) -> Self {
         self.activate_modifier = modifiers;
@@ -125,6 +133,12 @@ impl View for LinkLabel {
     }
 
     fn set_bounds(&mut self, bounds: Rect) {
+        // Moving or resizing the label (window drag/move) means the pointer is
+        // no longer necessarily over it. Clear the hover so the old `link_hover`
+        // pen cannot survive the move.
+        if bounds != self.base.bounds() {
+            self.hovered = false;
+        }
         self.base.set_bounds(bounds);
     }
 
@@ -135,7 +149,9 @@ impl View for LinkLabel {
         }
 
         let style = theme::with_current(|t| {
-            if self.hovered || self.base.state() & SF_FOCUSED != 0 {
+            // Focus is not hover: a focused but non-hovered label must not keep
+            // the bold `link_hover` pen after the pointer leaves it.
+            if self.hovered {
                 t.link_hover
             } else if self.visited {
                 t.link_visited
@@ -145,6 +161,10 @@ impl View for LinkLabel {
         });
 
         canvas.draw_text_link(bounds.x, bounds.y, &self.text, style, &self.link, clip);
+    }
+
+    fn on_blur(&mut self) {
+        self.hovered = false;
     }
 
     fn handle_event(&mut self, event: &mut Event) {
@@ -257,6 +277,17 @@ mod tests {
         assert_eq!(style.add_modifier, pen.add_modifier, "modifiers");
     }
 
+    /// Returns `true` when `cell` carries the colours and modifiers of `pen`.
+    fn cell_matches_pen(cell: &Cell, pen: Style) -> bool {
+        let style = cell.style();
+        style.fg == pen.fg && style.bg == pen.bg && style.add_modifier == pen.add_modifier
+    }
+
+    /// Returns `true` when any cell in `buf` still carries `pen`.
+    fn buffer_has_pen(buf: &Buffer, pen: Style) -> bool {
+        buf.content().iter().any(|cell| cell_matches_pen(cell, pen))
+    }
+
     #[test]
     fn test_link_label_new_is_selectable_and_plain() {
         let label = label();
@@ -314,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn test_link_label_click_without_modifier_does_not_activate() {
+    fn test_link_label_plain_click_activates_by_default() {
         let mut label = label();
         let mut event = Event::mouse(mouse(
             5,
@@ -325,9 +356,10 @@ mod tests {
 
         label.handle_event(&mut event);
 
-        assert!(!label.is_visited());
-        assert!(event.deferred.is_empty());
-        assert!(!event.is_cleared());
+        assert!(label.is_visited());
+        assert_eq!(event.deferred.len(), 1, "exactly one activation event");
+        assert!(has_link_activate(&event, &label.link().target));
+        assert!(event.is_cleared());
     }
 
     #[test]
@@ -418,10 +450,9 @@ mod tests {
 
         let mut focused = LinkLabel::new(Rect::new(1, 0, 5, 1), "abc", url_link());
         focused.set_state(SF_FOCUSED);
-        let expected_focus = theme::with_current(|t| t.link_hover);
         let mut buf = Buffer::empty(clip);
         focused.draw(&mut CellCanvas::new(&mut buf), clip);
-        assert_pen_matches(buf.cell(Position::new(1, 0)).expect("cell"), expected_focus);
+        assert_pen_matches(buf.cell(Position::new(1, 0)).expect("cell"), expected_plain);
     }
 
     #[test]
@@ -483,5 +514,126 @@ mod tests {
                 "label must clear hover once the pointer leaves the window"
             );
         }
+    }
+
+    #[test]
+    fn test_link_label_move_away_leaves_no_hover_pen_in_buffer() {
+        let clip = Rect::new(0, 0, 20, 4);
+        let mut label = LinkLabel::new(Rect::new(1, 1, 10, 1), "example", url_link());
+        let hover_pen = theme::with_current(|t| t.link_hover);
+
+        label.handle_event(&mut Event::mouse(mouse(
+            5,
+            1,
+            MouseEventKind::Moved,
+            KeyModifiers::NONE,
+        )));
+        let mut buf = Buffer::empty(clip);
+        label.draw(&mut CellCanvas::new(&mut buf), clip);
+        assert!(
+            buffer_has_pen(&buf, hover_pen),
+            "hovering must paint the link_hover pen"
+        );
+
+        label.handle_event(&mut Event::mouse(mouse(
+            19,
+            3,
+            MouseEventKind::Moved,
+            KeyModifiers::NONE,
+        )));
+        assert!(!label.is_hovered());
+
+        let mut buf = Buffer::empty(clip);
+        label.draw(&mut CellCanvas::new(&mut buf), clip);
+        assert!(
+            !buffer_has_pen(&buf, hover_pen),
+            "the hover pen must not survive after the pointer leaves"
+        );
+    }
+
+    #[test]
+    fn test_link_label_focus_change_clears_hover_pen() {
+        let mut window = Window::new(Rect::new(0, 0, 20, 8), "W");
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 10, 1),
+            "first",
+            url_link(),
+        )));
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 3, 10, 1),
+            "second",
+            url_link(),
+        )));
+
+        // Hover the first (auto-focused) label at absolute (2, 2).
+        window.handle_event(&mut Event::mouse(mouse(
+            2,
+            2,
+            MouseEventKind::Moved,
+            KeyModifiers::NONE,
+        )));
+        {
+            let child = window.interior().child_at(0).expect("label");
+            let label = child.as_any().downcast_ref::<LinkLabel>().expect("label");
+            assert!(label.is_hovered());
+        }
+
+        // Focus moves to the second label: the first must drop its hover.
+        window.interior_mut().set_focus_to(1);
+        let child = window.interior().child_at(0).expect("label");
+        let label = child.as_any().downcast_ref::<LinkLabel>().expect("label");
+        assert!(
+            !label.is_hovered(),
+            "focus change must clear the previous hover"
+        );
+
+        let clip = Rect::new(0, 0, 20, 8);
+        let mut buf = Buffer::empty(clip);
+        window.draw(&mut CellCanvas::new(&mut buf), clip);
+        let hover_pen = theme::with_current(|t| t.link_hover);
+        assert!(
+            !buffer_has_pen(&buf, hover_pen),
+            "no cell may keep the hover pen after the focus change"
+        );
+    }
+
+    #[test]
+    fn test_link_label_window_move_clears_hover_pen() {
+        let mut window = Window::new(Rect::new(0, 0, 20, 8), "W");
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 10, 1),
+            "example",
+            url_link(),
+        )));
+
+        window.handle_event(&mut Event::mouse(mouse(
+            2,
+            2,
+            MouseEventKind::Moved,
+            KeyModifiers::NONE,
+        )));
+        {
+            let child = window.interior().child_at(0).expect("label");
+            let label = child.as_any().downcast_ref::<LinkLabel>().expect("label");
+            assert!(label.is_hovered());
+        }
+
+        // Dragging/moving the window repositions the label; hover must clear.
+        window.set_bounds(Rect::new(10, 10, 20, 8));
+        let child = window.interior().child_at(0).expect("label");
+        let label = child.as_any().downcast_ref::<LinkLabel>().expect("label");
+        assert!(
+            !label.is_hovered(),
+            "moving the window must clear the label hover"
+        );
+
+        let clip = Rect::new(0, 0, 40, 20);
+        let mut buf = Buffer::empty(clip);
+        window.draw(&mut CellCanvas::new(&mut buf), clip);
+        let hover_pen = theme::with_current(|t| t.link_hover);
+        assert!(
+            !buffer_has_pen(&buf, hover_pen),
+            "no cell may keep the hover pen after the window moves"
+        );
     }
 }

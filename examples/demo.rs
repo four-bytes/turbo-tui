@@ -28,7 +28,7 @@ use crossterm::{
 use std::io;
 use std::time::{Duration, Instant};
 use turbo_tui::canvas::CellCanvas;
-use turbo_tui::core::{Link, LinkTarget, Rect};
+use turbo_tui::core::{Link, LinkTarget, Modifier, Rect};
 use turbo_tui::terminal::Terminal;
 use turbo_tui::{
     application::Application,
@@ -96,6 +96,9 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
     let theme_names = theme::registered_names();
 
     let mut app = Application::new(Rect::new(0, 0, width, height));
+    // OSC 8 is off by default while mouse capture is active (Windows Terminal
+    // leaves its hover decoration behind on redraws). Links stay activatable
+    // in-app; set TURBO_TUI_HYPERLINKS=on to emit real OSC 8 links.
     terminal.set_hyperlinks(app.hyperlink_support().enabled);
 
     // Setup menu bar (needs theme_names for dynamic theme submenu)
@@ -159,15 +162,17 @@ fn run_app(terminal: &mut Terminal<io::Stdout>) -> io::Result<()> {
             app.handle_crossterm_events(&events);
 
             // Reflect the hovered link in the status bar and open activated
-            // links through the platform handler.
+            // links through the platform handler. Both plain click and
+            // Ctrl+click activate by default.
             app.set_status_hint(app.hovered_link().map(ToString::to_string));
             if let Some(target) = app.take_open_link() {
                 match target {
-                    LinkTarget::Url(url) => {
-                        if let Err(e) = open_url(&url) {
-                            app.set_status_hint(Some(format!("open failed: {e}")));
+                    LinkTarget::Url(url) => match open_url(&url) {
+                        Ok(()) => app.set_status_hint(Some(format!("opened {url}"))),
+                        Err(error) => {
+                            app.set_status_hint(Some(format!("open failed: {error}")));
                         }
-                    }
+                    },
                     other => app.set_status_hint(Some(format!("internal link: {other}"))),
                 }
             }
@@ -404,6 +409,30 @@ fn add_demo_windows(app: &mut Application) {
 
     // Window 8: Links — interactive LinkLabels
     add_links_window(app);
+
+    // Window 9: control case — plain underlined text, no link and no OSC 8.
+    add_control_window(app);
+}
+
+/// Adds a plain-underlined control window.
+///
+/// If dragging this window leaves underline artefacts too, they are Windows
+/// Terminal's underline rendering (Atlas ghost underlines), not the link path.
+fn add_control_window(app: &mut Application) {
+    let underlined =
+        theme::with_current(|theme| theme.static_text).add_modifier(Modifier::UNDERLINED);
+    let mut window = Window::new(Rect::new(50, 15, 28, 6), "Control").with_min_size(24, 5);
+    window.add(Box::new(
+        StaticText::new(Rect::new(1, 1, 26, 1), "Plain underlined text").with_style(underlined),
+    ));
+    window.add(Box::new(
+        StaticText::new(Rect::new(1, 2, 26, 1), "No link / no OSC 8").with_style(underlined),
+    ));
+    window.add(Box::new(StaticText::new(
+        Rect::new(1, 4, 26, 1),
+        "Drag me and compare",
+    )));
+    app.add_window(window);
 }
 
 /// Adds the interactive link demo window.

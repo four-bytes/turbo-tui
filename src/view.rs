@@ -98,7 +98,8 @@ pub enum EventKind {
     Resize(u16, u16),
     /// A link is hovered (Some) or the hover was cleared (None).
     LinkHover(Option<crate::core::LinkTarget>),
-    /// A link was activated (Ctrl+click or Enter on a focused link).
+    /// A link was activated (plain click, Ctrl+click or Enter/Space on a
+    /// focused link).
     LinkActivate(crate::core::LinkTarget),
     /// No event (cleared).
     None,

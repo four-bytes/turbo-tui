@@ -16,7 +16,7 @@
 //! ```
 
 use crate::canvas::Canvas;
-use crate::core::Rect;
+use crate::core::{Rect, Style};
 use crate::theme;
 use crate::view::{Event, View, ViewBase, ViewId};
 use std::any::Any;
@@ -39,6 +39,8 @@ pub struct StaticText {
     text: String,
     /// Whether to center the text within bounds.
     centered: bool,
+    /// Optional style override; when `None`, the theme `static_text` pen is used.
+    style: Option<Style>,
 }
 
 impl StaticText {
@@ -54,6 +56,7 @@ impl StaticText {
             base: ViewBase::new(bounds),
             text: text.to_owned(),
             centered: false,
+            style: None,
         }
     }
 
@@ -69,7 +72,19 @@ impl StaticText {
             base: ViewBase::new(bounds),
             text: text.to_owned(),
             centered: true,
+            style: None,
         }
+    }
+
+    /// Sets an explicit style for the text (Builder Lite).
+    ///
+    /// Without an override the current theme's `static_text` pen is used. This
+    /// is useful for control cases such as plain underlined text that is not a
+    /// link.
+    #[must_use]
+    pub fn with_style(mut self, style: Style) -> Self {
+        self.style = Some(style);
+        self
     }
 
     /// Get the text content.
@@ -105,7 +120,9 @@ impl StaticText {
             bounds.x
         };
 
-        let style = theme::with_current(|t| t.static_text);
+        let style = self
+            .style
+            .unwrap_or_else(|| theme::with_current(|t| t.static_text));
         canvas.draw_text(x, bounds.y, &self.text, style, clip);
     }
 }
@@ -157,7 +174,7 @@ impl View for StaticText {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Buffer;
+    use crate::core::{Buffer, Modifier};
     use crate::view::SF_VISIBLE;
 
     #[test]
@@ -196,6 +213,22 @@ mod tests {
                 || cell.symbol().contains('s')
         });
         assert!(has_test, "StaticText should draw its content");
+    }
+
+    #[test]
+    fn test_static_text_style_override_draws_modifier() {
+        let text = StaticText::new(Rect::new(0, 0, 20, 1), "Underlined")
+            .with_style(Style::default().add_modifier(Modifier::UNDERLINED));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 20, 1));
+        text.draw(
+            &mut crate::canvas::CellCanvas::new(&mut buf),
+            Rect::new(0, 0, 20, 1),
+        );
+
+        assert!(
+            buf[(0, 0)].modifier.contains(Modifier::UNDERLINED),
+            "the style override must reach the drawn cell"
+        );
     }
 
     #[test]

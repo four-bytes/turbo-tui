@@ -40,7 +40,7 @@ use crate::command::{
 };
 use crate::core::{LinkTarget, Position, Rect};
 use crate::desktop::Desktop;
-use crate::hyperlink::{detect_current, HyperlinkMode, HyperlinkSupport};
+use crate::hyperlink::{detect_current, emission_support, HyperlinkMode, HyperlinkSupport};
 use crate::menu_bar::MenuBar;
 use crate::menu_bar::MenuItem;
 use crate::menu_box::MenuBox;
@@ -124,6 +124,12 @@ pub struct Application {
     dirty_rect: Option<Rect>,
     /// How OSC 8 hyperlink emission is selected.
     hyperlink_mode: HyperlinkMode,
+    /// The XTVERSION answer the caller supplied, if any. Kept so later builder
+    /// calls can recompute support without losing it.
+    xtversion: Option<String>,
+    /// Whether turbo-tui assumes the terminal is in mouse-capture mode (1003).
+    /// Defaults to `true`; in [`HyperlinkMode::Auto`] this suppresses OSC 8.
+    mouse_capture: bool,
     /// Resolved hyperlink capability decision.
     hyperlink_support: HyperlinkSupport,
     /// Currently hovered link target, if any.
@@ -144,7 +150,11 @@ impl Application {
     #[must_use]
     pub fn new(screen_size: Rect) -> Self {
         let hyperlink_mode = HyperlinkMode::from_env();
+        let mouse_capture = true;
         let hyperlink_support = detect_current(hyperlink_mode, None);
+        let forced = hyperlink_mode == HyperlinkMode::On;
+        let hyperlink_support =
+            emission_support(hyperlink_support, hyperlink_mode, mouse_capture, forced);
         Self {
             screen_size,
             desktop: Desktop::new(screen_size),
@@ -159,6 +169,8 @@ impl Application {
             drag_payload: None,
             dirty_rect: None,
             hyperlink_mode,
+            xtversion: None,
+            mouse_capture,
             hyperlink_support,
             hovered_link: None,
             open_link: None,
@@ -169,16 +181,21 @@ impl Application {
     // Hyperlinks
     // -------------------------------------------------------------------------
 
-    /// Selects the hyperlink mode and recomputes support without an XTVERSION
-    /// answer (Builder Lite).
+    /// Selects the hyperlink mode and recomputes support (Builder Lite).
+    ///
+    /// [`HyperlinkMode::Auto`] stays off while [`mouse_capture`] is active (the
+    /// default), because Windows Terminal keeps its link hover decoration on old
+    /// cells after a redraw. [`HyperlinkMode::On`] forces OSC 8 emission.
     ///
     /// The application does **not** own the terminal: pass
     /// [`hyperlink_support`](Application::hyperlink_support)'s `enabled` flag to
     /// [`Terminal::set_hyperlinks`](crate::terminal::Terminal::set_hyperlinks).
+    ///
+    /// [`mouse_capture`]: Application::mouse_capture
     #[must_use]
     pub fn with_hyperlinks(mut self, mode: HyperlinkMode) -> Self {
         self.hyperlink_mode = mode;
-        self.hyperlink_support = detect_current(mode, None);
+        self.recompute_hyperlink_support();
         self
     }
 
@@ -187,11 +204,34 @@ impl Application {
     ///
     /// The answer is the reply to `CSI > 0 q`. The active query belongs to the
     /// shared startup query round (see [`crate::hyperlink`]); this method only
-    /// consumes an answer the caller has already read.
+    /// consumes an answer the caller has already read. The answer is kept, so
+    /// later builder calls do not lose it.
     #[must_use]
     pub fn with_xtversion(mut self, answer: &str) -> Self {
-        self.hyperlink_support = detect_current(self.hyperlink_mode, Some(answer));
+        self.xtversion = Some(answer.to_owned());
+        self.recompute_hyperlink_support();
         self
+    }
+
+    /// Declares whether terminal mouse capture (mode 1003) is active.
+    ///
+    /// turbo-tui's windowing model needs mouse events, so this defaults to
+    /// `true`. While it is active, [`HyperlinkMode::Auto`] emission is disabled
+    /// (Windows Terminal keeps its hyperlink hover decoration on old cells after
+    /// a redraw); links keep the theme underline and in-app activation. Pass
+    /// `false` for a keyboard-only consumer, or force
+    /// [`HyperlinkMode::On`] / `TURBO_TUI_HYPERLINKS=on` to emit anyway.
+    #[must_use]
+    pub fn with_mouse_capture(mut self, active: bool) -> Self {
+        self.mouse_capture = active;
+        self.recompute_hyperlink_support();
+        self
+    }
+
+    /// Returns whether turbo-tui assumes terminal mouse capture is active.
+    #[must_use]
+    pub const fn mouse_capture(&self) -> bool {
+        self.mouse_capture
     }
 
     /// Returns the selected hyperlink mode.
@@ -204,6 +244,16 @@ impl Application {
     #[must_use]
     pub const fn hyperlink_support(&self) -> &HyperlinkSupport {
         &self.hyperlink_support
+    }
+
+    /// Re-detects support and applies the mouse-capture emission policy.
+    fn recompute_hyperlink_support(&mut self) {
+        let detected = detect_current(self.hyperlink_mode, self.xtversion.as_deref());
+        let forced = self.hyperlink_mode == HyperlinkMode::On
+            || (self.hyperlink_mode == HyperlinkMode::Auto
+                && HyperlinkMode::from_env() == HyperlinkMode::On);
+        self.hyperlink_support =
+            emission_support(detected, self.hyperlink_mode, self.mouse_capture, forced);
     }
 
     // -------------------------------------------------------------------------
@@ -541,11 +591,11 @@ impl Application {
                 self.invalidate_rect(self.screen_size);
             }
             crossterm::event::Event::Mouse(mouse) => {
-                // A move resets the hover; link labels post `Some` again while
-                // the pointer is inside them (via the deferred queue).
-                if mouse.kind == crossterm::event::MouseEventKind::Moved {
-                    self.hovered_link = None;
-                }
+                // Recompute link hover from the current position on every mouse
+                // event. Button/drag/up events are hit-tested and may never reach
+                // a label the pointer has left, so clear the app-level hover here;
+                // a Moved event inside a label re-posts it via the deferred queue.
+                self.hovered_link = None;
                 let mut event = Event::mouse(*mouse);
                 self.dispatch(&mut event);
                 self.invalidate_rect(self.screen_size);
@@ -1237,9 +1287,9 @@ mod tests {
     }
 
     #[test]
-    fn test_application_plain_click_link_does_not_activate() {
+    fn test_application_plain_click_link_activates_through_window() {
         let target = LinkTarget::Url("https://example.com".to_owned());
-        let mut app = app_with_window_link(target);
+        let mut app = app_with_window_link(target.clone());
 
         app.handle_crossterm_events(&[ct_mouse(
             2,
@@ -1248,7 +1298,16 @@ mod tests {
             KeyModifiers::NONE,
         )]);
 
-        assert!(app.take_open_link().is_none());
+        assert_eq!(
+            app.take_open_link(),
+            Some(target),
+            "a plain click must activate the link"
+        );
+        assert_eq!(
+            app.take_unhandled_command(),
+            Some(CM_OPEN_LINK),
+            "activation must surface CM_OPEN_LINK"
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -2153,5 +2212,149 @@ mod tests {
         assert_eq!(app.hyperlink_mode(), HyperlinkMode::Off);
         assert!(!app.hyperlink_support().enabled);
         assert_eq!(app.hyperlink_support().reason, "disabled by mode");
+    }
+
+    #[test]
+    fn test_application_mouse_capture_defaults_active() {
+        let app = Application::new(screen());
+        assert!(app.mouse_capture(), "turbo-tui assumes mouse capture");
+    }
+
+    #[test]
+    fn test_application_forced_on_survives_default_mouse_capture() {
+        let app = Application::new(screen()).with_hyperlinks(HyperlinkMode::On);
+        assert!(app.mouse_capture());
+        assert!(
+            app.hyperlink_support().enabled,
+            "HyperlinkMode::On must force emission past mouse capture"
+        );
+        assert_eq!(app.hyperlink_support().reason, "forced on");
+    }
+
+    #[test]
+    fn test_application_with_mouse_capture_false_keeps_forced_on() {
+        let app = Application::new(screen())
+            .with_hyperlinks(HyperlinkMode::On)
+            .with_mouse_capture(false);
+        assert!(!app.mouse_capture());
+        assert!(app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "forced on");
+    }
+
+    #[test]
+    fn test_application_mouse_capture_toggle_recomputes_support() {
+        let app = Application::new(screen())
+            .with_hyperlinks(HyperlinkMode::Off)
+            .with_mouse_capture(false)
+            .with_mouse_capture(true);
+        assert!(app.mouse_capture());
+        assert!(!app.hyperlink_support().enabled);
+        assert_eq!(app.hyperlink_support().reason, "disabled by mode");
+    }
+
+    #[test]
+    fn test_application_builder_calls_keep_xtversion_answer() {
+        let app = Application::new(screen())
+            .with_xtversion("WezTerm 20240203")
+            .with_hyperlinks(HyperlinkMode::Auto)
+            .with_mouse_capture(false)
+            .with_hyperlinks(HyperlinkMode::Off);
+        assert_eq!(app.xtversion.as_deref(), Some("WezTerm 20240203"));
+    }
+
+    #[test]
+    fn test_application_hover_pen_gone_after_pointer_leaves_link() {
+        use crate::core::Style;
+        use crate::terminal::TestTerminal;
+
+        fn buffer_has_pen(buffer: &crate::core::Buffer, pen: Style) -> bool {
+            buffer.content().iter().any(|cell| {
+                let style = cell.style();
+                style.fg == pen.fg && style.bg == pen.bg && style.add_modifier == pen.add_modifier
+            })
+        }
+
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target);
+        let hover_pen = crate::theme::with_current(|t| t.link_hover);
+        let mut terminal = TestTerminal::new(80, 24);
+
+        // Hover the label at absolute (2, 2), then draw.
+        app.handle_crossterm_events(&[ct_mouse(2, 2, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        terminal.draw(|buffer| app.draw(&mut crate::canvas::CellCanvas::new(buffer)));
+        assert!(
+            buffer_has_pen(terminal.buffer(), hover_pen),
+            "the hovered label must paint the link_hover pen"
+        );
+
+        // Move far away and redraw: no cell may keep the hover pen.
+        app.handle_crossterm_events(&[ct_mouse(60, 20, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        terminal.draw(|buffer| app.draw(&mut crate::canvas::CellCanvas::new(buffer)));
+        assert!(
+            !buffer_has_pen(terminal.buffer(), hover_pen),
+            "the link_hover pen must not survive after the pointer leaves"
+        );
+    }
+
+    #[test]
+    fn test_moved_window_leaves_no_underline_outside_new_bounds() {
+        use crate::canvas::CellCanvas;
+        use crate::core::{Modifier, Style};
+        use crate::static_text::StaticText;
+        use crate::terminal::TestTerminal;
+        use crate::window::Window;
+
+        let mut app = Application::new(screen());
+        let mut window = Window::new(Rect::new(5, 5, 20, 5), "Underline");
+        window.add(Box::new(
+            StaticText::new(Rect::new(1, 1, 15, 1), "underlined text")
+                .with_style(Style::default().add_modifier(Modifier::UNDERLINED)),
+        ));
+        app.add_window(window);
+
+        let mut terminal = TestTerminal::new(80, 24);
+        terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+
+        let old_bounds = Rect::new(5, 5, 20, 5);
+        let mut saw_underline = false;
+        for y in old_bounds.y..old_bounds.y + old_bounds.height {
+            for x in old_bounds.x..old_bounds.x + old_bounds.width {
+                saw_underline |= terminal.buffer()[(x, y)]
+                    .modifier
+                    .contains(Modifier::UNDERLINED);
+            }
+        }
+        assert!(
+            saw_underline,
+            "the window must render underlined text first"
+        );
+
+        // Move the window right by 20 cells through the real desktop path.
+        let child = app
+            .desktop_mut()
+            .windows_mut()
+            .child_at_mut(0)
+            .expect("window");
+        let window = child
+            .as_any_mut()
+            .downcast_mut::<Window>()
+            .expect("window type");
+        window.set_bounds(Rect::new(25, 5, 20, 5));
+
+        terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+
+        let new_bounds = Rect::new(25, 5, 20, 5);
+        for y in 0..24 {
+            for x in 0..80 {
+                if !new_bounds.contains(Position::new(x, y)) {
+                    assert!(
+                        !terminal.buffer()[(x, y)]
+                            .modifier
+                            .contains(Modifier::UNDERLINED),
+                        "stale underline outside the moved window at ({x},{y})"
+                    );
+                }
+            }
+        }
     }
 }

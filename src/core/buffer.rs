@@ -78,7 +78,19 @@ impl Cell {
         self
     }
 
-    /// Applies a style to the cell.
+    /// Applies a style to the cell, replacing the cell's modifier set.
+    ///
+    /// The modifier set becomes `style.add_modifier` minus `style.sub_modifier`;
+    /// modifiers already on the cell do not survive. This is deliberately a
+    /// *write*, not a patch: buffers persist across frames, so drawing a plain
+    /// space over an underlined cell must clear the underline, not keep it
+    /// (a leftover underline is what drew the drag streaks in #68). Colors
+    /// present in `style` are replaced; `None` leaves the cell's color unchanged.
+    ///
+    /// For overlay styling that has to keep what is already on the cell
+    /// (selection over syntax highlighting, hover bands) use [`Buffer::set_style`]
+    /// or [`Canvas::set_style`](crate::canvas::Canvas::set_style), which patch.
+    /// [`Cell::reset`] clears everything.
     ///
     /// Styling does not change the cell's link.
     pub fn set_style<S: Into<Style>>(&mut self, style: S) -> &mut Self {
@@ -92,7 +104,7 @@ impl Cell {
         if let Some(color) = style.underline_color {
             self.underline_color = color;
         }
-        self.modifier.insert(style.add_modifier);
+        self.modifier = style.add_modifier;
         self.modifier.remove(style.sub_modifier);
         self
     }
@@ -261,13 +273,23 @@ impl Buffer {
         (x, y)
     }
 
-    /// Applies a style to every cell inside `area`.
+    /// Applies a style **on top of** every cell inside `area`.
+    ///
+    /// Unlike [`Cell::set_style`], which replaces, this patches: colors present
+    /// in `style` override the cell's color and `None` keeps it; `add_modifier`
+    /// is added to the modifiers already on the cell and `sub_modifier` is
+    /// removed. Use this for overlays that decorate already-drawn content — a
+    /// selection band over syntax highlighting, a hover highlight — so the
+    /// underlying foreground and modifiers survive. Full-cell writes use
+    /// [`Cell::set_style`]. Links are left untouched.
     pub fn set_style<S: Into<Style>>(&mut self, area: Rect, style: S) {
         let style = style.into();
         let area = self.area.intersection(area);
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
-                self[(x, y)].set_style(style);
+                let cell = &mut self[(x, y)];
+                let merged = cell.style().patch(style);
+                cell.set_style(merged);
             }
         }
     }
@@ -421,6 +443,61 @@ mod tests {
     }
 
     #[test]
+    fn test_set_style_patches_selection_over_syntax_colors() {
+        // Syntax text: bold, coloured, so a selection band must not wipe it.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 6, 1));
+        buf.set_string(
+            0,
+            0,
+            "fn main",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
+
+        // Selection covers "fn" only and only adds REVERSED.
+        buf.set_style(
+            Rect::new(0, 0, 2, 1),
+            Style::default().add_modifier(Modifier::REVERSED),
+        );
+
+        for x in 0..2 {
+            let cell = &buf[(x, 0)];
+            assert_eq!(
+                cell.fg,
+                Color::Yellow,
+                "selection must keep the syntax foreground at x={x}"
+            );
+            assert!(
+                cell.modifier.contains(Modifier::BOLD),
+                "selection must keep bold at x={x}"
+            );
+            assert!(
+                cell.modifier.contains(Modifier::REVERSED),
+                "selection must add reversed at x={x}"
+            );
+        }
+
+        // Outside the band nothing changes.
+        let outside = &buf[(2, 0)];
+        assert_eq!(outside.fg, Color::Yellow);
+        assert!(outside.modifier.contains(Modifier::BOLD));
+        assert!(!outside.modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn test_set_style_can_remove_a_modifier() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 2, 1));
+        buf.set_string(0, 0, "ab", Style::default().add_modifier(Modifier::BOLD));
+        buf.set_style(
+            Rect::new(0, 0, 1, 1),
+            Style::default().remove_modifier(Modifier::BOLD),
+        );
+        assert!(!buf[(0, 0)].modifier.contains(Modifier::BOLD));
+        assert!(buf[(1, 0)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
     fn test_set_style_covers_intersection_only() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 4, 2));
         buf.set_style(Rect::new(1, 1, 10, 10), Style::default().bg(Color::Blue));
@@ -482,6 +559,21 @@ mod tests {
         cell.set_link(Some(sample_id()));
         cell.set_char('B');
         assert_eq!(cell.link(), None);
+    }
+
+    #[test]
+    fn test_cell_set_style_replaces_modifiers() {
+        let mut cell = Cell::new("A");
+        cell.set_style(Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED));
+        assert!(cell.modifier.contains(Modifier::UNDERLINED));
+
+        cell.set_style(Style::default().fg(Color::Red));
+        assert!(!cell.modifier.contains(Modifier::BOLD));
+        assert!(
+            !cell.modifier.contains(Modifier::UNDERLINED),
+            "a plain style must clear stale modifiers on a persistent cell"
+        );
+        assert_eq!(cell.fg, Color::Red);
     }
 
     #[test]

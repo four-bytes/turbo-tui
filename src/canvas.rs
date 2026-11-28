@@ -200,7 +200,11 @@ pub trait Canvas {
     /// Fills `rect` with `ch`, clamping to the canvas area.
     fn fill(&mut self, rect: Rect, ch: char, style: Style);
 
-    /// Applies `style` to every cell inside `rect`.
+    /// Applies `style` to every cell inside `rect`, patching what is already
+    /// there: colors in `style` override, `None` keeps the cell's color, and
+    /// modifiers are added/removed rather than replaced. Use it for overlays
+    /// (selection over syntax highlighting, hover bands), not for full-cell
+    /// writes — see [`Cell::set_style`](crate::core::Cell::set_style).
     fn set_style(&mut self, rect: Rect, style: Style);
 
     /// Places the terminal cursor, or hides it when `None`.
@@ -320,6 +324,10 @@ impl Canvas for CellCanvas<'_> {
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
                 if let Some(cell) = self.buffer.cell_mut(Position::new(x, y)) {
+                    // A fill replaces the complete cell, including modifiers,
+                    // underline color and link. Patching only colors left stale
+                    // SGR 4 on cells a window had moved away from.
+                    cell.reset();
                     cell.set_char(ch).set_style(style);
                 }
             }
@@ -338,7 +346,7 @@ impl Canvas for CellCanvas<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Color;
+    use crate::core::{Color, Modifier};
 
     #[test]
     fn test_cellcanvas_metric_is_one_by_one() {
@@ -421,6 +429,26 @@ mod tests {
         assert_eq!(buf.cell(Position::new(7, 0)).unwrap().symbol(), " ");
         assert_eq!(buf.cell(Position::new(8, 0)).unwrap().symbol(), "#");
         assert_eq!(buf.cell(Position::new(9, 2)).unwrap().symbol(), "#");
+    }
+
+    #[test]
+    fn test_fill_replaces_stale_modifiers() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 4, 1));
+        buf[(1, 0)]
+            .set_symbol("X")
+            .set_style(Style::default().add_modifier(Modifier::UNDERLINED));
+
+        {
+            let mut canvas = CellCanvas::new(&mut buf);
+            canvas.fill(Rect::new(0, 0, 4, 1), ' ', Style::default().fg(Color::Red));
+        }
+
+        assert_eq!(buf[(1, 0)].symbol(), " ");
+        assert_eq!(buf[(1, 0)].fg, Color::Red);
+        assert!(
+            !buf[(1, 0)].modifier.contains(Modifier::UNDERLINED),
+            "fill must not leave an underline from the previous cell content"
+        );
     }
 
     #[test]

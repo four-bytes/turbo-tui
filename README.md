@@ -19,6 +19,79 @@ Overlapping windows, modal dialogs, dropdown menus, and more — rendered throug
 - **Status Bar** — Context-sensitive shortcuts, click-to-execute
 - **Scrollbars** — Vertical/horizontal with draggable thumb, active/inactive styling
 - **JSON Themes** — 7 built-in themes with full JSON serialization
+- **Inline Links** — in-app link activation plus optional OSC 8 (off by default under mouse capture)
+
+## Hyperlinks and underline policy
+
+turbo-tui captures the mouse (terminal mode 1003) for drag, resize and in-app
+link activation. In that mode Windows Terminal keeps its hyperlink **hover
+decoration** — dotted normally, solid while hovered — on the old cells after a
+redraw, and OSC 8 cannot force the terminal to invalidate it. Emission is
+therefore **off by default while mouse capture is active**. Links still render
+with the theme underline and remain activatable in-app: a plain click or
+Ctrl+click (or Enter on a focused `LinkLabel`) posts `CM_OPEN_LINK`.
+
+Detection is unchanged: `Application::hyperlink_support()` still reports whether
+the terminal is capable. Emission applies the mouse-capture policy on top:
+
+- `TURBO_TUI_HYPERLINKS=on` (or `1`/`true`) forces OSC 8 emission.
+- `Application::with_hyperlinks(HyperlinkMode::On)` forces it from the builder.
+- `Application::with_mouse_capture(false)` keeps `Auto` detection active for
+  consumers that do not capture the mouse.
+- `TURBO_TUI_HYPERLINKS=off` disables emission when no builder override is set.
+
+Consumers pass the resulting flag to
+`Terminal::set_hyperlinks(app.hyperlink_support().enabled)`. When emission is
+on, every link is written as `ESC ] 8 ; id=<id> ; <url> ESC \`, using the
+buffer's stable link id so the terminal can track a link region exactly. The
+sequence is closed before every cursor move and at the end of every frame.
+Plain, non-ASCII and wide cells are always positioned with an explicit cursor
+move; the cursor-advance shortcut is used only for adjacent ASCII single-width
+linked cells, so terminals that render an ambiguous-width glyph (such as the em
+dash) wider than the buffer can never shift the following text.
+
+When a cell is actually wrapped in OSC 8, turbo-tui suppresses that cell's SGR
+underline (`SGR 4`), so the terminal's own decoration is the only underline.
+Links that are not emitted — the default under mouse capture, non-URL targets
+(`FilePos`, `IssueRef`, `Command`), or a URL rejected by the scheme allowlist —
+keep the `link` / `link_hover` / `link_visited` theme pens, including their SGR
+underline.
+
+Link hover is transient: the `link_hover` pen is cleared on pointer leave, window
+move and focus change, and a focused link uses the plain/visited pen. Focus is an
+activation state (Enter/Space), not a hover state, so a focused link cannot leave
+a stale hover underline behind.
+
+## Capturing a terminal trace
+
+Set `TURBO_TUI_TRACE=<file>` to record every byte turbo-tui sends to the terminal,
+one framed block per frame, together with the back-buffer symbols, modifiers and
+link ids. The trace can be replayed into the VT screen model used by the terminal
+tests.
+
+The demo has a **Control** window with plain underlined text (no link, no OSC 8).
+Drag it and the **Links** window the same way: if the Control window leaves the
+same line artefacts, the terminal is rendering them, not turbo-tui's link path.
+
+From WSL/Linux, capture once with:
+
+```bash
+TURBO_TUI_TRACE=/tmp/turbo-tui-trace.bin TURBO_TUI_HYPERLINKS=on cargo run --example demo
+```
+
+From PowerShell:
+
+```powershell
+$env:TURBO_TUI_TRACE="$PWD\turbo-tui-trace.bin"; $env:TURBO_TUI_HYPERLINKS="on"; cargo run --example demo
+```
+
+Reproduce the artefact, quit (Alt+X), then drop the file at
+`tests/fixtures/wt-trace.bin` (or replace the committed
+`tests/fixtures/wt-trace-frame1.bin`) and run
+`cargo test --all-features trace_fixture`.
+The replay test parses each frame, applies the terminal bytes to the VT model and
+compares it cell by cell with the captured back-buffer snapshot; the first
+diverging frame/cell identifies the bug deterministically.
 
 ## Status
 

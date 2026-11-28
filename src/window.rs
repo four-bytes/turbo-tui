@@ -541,6 +541,12 @@ impl Window {
     /// Update bounds for window, frame, and interior simultaneously.
     ///
     /// This is critical for keeping frame, interior, and base in sync.
+    ///
+    /// Children keep their size when the window moves or grows. When the window
+    /// shrinks, children that fit inside the old interior are clamped to the new
+    /// interior so a widget viewport (e.g. a [`ListBox`](crate::listbox::ListBox))
+    /// never claims more rows than are visible. Oversized content children are
+    /// left alone: they are driven by the frame scrollbars, not by the layout.
     fn update_bounds(&mut self, new_bounds: Rect) {
         let old_interior = self.interior.bounds();
         let fills_old_interior: Vec<bool> = (0..self.interior.child_count())
@@ -548,6 +554,19 @@ impl Window {
                 self.interior.child_at(i).is_some_and(|child| {
                     let b = child.bounds();
                     b.width == old_interior.width && b.height == old_interior.height
+                })
+            })
+            .collect();
+        let fits_old_interior: Vec<bool> = (0..self.interior.child_count())
+            .map(|i| {
+                self.interior.child_at(i).is_some_and(|child| {
+                    let b = child.bounds();
+                    // Snapshot in old-absolute coordinates, before the container
+                    // translates children below.
+                    b.x >= old_interior.x
+                        && b.y >= old_interior.y
+                        && b.x + b.width <= old_interior.x + old_interior.width
+                        && b.y + b.height <= old_interior.y + old_interior.height
                 })
             })
             .collect();
@@ -560,10 +579,38 @@ impl Window {
         // filled the old interior are stretched below.
         self.interior.set_bounds(interior_rect);
 
-        for (i, filled) in fills_old_interior.into_iter().enumerate() {
-            if filled {
+        for (i, filled) in fills_old_interior.iter().enumerate() {
+            if *filled {
                 if let Some(child) = self.interior.child_at_mut(i) {
                     child.set_bounds(interior_rect);
+                }
+            }
+        }
+
+        // A layout child that fit the old interior must not keep a viewport
+        // larger than the shrunk interior: widgets such as ListBox derive their
+        // page size from their bounds, so an unclamped height hides rows and the
+        // scrollbar without the widget knowing (#77). A collapsed interior
+        // (minimized window, height 1) is not a shrink and must not zero the
+        // children, otherwise restore would stretch them to a full fill.
+        let interior_collapsed = interior_rect.width == 0 || interior_rect.height == 0;
+        if !interior_collapsed
+            && (interior_rect.width < old_interior.width
+                || interior_rect.height < old_interior.height)
+        {
+            let right = interior_rect.x + interior_rect.width;
+            let bottom = interior_rect.y + interior_rect.height;
+            for i in 0..self.interior.child_count() {
+                if !fits_old_interior[i] || fills_old_interior[i] {
+                    continue;
+                }
+                if let Some(child) = self.interior.child_at_mut(i) {
+                    let b = child.bounds();
+                    let width = b.width.min(right.saturating_sub(b.x));
+                    let height = b.height.min(bottom.saturating_sub(b.y));
+                    if width != b.width || height != b.height {
+                        child.set_bounds(Rect::new(b.x, b.y, width, height));
+                    }
                 }
             }
         }
@@ -2198,5 +2245,61 @@ mod tests {
             child_bounds_after, child_bounds_before,
             "child bounds should have changed on resize"
         );
+    }
+
+    #[test]
+    fn test_window_shrink_clamps_layout_child_to_interior() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 24, 12), "Test");
+        let old_interior = win.frame().interior_area();
+        win.add(Box::new(StaticText::new(
+            Rect::new(1, 1, old_interior.width - 2, old_interior.height - 2),
+            "partial",
+        )));
+
+        win.set_bounds(Rect::new(0, 0, 12, 6));
+        let new_interior = win.frame().interior_area();
+        let child = win.interior().child_at(0).unwrap().bounds();
+
+        assert!(
+            child.x + child.width <= new_interior.x + new_interior.width,
+            "child must not extend past the shrunk interior: {child:?} vs {new_interior:?}"
+        );
+        assert!(
+            child.y + child.height <= new_interior.y + new_interior.height,
+            "child must not extend past the shrunk interior: {child:?} vs {new_interior:?}"
+        );
+        assert_eq!(child.height, 3, "height must shrink to the visible rows");
+    }
+
+    #[test]
+    fn test_window_shrink_leaves_oversized_content_child() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 24, 12), "Test")
+            .with_scrollbars(true, false)
+            .with_content_size(60, 30);
+        win.add(Box::new(StaticText::new(Rect::new(1, 1, 55, 1), "wide")));
+
+        win.set_bounds(Rect::new(0, 0, 16, 8));
+        let child = win.interior().child_at(0).unwrap().bounds();
+
+        assert_eq!(
+            child.width, 55,
+            "oversized content stays for frame scrolling"
+        );
+    }
+
+    #[test]
+    fn test_window_minimize_restore_keeps_partial_child() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 24, 12), "Test");
+        win.add(Box::new(StaticText::new(Rect::new(1, 1, 6, 1), "partial")));
+        let before = win.interior().child_at(0).unwrap().bounds();
+
+        win.minimize();
+        win.restore();
+
+        let after = win.interior().child_at(0).unwrap().bounds();
+        assert_eq!(after, before, "partial child must survive minimize/restore");
     }
 }

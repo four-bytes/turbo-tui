@@ -706,3 +706,190 @@ fn scenario_5_link_click_reports_opened() {
 
     println!("scenario 5: status line = {status:?}");
 }
+
+// ---------------------------------------------------------------------------
+// 6 — menu opens by mouse and F10, theme switching actually recolours
+// ---------------------------------------------------------------------------
+
+/// Representative background colours that change with the active theme.
+fn theme_signature(grid: &Grid) -> Vec<Color> {
+    [(0_u16, 0_u16), (0, 23), (79, 22)]
+        .iter()
+        .map(|&(x, y)| grid.bg_at(x, y))
+        .collect()
+}
+
+/// Text drawn at `(x, y)` for `width` cells, trimmed.
+fn text_at(grid: &Grid, x: u16, y: u16, width: u16) -> String {
+    grid.row_text(y)
+        .chars()
+        .skip(usize::from(x))
+        .take(usize::from(width))
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+#[test]
+#[ignore = "opt-in: TURBO_TUI_E2E=1 cargo test --test e2e -- --ignored"]
+fn scenario_6_menu_switches_theme_by_mouse_and_keyboard() {
+    let Some(harness) = Harness::start() else {
+        return;
+    };
+
+    let themes = discover_themes(&harness);
+    assert!(
+        themes.len() >= 3,
+        "need at least three themes in the Window menu, got {themes:?}"
+    );
+    let before = theme_signature(&harness.capture());
+
+    // Mouse: open Window and pick the second theme.
+    assert!(
+        harness.click_text("Window"),
+        "menu bar entry 'Window' not found"
+    );
+    assert!(
+        harness.wait_for_text("Theme: ", REACTION_TIMEOUT),
+        "Window dropdown did not open by mouse"
+    );
+    let mouse_theme = themes[1].clone();
+    assert!(
+        harness.click_text(&format!("Theme: {mouse_theme}")),
+        "menu item 'Theme: {mouse_theme}' not clickable"
+    );
+    assert!(
+        wait_until(REACTION_TIMEOUT, || !harness.contains_text("Theme: ")),
+        "dropdown did not close after the mouse click"
+    );
+    std::thread::sleep(Duration::from_millis(150));
+    let after_mouse = theme_signature(&harness.capture());
+    assert_ne!(
+        before, after_mouse,
+        "mouse theme switch to {mouse_theme} did not change the colours"
+    );
+
+    // Keyboard: F10 -> Window -> Down into the list -> theme entry -> Enter.
+    harness.send_key("F10");
+    std::thread::sleep(Duration::from_millis(120));
+    harness.send_key("Right");
+    std::thread::sleep(Duration::from_millis(80));
+    harness.send_key("Right");
+    std::thread::sleep(Duration::from_millis(80));
+    harness.send_key("Down");
+    std::thread::sleep(Duration::from_millis(120));
+    let keyboard_index = themes
+        .iter()
+        .position(|theme| theme == &themes[2])
+        .expect("third theme must exist");
+    // Tile, Cascade, Close, Close All, then the theme rows; separators are
+    // skipped by the menu selection.
+    for _ in 0..(5 + keyboard_index) {
+        harness.send_key("Down");
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    harness.send_key("Enter");
+    std::thread::sleep(Duration::from_millis(200));
+    let after_keyboard = theme_signature(&harness.capture());
+    assert_ne!(
+        after_mouse, after_keyboard,
+        "keyboard theme switch to {} did not change the colours",
+        themes[2]
+    );
+
+    // F2 must cycle the theme as well.
+    harness.send_key("F2");
+    std::thread::sleep(Duration::from_millis(200));
+    let after_f2 = theme_signature(&harness.capture());
+    assert_ne!(
+        after_keyboard, after_f2,
+        "F2 did not change the theme colours"
+    );
+
+    println!(
+        "scenario 6: themes={themes:?} mouse={after_mouse:?} keyboard={after_keyboard:?} f2={after_f2:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7 — ListBox scrolls by wheel, page keys and its embedded scrollbar
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "opt-in: TURBO_TUI_E2E=1 cargo test --test e2e -- --ignored"]
+fn scenario_7_listbox_scrolls_by_wheel_keys_and_scrollbar() {
+    let Some(harness) = Harness::start() else {
+        return;
+    };
+
+    // Tile: the ListBox Demo window becomes visible, but its interior is only a
+    // few rows high. The window must clamp the ListBox to that visible viewport,
+    // otherwise wheel steps select rows that are clipped away (#77).
+    assert!(
+        harness.click_text("Window"),
+        "menu bar entry 'Window' not found"
+    );
+    assert!(
+        harness.wait_for_text("Tile", REACTION_TIMEOUT),
+        "Window dropdown did not open"
+    );
+    assert!(harness.click_text("Tile"), "menu item 'Tile' not found");
+    std::thread::sleep(Duration::from_millis(300));
+
+    let grid = harness.capture();
+    let (bx, by) = grid
+        .find_text("Apple")
+        .expect("ListBox first item not visible after Tile");
+    harness.click(bx + 2, by);
+    std::thread::sleep(Duration::from_millis(150));
+
+    assert_eq!(
+        text_at(&harness.capture(), bx, by, 10),
+        "Apple",
+        "ListBox must start at the first item"
+    );
+
+    // Wheel: one row per event; four events reach the bottom of the viewport.
+    for _ in 0..4 {
+        harness.wheel_down(bx + 2, by + 1);
+        std::thread::sleep(Duration::from_millis(60));
+    }
+    let after_wheel = text_at(&harness.capture(), bx, by, 10);
+    assert_eq!(
+        after_wheel, "Banana",
+        "wheel did not scroll the ListBox viewport"
+    );
+
+    // Keys: PageDown moves a whole viewport.
+    harness.send_key("PageDown");
+    std::thread::sleep(Duration::from_millis(120));
+    let after_page = text_at(&harness.capture(), bx, by, 10);
+    assert_eq!(
+        after_page, "Fig",
+        "PageDown did not scroll the ListBox viewport"
+    );
+
+    // Scrollbar: a track click below the thumb pages down.
+    let sb_col = bx + 17;
+    harness.click(sb_col, by + 2);
+    std::thread::sleep(Duration::from_millis(150));
+    let after_track = text_at(&harness.capture(), bx, by, 10);
+    assert_eq!(
+        after_track, "Lemon",
+        "scrollbar track click did not page the ListBox"
+    );
+
+    // Scrollbar: the down arrow steps the selection and keeps it visible.
+    harness.click(sb_col, by + 3);
+    std::thread::sleep(Duration::from_millis(150));
+    let after_arrow = text_at(&harness.capture(), bx, by, 10);
+    assert_eq!(
+        after_arrow, "Mango",
+        "scrollbar down arrow did not scroll the ListBox"
+    );
+
+    println!(
+        "scenario 7: list top after wheel={after_wheel:?} page={after_page:?} \
+         track={after_track:?} arrow={after_arrow:?}"
+    );
+}

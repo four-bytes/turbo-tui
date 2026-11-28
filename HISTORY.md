@@ -16,6 +16,7 @@
 - `LinkLabel` no longer keeps the bold `link_hover` pen after the pointer leaves, the window moves, or focus changes; focus alone no longer selects the hover pen, so no cell keeps a stale hover underline/bold (Issue #68)
 - Link activation now works with a plain click as well as Ctrl+click; the demo reports the opener result in the status bar (Issue #68)
 - Added `TURBO_TUI_TRACE=<file>` framed terminal tracing (bytes + back-buffer symbols/modifiers/link ids) with a VT-model replay test and a `tests/fixtures/wt-trace.bin` capture hook; added a demo Control window with plain underlined text to separate Windows Terminal ghost underlines from turbo-tui bugs (Issue #68)
+- Fixed the ListBox viewport after a window shrink: `Window::update_bounds` no longer stretches every child (#69), so a partial child kept a taller viewport than the window interior and its scrollbar and rows were clipped — the wheel then moved the selection off-screen and the list looked frozen. Layout children that fit the old interior are now clamped to the shrunk interior while oversized content children keep their size for frame scrolling; the embedded ListBox scrollbar gained mouse handling for its up/down arrows and track paging (Issue #77)
 
 ## v0.5.0 — 2026-11-27
 

@@ -289,6 +289,43 @@ impl ListBox {
     fn base_bounds(&self) -> Rect {
         self.base.bounds()
     }
+
+    /// Column of the embedded scrollbar, or `None` when it is not shown.
+    fn scrollbar_column(&self) -> Option<u16> {
+        let b = self.base_bounds();
+        self.needs_scrollbar()
+            .then(|| b.x + b.width.saturating_sub(1))
+    }
+
+    /// Handle a left press on the embedded scrollbar.
+    ///
+    /// Up/down arrows step the selection, a click on the track pages in the
+    /// clicked direction. Returns `true` when the press belonged to the bar.
+    fn press_scrollbar(&mut self, col: u16, row: u16) -> bool {
+        let b = self.base_bounds();
+        let Some(sb_col) = self.scrollbar_column() else {
+            return false;
+        };
+        if col != sb_col || row < b.y || row >= b.y + b.height {
+            return false;
+        }
+        let last_row = b.y + b.height.saturating_sub(1);
+        if row == b.y {
+            self.select_prev();
+        } else if row == last_row {
+            self.select_next();
+        } else {
+            let track_pos = usize::from(row - b.y - 1);
+            match track_pos.cmp(&self.thumb_position()) {
+                std::cmp::Ordering::Less => self.page_up(),
+                std::cmp::Ordering::Greater => self.page_down(),
+                // The thumb itself does not page; a future drag handles it.
+                std::cmp::Ordering::Equal => {}
+            }
+        }
+        self.base.mark_dirty();
+        true
+    }
 }
 
 impl View for ListBox {
@@ -446,13 +483,16 @@ impl View for ListBox {
             }
             EventKind::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::Down(MouseButton::Left) => {
-                    if self.is_inside(mouse.column, mouse.row) {
+                    if self.press_scrollbar(mouse.column, mouse.row) {
+                        event.clear();
+                    } else if self.is_inside(mouse.column, mouse.row) {
                         let bounds = self.base_bounds();
                         let rel_row = (mouse.row - bounds.y) as usize;
                         let index = self.scroll + rel_row;
                         if index < self.items.len() {
                             self.selected = index;
                         }
+                        self.base.mark_dirty();
                         event.clear();
                     }
                 }
@@ -1122,5 +1162,58 @@ mod tests {
         list.push_item("New Item".to_string());
         assert_eq!(list.items().len(), 8);
         assert_eq!(list.items()[7], "New Item");
+    }
+
+    fn overflowing_list(height: u16) -> ListBox {
+        let items: Vec<String> = (0..15).map(|i| format!("Item {i:02}")).collect();
+        ListBox::new(Rect::new(0, 0, 10, height)).with_items(items)
+    }
+
+    fn mouse_down(col: u16, row: u16) -> Event {
+        Event::mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: col,
+            row,
+            modifiers: KeyModifiers::empty(),
+        })
+    }
+
+    #[test]
+    fn test_listbox_scrollbar_down_arrow_steps_selection() {
+        let mut list = overflowing_list(5);
+        list.set_selected(4);
+        assert_eq!(list.scroll(), 0);
+
+        // Down arrow is the last row of the bar in the last column.
+        let mut event = mouse_down(9, 4);
+        list.handle_event(&mut event);
+
+        assert!(event.is_cleared());
+        assert_eq!(list.selected(), 5);
+        assert_eq!(list.scroll(), 1);
+    }
+
+    #[test]
+    fn test_listbox_scrollbar_track_click_pages() {
+        let mut list = overflowing_list(5);
+
+        // Row 2 is the track below the thumb at scroll 0 -> one page down.
+        let mut event = mouse_down(9, 2);
+        list.handle_event(&mut event);
+
+        assert!(event.is_cleared());
+        assert_eq!(list.scroll(), 5);
+    }
+
+    #[test]
+    fn test_listbox_click_outside_scrollbar_selects_item() {
+        let mut list = overflowing_list(5);
+        list.set_selected(0);
+
+        let mut event = mouse_down(3, 2);
+        list.handle_event(&mut event);
+
+        assert!(event.is_cleared());
+        assert_eq!(list.selected(), 2);
     }
 }

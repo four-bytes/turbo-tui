@@ -91,7 +91,7 @@ fn scenario_1_drag_leaves_no_underline_streaks() {
 /// thumb drag moves further. #70 therefore does not reproduce for this window;
 /// this test is its acceptance test — any future failure means #70 is live
 /// again. The Editor frame scrollbar still fails and is covered by
-/// [`scenario_2b_scrollbars_expected_fail_70`].
+/// [`scenario_2b_scrollbars_editor`].
 #[test]
 #[ignore = "opt-in: TURBO_TUI_E2E=1 cargo test --test e2e -- --ignored"]
 fn scenario_2_scrollbars_scroll_demo() {
@@ -313,21 +313,22 @@ fn horizontal_shift(before: &str, after: &str) -> Option<usize> {
 }
 
 // ---------------------------------------------------------------------------
-// 2b — Editor vertical scrollbar (#70, reproduces)
+// 2b — Editor vertical scrollbar (#70, fixed)
 // ---------------------------------------------------------------------------
 
-/// On main `84407c3` #70 reproduces for the Editor vertical frame scrollbar:
-/// clicking the down arrow leaves the first visible code line unchanged, even
-/// though the Editor accepts typed input and page keys scroll it. Expected-fail
-/// until the frame scrollbar drives the self-scrolling Editor.
+/// Regression guard for #70 on the Editor frame: the vertical down arrow must
+/// scroll the self-scrolling Editor exactly one line, so the frame scrollbar and
+/// the editor viewport stay in sync.
 #[test]
 #[ignore = "opt-in: TURBO_TUI_E2E=1 cargo test --test e2e -- --ignored"]
-fn scenario_2b_scrollbars_expected_fail_70() {
+fn scenario_2b_scrollbars_editor() {
     let Some(harness) = Harness::start() else {
         return;
     };
 
-    expect_known_bug("#70", || check_editor_scrollbar(&harness));
+    if let Err(failure) = check_editor_scrollbar(&harness) {
+        panic!("editor frame scrollbar did not scroll the editor: {failure:?}");
+    }
 }
 
 fn check_editor_scrollbar(harness: &Harness) -> Result<(), CheckFailure> {

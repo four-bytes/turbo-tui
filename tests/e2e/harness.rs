@@ -838,6 +838,7 @@ pub struct Cursor {
 }
 
 /// Outcome of a known-bug check.
+#[derive(Debug)]
 pub enum CheckFailure {
     /// The known bug reproduced — the expected outcome while it stays open.
     Reproduced(String),

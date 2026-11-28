@@ -86,7 +86,9 @@ $env:TURBO_TUI_TRACE="$PWD\turbo-tui-trace.bin"; $env:TURBO_TUI_HYPERLINKS="on";
 ```
 
 Reproduce the artefact, quit (Alt+X), then drop the file at
-`tests/fixtures/wt-trace.bin` and run `cargo test --all-features trace_fixture`.
+`tests/fixtures/wt-trace.bin` (or replace the committed
+`tests/fixtures/wt-trace-frame1.bin`) and run
+`cargo test --all-features trace_fixture`.
 The replay test parses each frame, applies the terminal bytes to the VT model and
 compares it cell by cell with the captured back-buffer snapshot; the first
 diverging frame/cell identifies the bug deterministically.

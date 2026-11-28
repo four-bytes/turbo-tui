@@ -542,15 +542,29 @@ impl Window {
     ///
     /// This is critical for keeping frame, interior, and base in sync.
     fn update_bounds(&mut self, new_bounds: Rect) {
+        let old_interior = self.interior.bounds();
+        let fills_old_interior: Vec<bool> = (0..self.interior.child_count())
+            .map(|i| {
+                self.interior.child_at(i).is_some_and(|child| {
+                    let b = child.bounds();
+                    b.width == old_interior.width && b.height == old_interior.height
+                })
+            })
+            .collect();
+
         self.base.set_bounds(new_bounds);
         self.frame.set_bounds(new_bounds);
         let interior_rect = self.frame.interior_area();
+        // Container::set_bounds translates every child by the interior delta and
+        // keeps its size. That preserves relative layouts; only children that
+        // filled the old interior are stretched below.
         self.interior.set_bounds(interior_rect);
 
-        // Resize all children to fill the new interior
-        for i in 0..self.interior.child_count() {
-            if let Some(child) = self.interior.child_at_mut(i) {
-                child.set_bounds(interior_rect);
+        for (i, filled) in fills_old_interior.into_iter().enumerate() {
+            if filled {
+                if let Some(child) = self.interior.child_at_mut(i) {
+                    child.set_bounds(interior_rect);
+                }
             }
         }
 
@@ -1153,6 +1167,7 @@ mod tests {
     use crate::command::{CM_CLOSE, CM_MINIMIZE, CM_ZOOM};
     use crate::frame::{FrameConfig, FrameType};
     use crate::scrollbar::ScrollBar;
+    use crate::static_text::StaticText;
     use crate::theme::Theme;
     use crate::view::{EventKind, SF_DRAGGING, SF_FOCUSED, SF_MINIMIZED, SF_RESIZING};
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -2062,6 +2077,55 @@ mod tests {
             cw >= 50,
             "auto content width should cover the child: got {cw}"
         );
+    }
+
+    #[test]
+    fn test_window_move_preserves_multi_child_relative_rows() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(5, 5, 40, 20), "Test");
+        win.add(Box::new(StaticText::new(Rect::new(1, 1, 10, 1), "first")));
+        win.add(Box::new(StaticText::new(Rect::new(1, 5, 10, 1), "second")));
+
+        let before: Vec<Rect> = (0..win.interior().child_count())
+            .map(|i| win.interior().child_at(i).unwrap().bounds())
+            .collect();
+
+        // A window moved by the desktop is translated via set_bounds.
+        win.set_bounds(Rect::new(10, 9, 40, 20));
+
+        let after: Vec<Rect> = (0..win.interior().child_count())
+            .map(|i| win.interior().child_at(i).unwrap().bounds())
+            .collect();
+        assert_eq!(after[0].y, before[0].y + 4);
+        assert_eq!(after[1].y, before[1].y + 4);
+        assert_ne!(
+            after[0].y, after[1].y,
+            "children must keep their relative rows, not collapse onto one row"
+        );
+        assert_eq!(after[0].height, 1);
+        assert_eq!(after[1].height, 1);
+    }
+
+    #[test]
+    fn test_window_resize_preserves_partial_child_and_stretches_full_child() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 40, 20), "Test");
+        let old_interior = win.frame().interior_area();
+        win.add(Box::new(StaticText::new(Rect::new(1, 1, 10, 1), "partial")));
+        win.add(Box::new(StaticText::new(
+            Rect::new(0, 0, old_interior.width, old_interior.height),
+            "fill",
+        )));
+
+        win.set_bounds(Rect::new(0, 0, 60, 30));
+        let new_interior = win.frame().interior_area();
+
+        let partial = win.interior().child_at(0).unwrap().bounds();
+        assert_eq!((partial.width, partial.height), (10, 1));
+        assert_eq!(partial.y, new_interior.y + 1);
+
+        let fill = win.interior().child_at(1).unwrap().bounds();
+        assert_eq!(fill, new_interior);
     }
 
     #[test]

@@ -1953,6 +1953,30 @@ mod tests {
         let mut terminal = TestTerminal::new(60, 15).with_hyperlinks(true);
         terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
 
+        let buffer = terminal.buffer();
+        let mut url_row = None;
+        let mut support_row = None;
+        for y in 0..buffer.area.height {
+            let row: String = (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            if row.contains(url) {
+                url_row = Some(y);
+            }
+            if row.contains("OSC 8:") {
+                support_row = Some(y);
+            }
+        }
+        assert!(
+            url_row.is_some(),
+            "the full URL must render contiguously, not be overwritten by sibling labels"
+        );
+        assert!(support_row.is_some(), "the support line must render");
+        assert_ne!(
+            url_row, support_row,
+            "LinkLabel rows must not collapse onto the same row"
+        );
+
         assert_screen_matches(&terminal, &screen_for(&terminal));
     }
 
@@ -2295,14 +2319,117 @@ mod tests {
 
     #[test]
     fn test_trace_fixture_replay_if_present() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures");
+        for name in ["wt-trace-frame1.bin", "wt-trace.bin"] {
+            let path = base.join(name);
+            let Ok(data) = std::fs::read(&path) else {
+                continue;
+            };
+            let frames = replay_trace(&data);
+            eprintln!("replayed {frames} captured WT trace frames from {name}");
+        }
+    }
+
+    #[test]
+    fn test_captured_links_frame_is_no_longer_collapsed() {
+        use crate::application::Application;
+        use crate::core::Rect;
+        use crate::hyperlink::HyperlinkMode;
+        use crate::link_label::LinkLabel;
+        use crate::static_text::StaticText;
+        use crate::window::Window;
+
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests")
             .join("fixtures")
-            .join("wt-trace.bin");
-        let Ok(data) = std::fs::read(path) else {
-            return;
-        };
-        let frames = replay_trace(&data);
-        eprintln!("replayed {frames} captured WT trace frames");
+            .join("wt-trace-frame1.bin");
+        let data = std::fs::read(path).expect("captured Links frame fixture");
+        let frames = parse_trace(&data);
+        let frame = frames.first().expect("fixture has a frame");
+        let width = usize::from(frame.width);
+        let broken_row = frame
+            .back
+            .chunks(width)
+            .map(<[String]>::concat)
+            .find(|row| row.contains("OSC 8:") && row.contains("turbo-tui"))
+            .expect("fixture contains the collapsed Links row");
+        let broken_inner = broken_row.trim_matches(|c| c == '┃' || c == ' ').to_owned();
+        assert!(
+            broken_inner.contains("ono-tui") || broken_inner.contains("o-tui"),
+            "fixture row must show the overwritten URL tail: {broken_inner:?}"
+        );
+
+        let url = "https://github.com/four-bytes/turbo-tui";
+        let mut app = Application::new(Rect::new(0, 0, 183, 52)).with_hyperlinks(HyperlinkMode::On);
+        let mut window = Window::new(Rect::new(18, 3, 44, 10), "Links");
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 1, 40, 1),
+            url,
+            Link::new(LinkTarget::Url(url.to_owned())),
+        )));
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 2, 40, 1),
+            "Issue four-bytes/turbo-tui#54",
+            Link::new(LinkTarget::IssueRef {
+                repo: Some("four-bytes/turbo-tui".to_owned()),
+                number: 54,
+            }),
+        )));
+        window.add(Box::new(LinkLabel::new(
+            Rect::new(1, 3, 40, 1),
+            "File src/lib.rs:1",
+            Link::new(LinkTarget::FilePos {
+                path: "src/lib.rs".to_owned(),
+                line: 1,
+                col: None,
+            }),
+        )));
+        window.add(Box::new(StaticText::new(
+            Rect::new(1, 5, 40, 1),
+            "OSC 8: on — forced on",
+        )));
+        app.add_window(window);
+
+        let mut terminal = TestTerminal::new(183, 52).with_hyperlinks(true);
+        terminal.draw(|buffer| app.draw(&mut crate::canvas::CellCanvas::new(buffer)));
+
+        let buffer = terminal.buffer();
+        let mut url_row = None;
+        let mut support_row = None;
+        for y in 0..buffer.area.height {
+            let row: String = (0..buffer.area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            assert!(
+                !row.contains(&broken_inner),
+                "the captured collapsed row reappeared at y={y}: {row:?}"
+            );
+            if row.contains(url) {
+                url_row = Some(y);
+            }
+            if row.contains("OSC 8: on — forced on") {
+                support_row = Some(y);
+                for x in 0..buffer.area.width {
+                    assert!(
+                        !buffer[(x, y)].modifier.contains(Modifier::UNDERLINED),
+                        "the static support line inherited a link underline at ({x},{y})"
+                    );
+                }
+            }
+        }
+        assert!(
+            url_row.is_some(),
+            "the fixed Links window must render the full URL contiguously"
+        );
+        assert!(
+            support_row.is_some(),
+            "the fixed Links window must render the support line"
+        );
+        assert_ne!(
+            url_row, support_row,
+            "the URL and support line must not share a row"
+        );
     }
 }

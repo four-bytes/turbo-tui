@@ -591,11 +591,11 @@ impl Application {
                 self.invalidate_rect(self.screen_size);
             }
             crossterm::event::Event::Mouse(mouse) => {
-                // A move resets the hover; link labels post `Some` again while
-                // the pointer is inside them (via the deferred queue).
-                if mouse.kind == crossterm::event::MouseEventKind::Moved {
-                    self.hovered_link = None;
-                }
+                // Recompute link hover from the current position on every mouse
+                // event. Button/drag/up events are hit-tested and may never reach
+                // a label the pointer has left, so clear the app-level hover here;
+                // a Moved event inside a label re-posts it via the deferred queue.
+                self.hovered_link = None;
                 let mut event = Event::mouse(*mouse);
                 self.dispatch(&mut event);
                 self.invalidate_rect(self.screen_size);
@@ -2251,5 +2251,39 @@ mod tests {
             .with_mouse_capture(false)
             .with_hyperlinks(HyperlinkMode::Off);
         assert_eq!(app.xtversion.as_deref(), Some("WezTerm 20240203"));
+    }
+
+    #[test]
+    fn test_application_hover_pen_gone_after_pointer_leaves_link() {
+        use crate::core::Style;
+        use crate::terminal::TestTerminal;
+
+        fn buffer_has_pen(buffer: &crate::core::Buffer, pen: Style) -> bool {
+            buffer.content().iter().any(|cell| {
+                let style = cell.style();
+                style.fg == pen.fg && style.bg == pen.bg && style.add_modifier == pen.add_modifier
+            })
+        }
+
+        let target = LinkTarget::Url("https://example.com".to_owned());
+        let mut app = app_with_window_link(target);
+        let hover_pen = crate::theme::with_current(|t| t.link_hover);
+        let mut terminal = TestTerminal::new(80, 24);
+
+        // Hover the label at absolute (2, 2), then draw.
+        app.handle_crossterm_events(&[ct_mouse(2, 2, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        terminal.draw(|buffer| app.draw(&mut crate::canvas::CellCanvas::new(buffer)));
+        assert!(
+            buffer_has_pen(terminal.buffer(), hover_pen),
+            "the hovered label must paint the link_hover pen"
+        );
+
+        // Move far away and redraw: no cell may keep the hover pen.
+        app.handle_crossterm_events(&[ct_mouse(60, 20, MouseEventKind::Moved, KeyModifiers::NONE)]);
+        terminal.draw(|buffer| app.draw(&mut crate::canvas::CellCanvas::new(buffer)));
+        assert!(
+            !buffer_has_pen(terminal.buffer(), hover_pen),
+            "the link_hover pen must not survive after the pointer leaves"
+        );
     }
 }

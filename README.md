@@ -57,6 +57,11 @@ Links that are not emitted — the default under mouse capture, non-URL targets
 keep the `link` / `link_hover` / `link_visited` theme pens, including their SGR
 underline.
 
+Link hover is transient: the `link_hover` pen is cleared on pointer leave, window
+move and focus change, and a focused link uses the plain/visited pen. Focus is an
+activation state (Enter/Space), not a hover state, so a focused link cannot leave
+a stale hover underline behind.
+
 ## Status
 
 🟢 **v0.4.0 — Released** — 565 unit + 8 integration + 4 doc tests, 34 source files, ~24,000 lines. Clippy pedantic clean, zero unsafe.

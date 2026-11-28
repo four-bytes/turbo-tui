@@ -200,7 +200,11 @@ pub trait Canvas {
     /// Fills `rect` with `ch`, clamping to the canvas area.
     fn fill(&mut self, rect: Rect, ch: char, style: Style);
 
-    /// Applies `style` to every cell inside `rect`.
+    /// Applies `style` to every cell inside `rect`, patching what is already
+    /// there: colors in `style` override, `None` keeps the cell's color, and
+    /// modifiers are added/removed rather than replaced. Use it for overlays
+    /// (selection over syntax highlighting, hover bands), not for full-cell
+    /// writes — see [`Cell::set_style`](crate::core::Cell::set_style).
     fn set_style(&mut self, rect: Rect, style: Style);
 
     /// Places the terminal cursor, or hides it when `None`.

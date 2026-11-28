@@ -80,6 +80,13 @@ impl Cell {
 
     /// Applies a style to the cell.
     ///
+    /// The modifier set is **replaced** by `style.add_modifier` minus
+    /// `style.sub_modifier`; modifiers already on the cell do not survive. This
+    /// matters for persistent buffers: drawing a plain space over an underlined
+    /// cell must clear the underline, not keep it. Colors present in `style` are
+    /// replaced; `None` leaves the cell's color unchanged ([`Cell::reset`] clears
+    /// everything).
+    ///
     /// Styling does not change the cell's link.
     pub fn set_style<S: Into<Style>>(&mut self, style: S) -> &mut Self {
         let style = style.into();
@@ -92,7 +99,7 @@ impl Cell {
         if let Some(color) = style.underline_color {
             self.underline_color = color;
         }
-        self.modifier.insert(style.add_modifier);
+        self.modifier = style.add_modifier;
         self.modifier.remove(style.sub_modifier);
         self
     }
@@ -482,6 +489,21 @@ mod tests {
         cell.set_link(Some(sample_id()));
         cell.set_char('B');
         assert_eq!(cell.link(), None);
+    }
+
+    #[test]
+    fn test_cell_set_style_replaces_modifiers() {
+        let mut cell = Cell::new("A");
+        cell.set_style(Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED));
+        assert!(cell.modifier.contains(Modifier::UNDERLINED));
+
+        cell.set_style(Style::default().fg(Color::Red));
+        assert!(!cell.modifier.contains(Modifier::BOLD));
+        assert!(
+            !cell.modifier.contains(Modifier::UNDERLINED),
+            "a plain style must clear stale modifiers on a persistent cell"
+        );
+        assert_eq!(cell.fg, Color::Red);
     }
 
     #[test]

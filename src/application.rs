@@ -2295,4 +2295,66 @@ mod tests {
             "the link_hover pen must not survive after the pointer leaves"
         );
     }
+
+    #[test]
+    fn test_moved_window_leaves_no_underline_outside_new_bounds() {
+        use crate::canvas::CellCanvas;
+        use crate::core::{Modifier, Style};
+        use crate::static_text::StaticText;
+        use crate::terminal::TestTerminal;
+        use crate::window::Window;
+
+        let mut app = Application::new(screen());
+        let mut window = Window::new(Rect::new(5, 5, 20, 5), "Underline");
+        window.add(Box::new(
+            StaticText::new(Rect::new(1, 1, 15, 1), "underlined text")
+                .with_style(Style::default().add_modifier(Modifier::UNDERLINED)),
+        ));
+        app.add_window(window);
+
+        let mut terminal = TestTerminal::new(80, 24);
+        terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+
+        let old_bounds = Rect::new(5, 5, 20, 5);
+        let mut saw_underline = false;
+        for y in old_bounds.y..old_bounds.y + old_bounds.height {
+            for x in old_bounds.x..old_bounds.x + old_bounds.width {
+                saw_underline |= terminal.buffer()[(x, y)]
+                    .modifier
+                    .contains(Modifier::UNDERLINED);
+            }
+        }
+        assert!(
+            saw_underline,
+            "the window must render underlined text first"
+        );
+
+        // Move the window right by 20 cells through the real desktop path.
+        let child = app
+            .desktop_mut()
+            .windows_mut()
+            .child_at_mut(0)
+            .expect("window");
+        let window = child
+            .as_any_mut()
+            .downcast_mut::<Window>()
+            .expect("window type");
+        window.set_bounds(Rect::new(25, 5, 20, 5));
+
+        terminal.draw(|buffer| app.draw(&mut CellCanvas::new(buffer)));
+
+        let new_bounds = Rect::new(25, 5, 20, 5);
+        for y in 0..24 {
+            for x in 0..80 {
+                if !new_bounds.contains(Position::new(x, y)) {
+                    assert!(
+                        !terminal.buffer()[(x, y)]
+                            .modifier
+                            .contains(Modifier::UNDERLINED),
+                        "stale underline outside the moved window at ({x},{y})"
+                    );
+                }
+            }
+        }
+    }
 }

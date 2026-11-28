@@ -561,6 +561,8 @@ impl Window {
             .map(|i| {
                 self.interior.child_at(i).is_some_and(|child| {
                     let b = child.bounds();
+                    // Snapshot in old-absolute coordinates, before the container
+                    // translates children below.
                     b.x >= old_interior.x
                         && b.y >= old_interior.y
                         && b.x + b.width <= old_interior.x + old_interior.width
@@ -588,8 +590,14 @@ impl Window {
         // A layout child that fit the old interior must not keep a viewport
         // larger than the shrunk interior: widgets such as ListBox derive their
         // page size from their bounds, so an unclamped height hides rows and the
-        // scrollbar without the widget knowing (#77).
-        if interior_rect.width < old_interior.width || interior_rect.height < old_interior.height {
+        // scrollbar without the widget knowing (#77). A collapsed interior
+        // (minimized window, height 1) is not a shrink and must not zero the
+        // children, otherwise restore would stretch them to a full fill.
+        let interior_collapsed = interior_rect.width == 0 || interior_rect.height == 0;
+        if !interior_collapsed
+            && (interior_rect.width < old_interior.width
+                || interior_rect.height < old_interior.height)
+        {
             let right = interior_rect.x + interior_rect.width;
             let bottom = interior_rect.y + interior_rect.height;
             for i in 0..self.interior.child_count() {
@@ -2279,5 +2287,19 @@ mod tests {
             child.width, 55,
             "oversized content stays for frame scrolling"
         );
+    }
+
+    #[test]
+    fn test_window_minimize_restore_keeps_partial_child() {
+        setup_theme();
+        let mut win = Window::new(Rect::new(0, 0, 24, 12), "Test");
+        win.add(Box::new(StaticText::new(Rect::new(1, 1, 6, 1), "partial")));
+        let before = win.interior().child_at(0).unwrap().bounds();
+
+        win.minimize();
+        win.restore();
+
+        let after = win.interior().child_at(0).unwrap().bounds();
+        assert_eq!(after, before, "partial child must survive minimize/restore");
     }
 }

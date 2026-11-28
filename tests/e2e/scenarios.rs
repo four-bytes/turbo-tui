@@ -782,9 +782,9 @@ fn scenario_6_menu_switches_theme_by_mouse_and_keyboard() {
         .iter()
         .position(|theme| theme == &themes[2])
         .expect("third theme must exist");
-    // Tile, Cascade, Close, Close All, then the theme rows; separators are
-    // skipped by the menu selection.
-    for _ in 0..(5 + keyboard_index) {
+    // Cascade, Close, Close All, then the theme rows; separators are skipped by
+    // the menu selection and the opening Down already lands on Cascade.
+    for _ in 0..(4 + keyboard_index) {
         harness.send_key("Down");
         std::thread::sleep(Duration::from_millis(40));
     }
